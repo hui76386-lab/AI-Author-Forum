@@ -1,0 +1,39 @@
+{% extends "base_page.html" %}
+{% load i18n_frontend %}
+{% block title %}{{ info_page.title }}{% endblock %}
+{% block breadcrumbs %}
+<nav class="c-breadcrumbs u-container" aria-label="{% ui_text 'breadcrumb' 'Breadcrumb' %}"><ol><li><a href="{% localize_url '/' %}">{% ui_text 'home' 'Home' %}</a></li><li>{{ info_page.group }}</li><li>{{ info_page.title }}</li></ol></nav>
+{% endblock %}
+{% block content %}
+<div class="u-container c-content-layout">
+  <article class="c-rich-page c-static-info-page" data-static-info-page="{{ info_page.group_slug }}:{{ info_page.slug }}">
+    <span class="c-page-label">{{ info_page.group }}</span>
+    <h1>{{ info_page.title }}</h1>
+    <p class="c-page-summary">{{ info_page.summary }}</p>
+    <div class="c-placeholder c-placeholder--editorial">
+      <h2>{% ui_text 'content_pending_final_copy' 'Content pending final editorial copy' %}</h2>
+      <p>{{ info_page.body }}</p>
+      <p>{% ui_text 'static_info_confirmation' 'This simulated page confirms the menu target, fixed URL, breadcrumb, content zones, and static HTML publishing path. Administrators can replace this placeholder with approved rich text and media later.' %}</p>
+    </div>
+    <section class="c-content-row">
+      <div class="c-section-heading"><h2>{% ui_text 'page_content_model' 'Page content model' %}</h2></div>
+      <ul class="c-article-list c-article-list--two">
+        {% for section in info_page.sections %}
+        <li><span>{{ forloop.counter|stringformat:"02d" }}</span><strong>{{ section }}</strong><small>{% ui_text 'placeholder_block_final_copy' 'Placeholder block for final copy, links, images, or policy notes.' %}</small></li>
+        {% endfor %}
+      </ul>
+    </section>
+    <section class="c-content-row">
+      <div class="c-section-heading"><h2>{% ui_text 'editorial_notes' 'Editorial notes' %}</h2></div>
+      <div class="c-featured-grid">
+        <article class="c-card"><span>{% ui_text 'static_page' 'Static page' %}</span><h3>{% ui_text 'generated_fixed_html' 'Generated as fixed HTML' %}</h3><p>{% ui_text 'fixed_html_manifest' 'The public front end should serve this page from the static release manifest.' %}</p></article>
+        <article class="c-card"><span>{% ui_text 'controlled_content' 'Controlled content' %}</span><h3>{% ui_text 'safe_placeholder_area' 'Safe placeholder area' %}</h3><p>{% ui_text 'safe_placeholder_text' 'Copy can be replaced by reviewed rich text without adding runtime search or free-form layout dragging.' %}</p></article>
+        <article class="c-card"><span>{% ui_text 'audit_scope' 'Audit scope' %}</span><h3>{% ui_text 'future_edits_traceable' 'Future edits are traceable' %}</h3><p>{% ui_text 'audit_scope_text' 'High-risk publication, retry, rollback, and navigation changes should remain auditable.' %}</p></article>
+      </div>
+    </section>
+  </article>
+  <aside class="c-right-rail">
+    <section><h2>{% ui_text 'related_links' 'Related links' %}</h2><a href="{{ '/journals/'|localized_url }}">{% ui_text 'view_all_journals' 'View all journals' %}</a><a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'ai_article' 'AI Article' %}</a><a href="{{ '/search/'|localized_url }}">{% ui_text 'static_recommendations' 'Static recommendations' %}</a></section>
+  </aside>
+</div>
+{% endblock %}

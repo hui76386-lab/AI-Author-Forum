@@ -1,0 +1,18 @@
+﻿{% extends 'wagtailimages/bulk_actions/confirm_bulk_delete.html' %}
+{% load wagtailadmin_tags i18n %}
+
+{% block items_with_access %}
+    {{ block.super }}
+    {% for image in items %}
+        {% if image.custom_references %}
+            <section class="help-block help-critical">
+                <p><strong>{{ image.item.title }} cannot be deleted until these references are removed:</strong></p>
+                <ul>
+                    {% for reference in image.custom_references %}
+                        <li>{{ reference.description }}</li>
+                    {% endfor %}
+                </ul>
+            </section>
+        {% endif %}
+    {% endfor %}
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+
+{% block titletag %}{{ title }}{% endblock %}
+
+{% block content %}
+    {% include "wagtailadmin/shared/header.html" with title=title icon="doc-full-inverse" only %}
+
+    <div class="nice-padding review-dashboard">
+        <div class="review-dashboard-toolbar">
+            <div>
+                <h2>审核工作台</h2>
+                <p>先审核文章，再通过投放管理决定是否进入主站、栏目或子期刊版位。审核通过不等于前台发布。</p>
+            </div>
+            <div class="button-group">
+                <a class="button button-primary" href="{{ pending_url }}">打开待审核列表</a>
+                <a class="button button-secondary" href="{{ all_articles_url }}">查看全部文章</a>
+            </div>
+        </div>
+
+        <div class="review-dashboard-metrics">
+            <div class="review-dashboard-metric review-dashboard-metric--pending"><span>待审核</span><strong>{{ pending_count }}</strong></div>
+            <div class="review-dashboard-metric"><span>审核通过</span><strong>{{ approved_count }}</strong></div>
+            <div class="review-dashboard-metric"><span>静态版本已发布</span><strong>{{ published_count }}</strong></div>
+            <div class="review-dashboard-metric"><span>已驳回</span><strong>{{ rejected_count }}</strong></div>
+        </div>
+
+        <section class="review-dashboard-section">
+            <div class="review-dashboard-section-header">
+                <div>
+                    <h2>待审核文章</h2>
+                    <p>按等待时长快速定位积压文章；完整列表还支持期刊、类型、提交人和组合筛选。</p>
+                </div>
+                <div class="review-dashboard-quick-filters">
+                    <a class="button button-small button-secondary" href="{{ pending_url }}">全部</a>
+                    <a class="button button-small button-secondary" href="{{ pending_url }}?waiting=24h">超过 24 小时</a>
+                    <a class="button button-small button-secondary" href="{{ pending_url }}?waiting=3d">超过 3 天</a>
+                    <a class="button button-small button-secondary" href="{{ pending_url }}?waiting=7d">超过 7 天</a>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table class="listing">
+                    <thead><tr><th>标题</th><th>提交时间 / 等待时长</th><th>主属期刊 / 栏目</th><th>类型</th><th>提交人</th><th>当前 revision</th><th>操作</th></tr></thead>
+                    <tbody>
+                        {% for article in pending_articles %}
+                            <tr>
+                                <td class="title"><a href="{% url 'article_admin:review_detail' article.pk %}">{{ article.title }}</a></td>
+                                <td>{{ article.submitted_at|date:"Y-m-d H:i"|default:"-" }}<div class="article-admin-secondary">等待 {{ article.submitted_at|timesince|default:"-" }}</div></td>
+                                <td><strong>{{ article.primary_journal|default:"-" }}</strong><ul class="article-admin-categories">{% for category in article.admin_categories %}<li>{{ category.full_path }}</li>{% empty %}<li class="article-admin-secondary">未分配栏目</li>{% endfor %}</ul></td>
+                                <td>{{ article.get_article_type_display }}</td>
+                                <td>{{ article.submitted_by_username|default:"未知提交人" }}</td>
+                                <td>#{{ article.latest_revision_id|default:"-" }}</td>
+                                <td><a href="{% url 'article_admin:review_detail' article.pk %}">进入审核</a></td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="7" class="review-dashboard-empty">当前没有待审核文章。</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p><a href="{{ pending_url }}">进入完整待审核列表并使用组合筛选</a></p>
+        </section>
+
+        <section class="review-dashboard-section">
+            <div class="review-dashboard-section-header"><div><h2>最近处理</h2><p>审核状态与静态交付状态分别展示，避免把“审核通过”误解为“已发布”。</p></div></div>
+            <div class="table-wrapper">
+                <table class="listing">
+                    <thead><tr><th>标题</th><th>审核状态</th><th>交付状态</th><th>主属期刊</th><th>最近编辑人</th><th>操作</th></tr></thead>
+                    <tbody>
+                        {% for article in recent_articles %}
+                            <tr>
+                                <td class="title"><a href="{% url 'article_admin:review_detail' article.pk %}">{{ article.title }}</a></td>
+                                <td>{% include "wagtailadmin/shared/status_tag.html" with label=article.get_review_status_display %}</td>
+                                <td>{% if article.publication_status %}{% include "wagtailadmin/shared/status_tag.html" with label=article.get_publication_status_display %}{% else %}<span class="article-admin-secondary">未进入交付</span>{% endif %}</td>
+                                <td>{{ article.primary_journal|default:"-" }}</td>
+                                <td>{{ article.admin_last_editor|default:"-" }}</td>
+                                <td><a href="{% url 'article_admin:review_detail' article.pk %}">查看详情</a></td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="6" class="review-dashboard-empty">暂无最近处理记录。</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+{% endblock %}

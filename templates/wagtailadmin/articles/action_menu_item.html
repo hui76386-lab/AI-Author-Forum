@@ -1,0 +1,11 @@
+﻿{% load wagtailadmin_tags %}
+<button
+    type="submit"
+    name="action-save"
+    value="{{ value }}"
+    class="button{% if classname %} {{ classname }}{% endif %}"
+    data-article-save-destination="{{ value }}"
+>
+    {% if icon_name %}{% icon name=icon_name %}{% endif %}
+    {{ label }}
+</button>

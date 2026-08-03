@@ -1,0 +1,13 @@
+{% extends "base_page.html" %}
+{% load i18n_frontend %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block breadcrumbs %}{% include "sections/_column_breadcrumbs.html" %}{% endblock %}
+{% block content %}<div class="u-container c-content-column">
+{% include "sections/_column_header.html" %}
+{% if featured_placements %}<section class="c-content-row" aria-labelledby="top-story-heading"><div class="c-section-heading"><h2 id="top-story-heading">{% ui_text 'top_story' 'Top story' %}</h2></div>{% for placement in featured_placements %}{% include "components/static_article_card.html" with placement=placement %}{% endfor %}</section>{% endif %}
+{% if secondary_placements %}<section class="c-content-row" aria-labelledby="secondary-heading"><div class="c-section-heading"><h2 id="secondary-heading">{% ui_text 'more_news' 'More news' %}</h2></div><div class="c-featured-grid">{% for placement in secondary_placements %}{% include "components/static_article_card.html" with placement=placement %}{% endfor %}</div></section>{% endif %}
+<section class="c-content-row" aria-labelledby="latest-heading"><div class="c-section-heading"><h2 id="latest-heading">{% ui_text 'latest' 'Latest' %}</h2></div><div class="c-featured-grid">{% for placement in article_placements %}{% include "components/static_article_card.html" with placement=placement %}{% empty %}<p class="c-empty-state">{{ column_config.empty_message }}</p>{% endfor %}</div></section>
+{% include "sections/_column_pagination.html" %}
+{% if sidebar_placements %}<aside class="c-right-rail" aria-labelledby="recommended-heading"><h2 id="recommended-heading">{% ui_text 'recommended' 'Recommended' %}</h2>{% for placement in sidebar_placements %}<a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>{% endfor %}</aside>{% endif %}
+</div>{% endblock %}
+

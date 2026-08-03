@@ -1,0 +1,125 @@
+{% extends "wagtailadmin/base.html" %}
+{% load static wagtailimages_tags %}
+
+{% block titletag %}{{ title }}{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/reference.css' %}">
+<style>
+.home-composition { max-width: 118rem; margin: 0 auto; }
+.home-composition__intro { max-width: 76rem; color: var(--w-color-text-context, #53606e); line-height: 1.65; }
+.home-composition__notice { margin: 1rem 0; padding: 1rem 1.2rem; border-left: .3rem solid #f0b429; background: #fff8df; }
+.home-composition__notice--ok { border-color: #1f8a70; background: #edf9f4; }
+.home-panel { margin: 1.5rem 0; overflow: hidden; border: 1px solid var(--w-color-border-furniture, #d9dee3); border-radius: .75rem; background: var(--w-color-surface-page, #fff); }
+.home-panel__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1.2rem 1.4rem; border-bottom: 1px solid var(--w-color-border-furniture, #d9dee3); }
+.home-panel__header h2 { margin: 0 0 .25rem; }
+.home-panel__diagram { min-width: 9rem; padding: .65rem; border: 1px dashed #82909f; border-radius: .4rem; color: #53606e; text-align: center; font-size: .8rem; }
+.home-panel__body { padding: 1.2rem 1.4rem; }
+.home-panel__warnings, .home-card__warnings { margin: .7rem 0; padding-left: 1.2rem; color: #8a3b12; }
+.home-card { display: grid; grid-template-columns: minmax(10rem, 16rem) 1fr auto; gap: 1rem; align-items: start; margin: 1rem 0; padding: 1rem; border: 1px solid var(--w-color-border-furniture, #d9dee3); border-radius: .55rem; }
+.home-card__image img { display: block; width: 100%; aspect-ratio: 12 / 7; object-fit: cover; border-radius: .35rem; }
+.home-card__image-placeholder { display: grid; min-height: 8rem; place-items: center; background: #edf0f2; color: #53606e; }
+.home-card__meta { display: grid; grid-template-columns: repeat(2, minmax(10rem, 1fr)); gap: .35rem 1rem; margin: .6rem 0; color: #53606e; }
+.home-card__meta dt { font-weight: 700; }
+.home-card__meta dd { margin: 0; }
+.home-card__actions { display: flex; flex-direction: column; gap: .5rem; min-width: 8rem; }
+.home-image-scope { display: grid; grid-template-columns: repeat(2, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; padding: 1rem; background: #f4f7f8; border-radius: .45rem; }
+.home-image-scope strong { display: block; margin-bottom: .25rem; }
+.home-preview { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--w-color-border-furniture, #d9dee3); }
+.home-preview__frames { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, 25rem); gap: 1.25rem; align-items: start; }
+.home-preview__frame { overflow: hidden; padding: 1rem; border: 1px solid #bac3cc; background: #fff; color: #111; }
+.home-preview__frame--mobile { max-width: 25rem; }
+.home-preview__frame .u-container { width: 100%; max-width: none; padding: 0; }
+.home-preview__label { display: block; margin-bottom: .5rem; color: #53606e; font-size: .8rem; font-weight: 700; text-transform: uppercase; }
+.home-empty { padding: 1rem; border: 1px dashed #9ba7b3; color: #53606e; }
+@media (max-width: 900px) {
+  .home-card, .home-preview__frames, .home-image-scope { grid-template-columns: 1fr; }
+  .home-card__actions { flex-direction: row; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title icon="home" %}
+<div class="nice-padding home-composition">
+  <p class="home-composition__intro">This page is the fixed composition view for existing homepage slots, Its order matches the public homepage, Free-form drag and drop is not available.The homepage hero, homepage visual stories, and homepage featured recommendations continue to use ArticlePlacement; The preview reuses the production static homepage components and image resolution rules.</p>
+
+  {% if pending_publish_job %}
+    <div class="home-composition__notice" data-pending-publish-job="{{ pending_publish_job.pk }}">
+      Placement configuration has been saved, Static publishing job <a href="{% url 'static_publish:job_detail' pending_publish_job.pk %}">#{{ pending_publish_job.pk }}</a> is awaiting publisher approval.Saving by a content manager does not automatically publish it.
+    </div>
+  {% else %}
+    <div class="home-composition__notice home-composition__notice--ok">There are no homepage placement jobs awaiting publisher approval.</div>
+  {% endif %}
+
+  <div class="home-image-scope">
+    <div><strong>Change article cover</strong>Changing ArticlePage.featured_image; affects the article detail page, and every referencing slot without a placement override image, The article detail page and all referencing pages must be refreshed.</div>
+    <div><strong>Override only this homepage slot image</strong>Changing ArticlePlacement.override_image; This affects only the current placement, It does not change the article detail cover.Use the article cover by default.</div>
+  </div>
+
+  {% for panel in panels %}
+  <section class="home-panel" data-home-composition-slot="{{ panel.code }}">
+    <header class="home-panel__header">
+      <div>
+        <h2>{% if panel.code == "home_hero" %}Home hero{% elif panel.code == "home_visual_stories" %}Home visual stories{% elif panel.code == "home_featured" %}Home featured{% else %}{{ panel.code|capfirst }}{% endif %}</h2>
+        <div><code>{{ panel.code }}</code>  -  Effective now {{ panel.effective_count }}{% if panel.slot %} / Capacity {{ panel.slot.max_items }}{% endif %}</div>
+      </div>
+      <div class="home-panel__diagram">
+        {% if panel.code == 'home_hero' %}Text on the left<br>Landscape image on the right{% elif panel.code == 'home_visual_stories' %}Article cards 1<br>Article cards 2{% else %}Fixed featured recommendation cards{% endif %}
+      </div>
+    </header>
+    <div class="home-panel__body">
+      {% if panel.warnings %}<ul class="home-panel__warnings">{% for warning in panel.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
+
+      {% for row in panel.placements %}
+      <article class="home-card" data-placement-id="{{ row.placement.pk }}">
+        <div class="home-card__image">
+          {% if row.visual.image %}{% image row.visual.image fill-480x280 as admin_thumb %}<img src="{{ admin_thumb.url }}" width="{{ admin_thumb.width }}" height="{{ admin_thumb.height }}" alt="{{ row.visual.alt }}">{% else %}<div class="home-card__image-placeholder">No image available</div>{% endif %}
+        </div>
+        <div>
+          <h3>{{ row.placement.display_title }}</h3>
+          <p>{{ row.placement.article.primary_journal.name }}  -  {{ row.placement.article.get_review_status_display }}</p>
+          <dl class="home-card__meta">
+            <div><dt>Schedule status</dt><dd>{{ row.schedule_state }}</dd></div>
+            <div><dt>Sort order</dt><dd>{{ row.placement.sort_order }}</dd></div>
+            <div><dt>Starts</dt><dd>{{ row.placement.starts_at|date:'Y-m-d H:i'|default:'Immediately' }}</dd></div>
+            <div><dt>Ends</dt><dd>{{ row.placement.ends_at|date:'Y-m-d H:i'|default:'No end date' }}</dd></div>
+            <div><dt>Image source</dt><dd>{% if row.visual.source == 'placement' %}Current slot override{% elif row.visual.source == 'article' %}Article cover{% elif row.visual.source == 'site' %}Site default image{% else %}Placeholder image{% endif %}</dd></div>
+            <div><dt>Alt</dt><dd>{{ row.visual.alt|default:'Missing' }}</dd></div>
+          </dl>
+          {% if row.placement.override_summary %}<p>{{ row.placement.override_summary }}</p>{% endif %}
+          {% if row.warnings %}<ul class="home-card__warnings">{% for warning in row.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+        <div class="home-card__actions">
+          {% if can_change %}<a class="button button-small" href="{% url 'placements:index' %}?edit={{ row.placement.pk }}">Select/replace the article and edit override content</a>{% endif %}
+          <a class="button button-small button-secondary" href="{{ row.placement.article.get_admin_url }}">Change article cover</a>
+        </div>
+      </article>
+      {% empty %}
+      <div class="home-empty">There are no enabled placements.The preview permits missing items, but production static homepage publishing enforces the documented item-count checks.</div>
+      {% endfor %}
+
+      {% if can_add and panel.slot %}<p><a class="button" href="{% url 'placements:index' %}?target=main_site%3A&amp;slot={{ panel.slot.pk }}">Add an article placement to this fixed slot</a></p>{% endif %}
+
+      <div class="home-preview">
+        <h3>Production component preview</h3>
+        <p>Desktop and mobile previews use the same templates, links and image-cropping parameters as static generation.</p>
+        <div class="home-preview__frames">
+          <div><span class="home-preview__label">Desktop</span><div class="home-preview__frame">
+            {% if panel.code == 'home_hero' %}{% if panel.preview_placements.0 %}{% include 'components/static_article_hero.html' with placement=panel.preview_placements.0 %}{% endif %}
+            {% elif panel.code == 'home_visual_stories' %}<div class="c-visual-story-grid">{% for placement in panel.preview_placements %}{% include 'components/static_visual_story_card.html' with placement=placement %}{% endfor %}</div>
+            {% else %}<div class="c-featured-grid c-featured-grid--home">{% for placement in panel.preview_placements %}{% include 'components/static_article_card.html' with placement=placement %}{% endfor %}</div>{% endif %}
+          </div></div>
+          <div><span class="home-preview__label">Mobile (Image above, text below)</span><div class="home-preview__frame home-preview__frame--mobile">
+            {% if panel.code == 'home_hero' %}{% if panel.preview_placements.0 %}{% include 'components/static_article_hero.html' with placement=panel.preview_placements.0 %}{% endif %}
+            {% elif panel.code == 'home_visual_stories' %}<div class="c-visual-story-grid">{% for placement in panel.preview_placements %}{% include 'components/static_visual_story_card.html' with placement=placement %}{% endfor %}</div>
+            {% else %}<div class="c-featured-grid c-featured-grid--home">{% for placement in panel.preview_placements %}{% include 'components/static_article_card.html' with placement=placement %}{% endfor %}</div>{% endif %}
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

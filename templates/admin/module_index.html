@@ -1,0 +1,29 @@
+﻿{% extends "wagtailadmin/base.html" %}
+
+{% block titletag %}{{ title }}{% endblock %}
+
+{% block content %}
+<header class="w-header">
+    <div class="row">
+        <div class="left">
+            <h1>{{ title }}</h1>
+        </div>
+    </div>
+</header>
+<div class="nice-padding">
+    <p>{{ description }}</p>
+    <dl>
+        <dt>架构边界</dt>
+        <dd>{{ owner }}</dd>
+        <dt>接入接口</dt>
+        <dd>
+            <ul>
+                {% for integration_point in integration_points %}
+                    <li><code>{{ integration_point }}</code></li>
+                {% endfor %}
+            </ul>
+        </dd>
+    </dl>
+    <p>此页面用于统一后台入口和权限边界；具体业务模型由对应负责人在本应用内实现。</p>
+</div>
+{% endblock %}

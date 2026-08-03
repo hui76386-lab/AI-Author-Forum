@@ -1,0 +1,7 @@
+﻿-r requirements.txt
+black
+ruff
+isort
+pytest
+pytest-django
+pre-commit

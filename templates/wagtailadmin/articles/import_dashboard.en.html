@@ -1,0 +1,197 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+
+{% block titletag %}Article batch import center{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title="Article batch import center" icon="upload" %}
+<div class="nice-padding article-import">
+  <nav class="article-import__topbar" aria-label="Article import actions">
+    <a class="button button-secondary" href="{{ back_url }}">Back</a>
+    <a class="button button-secondary" href="{{ template_url }}">Download XLSX template</a>
+    <a class="button button-secondary" href="{{ template_url }}&amp;format=csv">Download CSV template</a>
+    <a class="button button-secondary" href="{{ template_url }}&amp;format=document-zip">Download document ZIP sample package</a>
+  </nav>
+
+  <section class="article-import__scope {% if is_journal_scope %}article-import__scope--journal{% endif %}" aria-labelledby="scope-title">
+    <span class="article-import__eyebrow">{% if is_journal_scope %}Journal article import{% else %}Global article import{% endif %}</span>
+    <h2 id="scope-title">{% if target_journal %}Locked: {{ target_journal.name_cn|default:target_journal.name }}{% else %}A single file may import articles for multiple journals{% endif %}</h2>
+    <p>{% if target_journal %}The target journal is locked by the server.Documents and manifests cannot override the journal scope; Rows for other journals are rejected.{% else %}A manifest can specify a journal for each row journal_slug; For direct uploads DOCX/Markdown a default journal must be selected.{% endif %}</p>
+  </section>
+
+  <aside class="article-import__rule" role="note">
+    <strong>One-click import does not publish directly.</strong>
+    After upload, a security preflight and manual confirmation by an authorized user are required.New and updated articles are always returned to draft, The process does not review automatically, create placements or run static publishing.
+  </aside>
+
+  <section class="article-import__panel" aria-labelledby="upload-title">
+    <h2 id="upload-title">1. Upload and run preflight</h2>
+    <ul class="article-import__format-list">
+      <li>Supported formats XLSX, CSV, ZIP, DOCX, MD and Markdown, Maximum upload size 50 MB.</li>
+      <li>DOCX/MD A direct upload imports one article only; Multiple documents require a ZIP, with each file referenced by articles.xlsx or articles.csv manifest rows.</li>
+      <li>DOCX Complex formatting in, unsupported elements, revisions or comments may be downgraded and generate warnings; Macros, ActiveX, OLE, external resources are rejected.</li>
+      <li>Markdown Local images must be packaged with the document in ZIP; For direct uploads Markdown cannot carry local images.</li>
+      <li>The preview stage does not write articles, images, categories, placements or static publishing business data.</li>
+    </ul>
+    <form method="post" enctype="multipart/form-data" action="{{ upload_url }}" id="article-import-form" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="help-critical" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="article-import__form-grid">
+        <div class="article-import__field article-import__field--wide">{{ form.source_file.as_field_group }}</div>
+        <div class="article-import__field">{{ form.default_journal.as_field_group }}</div>
+        <div class="article-import__field" id="csv-encoding-field">{{ form.csv_encoding.as_field_group }}</div>
+      </div>
+      <fieldset class="article-import__document-fields" id="document-fields">
+        <legend>Single document DOCX / Markdown default metadata</legend>
+        <p class="help-block">Safe document metadata only fills empty values; Form values take precedence.DOCX usually has no reliable article type, Select one explicitly.A title and slug can be inferred safely during backend preflight.</p>
+        <div class="article-import__form-grid">
+          <div class="article-import__field">{{ form.document_title.as_field_group }}</div>
+          <div class="article-import__field">{{ form.document_slug.as_field_group }}</div>
+          <div class="article-import__field">{{ form.document_article_type.as_field_group }}</div>
+          <div class="article-import__field">{{ form.document_authors.as_field_group }}</div>
+          <div class="article-import__field">{{ form.document_ai_co_authors.as_field_group }}</div>
+          <div class="article-import__field">{{ form.document_publication_date.as_field_group }}</div>
+        </div>
+      </fieldset>
+      <button type="submit" class="button button-primary">Upload and start preflight</button>
+    </form>
+  </section>
+
+  {% if job %}
+  <section class="article-import__panel" id="job-panel" data-status-url="{{ status_url }}?job_id={{ job.pk }}" data-status="{{ job.status }}" aria-labelledby="preview-title">
+    <div class="article-import__heading">
+      <div>
+        <h2 id="preview-title">2. Preview and confirmation</h2>
+        <p>Job #{{ job.pk }}  -  {{ job.package_name }}  -  Source {{ job.source_format|default:"—" }}  -  Status: <strong id="job-status">{{ job.get_status_display }}</strong></p>
+      </div>
+      {% if job.error_report %}<a id="error-report-link" class="button button-secondary" href="{% url 'article_admin:import_errors' job.pk %}">Download error report</a>{% else %}<a id="error-report-link" class="button button-secondary" href="#" hidden>Download error report</a>{% endif %}
+    </div>
+
+    <div id="job-live-status" class="article-import__progress" role="status" aria-live="polite">
+      {% if job.status == 'validating' or job.status == 'pending' %}
+        Backend preflight in progress: Processed <strong id="preview-processed">{{ job.summary.preview_processed_rows|default:0 }}</strong> / <strong id="preview-total">{{ job.summary.preview_total_rows|default:0 }}</strong> rows; documents <strong id="document-count">{{ job.summary.document_count|default:0 }}</strong> items; conversion warnings <strong id="warning-count">{{ job.summary.conversion_warning_count|default:0 }}</strong> items.
+      {% else %}
+        Preflight progress: {{ job.summary.preview_processed_rows|default:job.total_rows }} / {{ job.summary.preview_total_rows|default:job.total_rows }} rows; documents {{ job.summary.document_count|default:0 }} items; conversion warnings {{ job.summary.conversion_warning_count|default:0 }} items.
+      {% endif %}
+    </div>
+
+    <div class="article-import__metrics">
+      <article><span>Total rows</span><strong>{{ metrics.total }}</strong></article>
+      <article><span>Create</span><strong>{{ metrics.created }}</strong></article>
+      <article><span>Update</span><strong>{{ metrics.updated }}</strong></article>
+      <article><span>Skip</span><strong>{{ metrics.skipped }}</strong></article>
+      <article><span>Failed</span><strong>{{ metrics.failed }}</strong></article>
+      <article><span>Suspicious text</span><strong>{{ metrics.suspicious }}</strong></article>
+    </div>
+    {% if job.summary.template_warning %}<div class="article-import__warning" role="alert"><strong>Template version notice: </strong>{{ job.summary.template_warning }}</div>{% endif %}
+
+    <div class="article-import__table-wrap" tabindex="0" aria-label="Row-level security preview, Scroll horizontally and vertically">
+      <table class="listing full-width article-import__preview-table">
+        <thead>
+          <tr>
+            <th>Row</th><th>Source</th><th>Metadata source</th><th>Converter</th><th>Statistics</th><th>conversion warnings</th>
+            <th>Action and target</th><th>Article information</th><th>Body safety</th><th>Sanitized body excerpt</th><th>Errors and suggestions</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          <tr class="{% if row.status == 'failed' %}article-import__row--failed{% endif %}">
+            <td>{{ row.row_no }}</td>
+            <td><strong>{{ row.normalized_data.source_format|default:row.source_format|default:"—" }}</strong><br><code>{{ row.normalized_data.source_path|default:row.source_path|default:"—" }}</code></td>
+            <td>{% for key, value in row.normalized_data.metadata_sources.items %}<span class="article-import__chip">{{ key }}: {{ value }}</span>{% empty %}—{% endfor %}</td>
+            <td>{{ row.normalized_data.converter_name|default:"—" }}<br><small>{{ row.normalized_data.converter_version }}</small></td>
+            <td>characters: {% firstof row.normalized_data.conversion_statistics.source_characters row.normalized_data.conversion_statistics.visible_characters "—" %}<br>HTML: {{ row.normalized_data.conversion_statistics.html_bytes|default:"—" }} B<br>images: {{ row.normalized_data.generated_asset_count|default:0 }}</td>
+            <td>
+              <strong>{{ row.conversion_warnings|length }}</strong>
+              {% if row.conversion_warnings %}<details><summary>Expand warnings</summary><ul>{% for warning in row.conversion_warnings %}<li><code>{{ warning.code }}</code> {{ warning.message }}</li>{% endfor %}</ul></details>{% endif %}
+            </td>
+            <td>{{ row.action|default:"—" }}<br><code>{% firstof row.normalized_data.journal_slug row.raw_data.journal_slug "—" %}</code></td>
+            <td><strong>{% firstof row.normalized_data.title row.raw_data.title "—" %}</strong><br><code>{% firstof row.normalized_data.slug row.raw_data.slug "—" %}</code><br>{% firstof row.normalized_data.article_type row.raw_data.article_type "—" %}<br>{% firstof row.normalized_data.authors row.raw_data.authors "—" %}</td>
+            <td>{% if row.normalized_data.body_security_validated %}<span class="article-import__safe">Passed unified HTML security validation</span>{% elif row.status == 'failed' %}<span class="article-import__unsafe">Failed</span>{% else %}Awaiting validation{% endif %}</td>
+            <td><span class="article-import__snippet">{{ row.normalized_data.body_preview_text|default:"—" }}</span></td>
+            <td>{% if row.error_code %}<code>{{ row.error_code }}</code><br>{% endif %}{{ row.error_message|default:"Validation passed" }}{% if row.normalized_data.suggestion %}<br><small><strong>Suggested correction: </strong>{{ row.normalized_data.suggestion }}</small>{% endif %}</td>
+          </tr>
+        {% empty %}<tr><td colspan="11">The backend preflight has not produced row-level results yet.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if job.status == 'ready' %}
+    <form method="post" action="{{ confirm_url }}" class="article-import__confirm">
+      {% csrf_token %}
+      {{ confirm_form.job_id }}
+      {% if can_override_suspicious_text %}{{ confirm_form.allow_suspicious_text.as_field_group }}{{ confirm_form.override_reason.as_field_group }}{% endif %}
+      <button class="button button-primary" type="submit">Confirm draft import</button>
+    </form>
+    {% elif job.status == 'pending' or job.status == 'validating' or job.status == 'importing' %}
+      <p class="article-import__running" aria-live="polite">Background job in progress, This page polls automatically.Do not submit again.</p>
+    {% elif job.status == 'completed' %}
+      <p class="article-import__done">The job is complete.Continue with manual editing, review, placement and static publishing workflows.</p>
+    {% elif job.status == 'failed' %}
+      <p class="article-import__failed" role="alert">The job failed: {{ job.notes }}</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="article-import__panel" aria-labelledby="recent-title">
+    <h2 id="recent-title">Recent import jobs</h2>
+    <div class="article-import__table-wrap" tabindex="0"><table class="listing full-width"><thead><tr><th>Job</th><th>Scope</th><th>Target journal</th><th>Source</th><th>Status</th><th>Created</th></tr></thead><tbody>
+    {% for recent in recent_jobs %}<tr><td><a href="{% url 'article_admin:import' %}?{% if recent.target_journal_id %}journal={{ recent.target_journal_id }}&amp;{% endif %}job={{ recent.pk }}">#{{ recent.pk }} {{ recent.package_name }}</a></td><td>{{ recent.get_import_scope_display }}</td><td>{{ recent.target_journal|default:"—" }}</td><td>{{ recent.source_format|default:"—" }}</td><td>{{ recent.get_status_display }}</td><td>{{ recent.created_at }}</td></tr>
+    {% empty %}<tr><td colspan="6">No jobs yet.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+<style>
+.article-import{box-sizing:border-box;max-width:112rem;min-width:0;overflow:hidden}.article-import *{box-sizing:border-box}.article-import__topbar,.article-import__heading{display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap}.article-import__topbar{justify-content:flex-end;margin-bottom:1rem}.article-import__scope,.article-import__panel,.article-import__rule{min-width:0;padding:1.25rem;margin-bottom:1rem;border:1px solid var(--w-color-border-furniture);background:var(--w-color-surface-page)}.article-import__scope{border-inline-start:.4rem solid var(--w-color-primary)}.article-import__scope--journal{border-inline-start-color:var(--w-color-warning-100);background:var(--w-color-surface-header)}.article-import__eyebrow{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em}.article-import__scope h2,.article-import__panel h2{margin:.2rem 0 .5rem}.article-import__rule{border-color:var(--w-color-warning-100)}.article-import__format-list{padding-inline-start:1.4rem}.article-import__form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.article-import__field{min-width:0}.article-import__field--wide{grid-column:1/-1}.article-import__document-fields{margin:1rem 0;padding:1rem;border:1px solid var(--w-color-border-furniture)}.article-import__document-fields[hidden],#csv-encoding-field[hidden]{display:none}.article-import__progress,.article-import__running,.article-import__done,.article-import__failed,.article-import__warning{padding:1rem;margin-top:1rem}.article-import__progress,.article-import__running{background:var(--w-color-info-50)}.article-import__warning{background:var(--w-color-warning-50)}.article-import__done{background:var(--w-color-positive-50)}.article-import__failed{background:var(--w-color-critical-50)}.article-import__metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.75rem;margin:1rem 0}.article-import__metrics article{min-width:0;padding:1rem;border:1px solid var(--w-color-border-furniture)}.article-import__metrics span{display:block;color:var(--w-color-text-meta)}.article-import__metrics strong{font-size:1.7rem}.article-import__table-wrap{width:100%;max-width:100%;max-height:34rem;overflow:auto;border:1px solid var(--w-color-border-furniture);overscroll-behavior:contain}.article-import__preview-table{min-width:130rem}.article-import__preview-table th,.article-import__preview-table td{vertical-align:top;max-width:22rem;overflow-wrap:anywhere}.article-import__row--failed{background:var(--w-color-critical-50)}.article-import__chip{display:block;margin:.15rem 0}.article-import__safe{color:var(--w-color-positive-100)}.article-import__unsafe{color:var(--w-color-critical-100)}.article-import__snippet{display:block;max-height:9rem;overflow:auto;white-space:normal}.article-import__confirm{margin-top:1rem;padding-top:1rem;border-top:1px solid var(--w-color-border-furniture)}
+@media(max-width:800px){.article-import__metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.article-import__topbar{justify-content:flex-start}.article-import__form-grid{grid-template-columns:1fr}}
+@media(max-width:480px){.article-import{padding-inline:.75rem}.article-import__metrics{grid-template-columns:1fr}.article-import__topbar .button{width:100%;text-align:center}.article-import__scope,.article-import__panel,.article-import__rule{padding:1rem}.article-import__heading{align-items:flex-start}}
+</style>
+<script>
+(function(){
+  const form=document.getElementById('article-import-form');
+  if(form){
+    const file=form.querySelector('input[type="file"]');
+    const documentFields=document.getElementById('document-fields');
+    const csvField=document.getElementById('csv-encoding-field');
+    function updateConditionalFields(){
+      const name=(file && file.files && file.files[0] ? file.files[0].name : '').toLowerCase();
+      const isDocument=/\.(docx|md|markdown)$/.test(name);
+      const isCsv=/\.csv$/.test(name);
+      documentFields.hidden=!isDocument;
+      documentFields.setAttribute('aria-hidden',String(!isDocument));
+      csvField.hidden=!isCsv;
+      csvField.setAttribute('aria-hidden',String(!isCsv));
+    }
+    if(file){file.addEventListener('change',updateConditionalFields)}
+    updateConditionalFields();
+    const firstError=form.querySelector('.error input,.error select,.error textarea,[aria-invalid="true"]');
+    if(firstError){firstError.focus()}
+  }
+
+  const panel=document.getElementById('job-panel');
+  if(!panel || ['ready','completed','failed'].includes(panel.dataset.status)){return}
+  const url=panel.dataset.statusUrl;
+  async function poll(){
+    try{
+      const response=await fetch(url,{headers:{'X-Requested-With':'XMLHttpRequest'}});
+      if(response.ok){
+        const data=await response.json();
+        document.getElementById('job-status').textContent=data.status;
+        const processed=document.getElementById('preview-processed');
+        const total=document.getElementById('preview-total');
+        const docs=document.getElementById('document-count');
+        const warnings=document.getElementById('warning-count');
+        if(processed){processed.textContent=data.preview_processed_rows}
+        if(total){total.textContent=data.preview_total_rows}
+        if(docs){docs.textContent=data.summary.document_count || 0}
+        if(warnings){warnings.textContent=data.conversion_warning_count || 0}
+        const errorLink=document.getElementById('error-report-link');
+        if(errorLink && data.errors_url){errorLink.href=data.errors_url;errorLink.hidden=false}
+        if(data.terminal){window.location.reload();return}
+      }
+    }catch(error){}
+    window.setTimeout(poll,2000)
+  }
+  window.setTimeout(poll,1200)
+})();
+</script>
+{% endblock %}

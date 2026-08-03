@@ -1,0 +1,117 @@
+{
+  "release_id": "20260731T235959Z-homepage-visual-placement",
+  "purpose": "Homepage article visual placement (approved scope only)",
+  "source_file_count": 26,
+  "files": [
+    {
+      "path": "ai_author_forum/placements/defaults.py",
+      "sha256": "066b5e84d5f1af2672a48fd89830b4c6c07f76ac78ea924485b4c28156fa467e"
+    },
+    {
+      "path": "ai_author_forum/placements/forms.py",
+      "sha256": "16d0e330877ca1b2a0a00d3c29e2df570c04d196b046463d68de2755e28be5f7"
+    },
+    {
+      "path": "ai_author_forum/placements/models.py",
+      "sha256": "69562a9936597605ebe8e4b873e22916b6d9e0448bc908008c833817c134e0a3"
+    },
+    {
+      "path": "ai_author_forum/placements/services.py",
+      "sha256": "f28387f192edbfd4201446d05c6e833e2e1aecea0117ef8ed8437525db5dde1f"
+    },
+    {
+      "path": "ai_author_forum/placements/viewsets.py",
+      "sha256": "976d2022489aac854db795fbbe37c1c651f2d6f3be32ab21126388c842b3e07e"
+    },
+    {
+      "path": "ai_author_forum/placements/wagtail_hooks.py",
+      "sha256": "a0cb5daa4d4f708055f24dee5f24a302d61a02a302d757847b4e1d28bc48a5a2"
+    },
+    {
+      "path": "ai_author_forum/placements/migrations/0009_home_visual_stories_and_placement_alt.py",
+      "sha256": "16deb916318f7c7f7ceffc1ce3c92953774e472ea9d58937be472c8c9842861c"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/dashboard.html",
+      "sha256": "c54467da6718d65c5c39d5fee7d144baeca7d21912c135c5a727dc43aa6b21ee"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/dashboard.en.html",
+      "sha256": "243430e6349e07438d405bf4aecf414e89fae049e7c6f1b922c99f077a06b78e"
+    },
+    {
+      "path": "ai_author_forum/static_publish/automatic.py",
+      "sha256": "3ce1a56c82967bd3bbefb000920c52947c528491ed5d119d79328fcacd67c92e"
+    },
+    {
+      "path": "ai_author_forum/static_publish/frontend.py",
+      "sha256": "bc4a0ee57f7bd0675f0eb34a1978f7d4adf0c2984d27c41d8757e3834b2683de"
+    },
+    {
+      "path": "ai_author_forum/static_publish/frontend_views.py",
+      "sha256": "9c2b569d78c8114306985c1ecc8b678efc639785bc21c8839ae347600eca0c8a"
+    },
+    {
+      "path": "ai_author_forum/static_publish/providers.py",
+      "sha256": "93617a60e12725030bae4dba3c5988ebc28187edbc55894b4c86ab817c08b635"
+    },
+    {
+      "path": "ai_author_forum/static_publish/readiness.py",
+      "sha256": "cc293cbe7b2ed8129418fee90d08b3588b82dfb6b4b64e64f514141081dc219e"
+    },
+    {
+      "path": "ai_author_forum/static_publish/services.py",
+      "sha256": "03f4d02b2926eabb79cf931e97cac89f2f4b8cbf1167eb9868869ec761e7b976"
+    },
+    {
+      "path": "ai_author_forum/static_publish/urls.py",
+      "sha256": "082d260b40d266c3fd61b34285aec123448119e732a15fada5190fc993e97ae8"
+    },
+    {
+      "path": "ai_author_forum/static_publish/views.py",
+      "sha256": "1b50e192e95388d15da449fd6e4e47df96d49727dd4e9042c3d79d7a41f08e00"
+    },
+    {
+      "path": "ai_author_forum/site_settings/admin_navigation.py",
+      "sha256": "eae7df58f986f55f79812576db522ef9b7e8eeac614ddc2b4502f972adf46f94"
+    },
+    {
+      "path": "ai_author_forum/urls.py",
+      "sha256": "4c0c4aa2e06a7a8bc756a92ed989072790144941e7a181f38eaa74f77ff14115"
+    },
+    {
+      "path": "ai_author_forum/utils/admin_i18n.py",
+      "sha256": "0fe556d797efe9bd01f60ed1b8dbb5e9962f3465a7c1c93fbf7578897d021ff3"
+    },
+    {
+      "path": "templates/pages/home_page.html",
+      "sha256": "2bc48cedbe4d6c1f70acdc93d65953e3dc0ff7399df5f269193219a0b936aac7"
+    },
+    {
+      "path": "templates/components/static_article_hero.html",
+      "sha256": "57a80c0af3d28238e7f77d3c118b6879deea2a3663505f67b1a80e69402d4370"
+    },
+    {
+      "path": "templates/components/static_visual_story_card.html",
+      "sha256": "bbad081b19729fb63b94bcb74d921abfc34b06a68f009e1f6cd2e9e27899bb6e"
+    },
+    {
+      "path": "templates/placements/admin/homepage_composition.html",
+      "sha256": "2d1efb9b9d2ce61fa9383d2b4205d66a3f224a5b100989580e1cee8ba6effa50"
+    },
+    {
+      "path": "static_src/sass/reference.css",
+      "sha256": "2f54de8cab2cf96e0c3bf3eb37ace4d912f5ff93976915689e23d4922e0c2af9"
+    },
+    {
+      "path": "static_compiled/css/reference.css",
+      "sha256": "7c7c3b1e1616948f9c4b60765c768127265c57298666d5bf5e2b4079bc4edaa8"
+    }
+  ],
+  "exclusions": [
+    ".env and all secrets",
+    ".git history",
+    "test databases and local temporary artifacts",
+    "unrelated dirty workspace files"
+  ]
+}

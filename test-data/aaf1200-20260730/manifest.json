@@ -1,0 +1,22 @@
+{
+  "batch": "aaf1200-20260730",
+  "journals": 120,
+  "articles_per_journal": 10,
+  "articles": 1200,
+  "packages": [
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-01.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-02.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-03.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-04.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-05.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-06.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-07.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-08.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-09.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-10.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-11.zip",
+    "test-data\\aaf1200-20260730\\packages\\aaf1200-20260730-part-12.zip"
+  ],
+  "material_images_used": 20,
+  "image_zip": "C:\\Users\\18700\\Desktop\\material_images.zip"
+}

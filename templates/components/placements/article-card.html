@@ -1,0 +1,25 @@
+{% load article_images wagtailcore_tags wagtailimages_tags i18n_frontend %}
+{% article_image placement.article placement=placement as visual %}
+
+<article class="flex flex-col w-full h-full group">
+    <a href="{{ placement.article.get_absolute_url|localized_url }}" class="block rounded-md overflow-hidden">
+        {% if visual.image %}
+            {% image visual.image format-jpeg fill-800x600 as card_image_1x_jpg %}
+            {% image visual.image format-jpeg fill-1600x1200 as card_image_2x_jpg %}
+            {% image visual.image format-webp fill-800x600 as card_image_1x_webp %}
+            {% image visual.image format-webp fill-1600x1200 as card_image_2x_webp %}
+            <picture>
+                <source srcset="{{ card_image_1x_webp.url }} 1x, {{ card_image_2x_webp.url }} 2x" type="image/webp">
+                <source srcset="{{ card_image_1x_jpg.url }} 1x, {{ card_image_2x_jpg.url }} 2x" type="image/jpeg">
+                <img src="{{ card_image_1x_webp.url }}" width="{{ card_image_1x_webp.width }}" height="{{ card_image_1x_webp.height }}" alt="{{ visual.alt }}" class="aspect-[20/11] md:aspect-[4/3] lg:aspect-[20/11] w-full h-full object-cover"{% if card_image_1x_webp.focal_point %} style="{{ card_image_1x_webp.object_position_style }}"{% endif %}>
+            </picture>
+        {% else %}
+            <img src="{{ visual.placeholder_url }}" width="800" height="600" alt="{{ visual.alt }}" class="aspect-[20/11] md:aspect-[4/3] lg:aspect-[20/11] w-full h-full object-cover">
+        {% endif %}
+    </a>
+
+    <div class="pt-7">
+        <a href="{{ placement.article.get_absolute_url|localized_url }}" class="text-xl md:text-2xl font-bold leading-8 md:leading-10 underline underline-offset-8 decoration-[1.5px] decoration-mackerel-200 hover:decoration-mackerel-300">{{ placement.display_title }}</a>
+        {% if placement.display_summary %}<p class="text-grey-700 dark:text-grey-200 pt-2.5 leading-6">{{ placement.display_summary }}</p>{% endif %}
+    </div>
+</article>

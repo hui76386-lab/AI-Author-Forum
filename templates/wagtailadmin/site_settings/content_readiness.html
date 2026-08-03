@@ -1,0 +1,79 @@
+{% extends "wagtailadmin/base.html" %}
+
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title subtitle="正式静态发布前检查导航、栏目、投放、期次和静态目标" icon="warning" only %}
+
+<div class="nice-padding readiness-report">
+  <section class="readiness-report__summary {% if result.is_ready %}readiness-report__summary--ready{% else %}readiness-report__summary--blocked{% endif %}" aria-live="polite">
+    <div>
+      <h2>{% if result.is_ready %}内容已就绪{% else %}内容尚未就绪{% endif %}</h2>
+      <p>
+        已检查 {{ result.checked_navigation_items }} 个导航项、{{ result.checked_columns }} 个栏目、
+        {{ result.checked_placements }} 个投放、{{ result.checked_issues }} 个期次和
+        {{ result.checked_static_targets }} 个静态目标。
+      </p>
+    </div>
+    <strong>{% if result.is_ready %}READY{% else %}BLOCKED{% endif %}</strong>
+  </section>
+
+  <section class="readiness-report__card" aria-labelledby="readiness-blockers">
+    <h2 id="readiness-blockers">阻断项?{{ result.blockers|length }}?</h2>
+    {% if result.blockers %}
+      <table class="listing">
+        <thead><tr><th>代码</th><th>说明</th><th>路径</th><th>对象</th></tr></thead>
+        <tbody>
+          {% for item in result.blockers %}
+            <tr>
+              <td><code>{{ item.code }}</code></td>
+              <td>{{ item.message }}</td>
+              <td>{% if item.path %}<code>{{ item.path }}</code>{% else %}?{% endif %}</td>
+              <td>{% if item.target_type %}<code>{{ item.target_type }}:{{ item.target_id }}</code>{% else %}?{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="help-block help-info">没有阻断项。</p>
+    {% endif %}
+  </section>
+
+  <section class="readiness-report__card" aria-labelledby="readiness-warnings">
+    <h2 id="readiness-warnings">警告项?{{ result.warnings|length }}?</h2>
+    {% if result.warnings %}
+      <table class="listing">
+        <thead><tr><th>代码</th><th>说明</th><th>路径</th></tr></thead>
+        <tbody>
+          {% for item in result.warnings %}
+            <tr>
+              <td><code>{{ item.code }}</code></td>
+              <td>{{ item.message }}</td>
+              <td>{% if item.path %}<code>{{ item.path }}</code>{% else %}?{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="help-block help-info">没有警告项。</p>
+    {% endif %}
+  </section>
+
+  <p class="readiness-report__note">非核心栏目内容不足时按配置隐藏公共导航，不阻断正式发布；核心栏目、无效投放、期次范围或静态目标问题会阻断正式全站发布。</p>
+</div>
+
+<style>
+  .readiness-report { max-width: 1280px; }
+  .readiness-report__summary { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.25rem 1.5rem; margin-bottom:1rem; border:1px solid var(--w-color-border-furniture); border-left:.4rem solid; border-radius:.4rem; background:var(--w-color-surface-page); }
+  .readiness-report__summary h2 { margin:0; }
+  .readiness-report__summary p { margin:.35rem 0 0; color:var(--w-color-text-meta); }
+  .readiness-report__summary > strong { padding:.35rem .7rem; border-radius:999px; }
+  .readiness-report__summary--ready { border-left-color:var(--w-color-positive-100); }
+  .readiness-report__summary--ready > strong { background:var(--w-color-positive-100); }
+  .readiness-report__summary--blocked { border-left-color:var(--w-color-critical-200); }
+  .readiness-report__summary--blocked > strong { background:var(--w-color-critical-100); color:var(--w-color-critical-200); }
+  .readiness-report__card { padding:1rem 1.25rem; margin-bottom:1rem; border:1px solid var(--w-color-border-furniture); border-radius:.4rem; background:var(--w-color-surface-page); overflow:auto; }
+  .readiness-report__card h2 { margin-top:0; }
+  .readiness-report__note { color:var(--w-color-text-meta); }
+  @media (max-width:700px) { .readiness-report__summary { align-items:flex-start; flex-direction:column; } }
+</style>
+{% endblock %}

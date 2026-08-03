@@ -1,0 +1,119 @@
+{% extends "wagtailadmin/base.html" %}
+{% load static wagtailadmin_tags %}
+
+{% block titletag %}{{ page_title }} - {{ article.title }}{% endblock %}
+
+{% block content %}
+    {% include "wagtailadmin/shared/header.html" with title=page_title subtitle=article.title icon="clipboard-list" only %}
+
+    <div class="nice-padding article-review-layout">
+        <section class="article-review-card">
+            <div class="article-review-toolbar">
+                <div>
+                    {% include "wagtailadmin/shared/status_tag.html" with label=article.get_review_status_display %}
+                    <span class="article-review-meta">{{ article.get_article_type_display }}</span>
+                    <span class="article-review-meta">{{ article.primary_journal|default:"-" }}</span>
+                </div>
+                <div class="button-group">
+                    <a class="button button-secondary" href="{{ preview_url }}" target="_blank" rel="noreferrer">打开预览</a>
+                    {% if can_edit_article %}<a class="button button-secondary" href="{{ edit_url }}">编辑页面</a>{% endif %}
+                </div>
+            </div>
+
+            <div class="article-review-next-step">
+                <strong>流程提示：</strong>审核通过后进入投放管理，不代表前台发布。只有完成版位投放并执行静态发布后，文章才会进入对应静态页面。
+                <a href="{{ placements_url }}">进入投放管理</a>
+            </div>
+
+            <dl class="article-review-versions">
+                <div><dt>当前 revision</dt><dd>{% if latest_revision %}#{{ latest_revision.id }} / {{ latest_revision.created_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</dd></div>
+                <div><dt>批准 revision</dt><dd>{% if approved_version %}#{{ approved_version.id }} / {{ approved_version.created_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</dd></div>
+                <div><dt>驳回 revision</dt><dd>{% if rejected_version %}#{{ rejected_version.id }} / {{ rejected_version.created_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</dd></div>
+            </dl>
+
+            <iframe class="article-review-preview" title="文章前台预览" src="{{ preview_url }}"></iframe>
+        </section>
+
+        <aside class="article-review-side">
+            <section class="article-review-card">
+                <h2>审核操作</h2>
+                {% if can_submit_review %}
+                    <form method="post" action="{{ submit_review_url }}">
+                        {% csrf_token %}
+                        <input type="hidden" name="expected_revision_id" value="{{ expected_revision_id }}">
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <p>当前文章仍是草稿。请先提交审核，提交后会出现在“待审核文章”列表。</p>
+                        <label for="submit-review-comment">提交说明</label>
+                        <textarea id="submit-review-comment" name="comment" rows="4" placeholder="可填写提交说明"></textarea>
+                        <div class="article-review-actions">
+                            <button class="button" type="submit">提交审核</button>
+                        </div>
+                    </form>
+                {% elif can_execute_review %}
+                    <form method="post" data-article-review-form>
+                        {% csrf_token %}
+                        <input type="hidden" name="expected_revision_id" value="{{ expected_revision_id }}">
+                        <label for="review-comment">审核意见</label>
+                        <p class="help">批准意见可选但建议填写；驳回意见必填。</p>
+                        <textarea id="review-comment" name="comment" rows="6" placeholder="请说明审核依据或需要修改的内容"></textarea>
+                        <div class="article-review-actions">
+                            <button class="button" type="submit" name="action" value="approve" data-review-action>通过</button>
+                            <button class="button button-secondary no" type="submit" name="action" value="reject" data-review-action>驳回</button>
+                        </div>
+                    </form>
+                {% else %}
+                    <p>当前用户不能执行此文章的审核操作，或文章已不处于可审核状态。</p>
+                {% endif %}
+            </section>
+
+            <section class="article-review-card">
+                <h2>审核记录</h2>
+                <ol class="article-review-timeline">
+                    {% for record in review_records %}
+                        <li>
+                            <strong>{{ record.get_action_display }}</strong>
+                            <span>{{ record.created_at|date:"Y-m-d H:i" }} · {{ record.reviewer }}</span>
+                            <span>revision #{% if record.revision_id %}{{ record.revision_id }}{% else %}-{% endif %}</span>
+                            {% if record.comment %}<p>{{ record.comment|linebreaksbr }}</p>{% endif %}
+                        </li>
+                    {% empty %}
+                        <li>暂无审核记录。</li>
+                    {% endfor %}
+                </ol>
+            </section>
+        </aside>
+
+        <section class="article-review-card article-review-diff">
+            <div class="article-review-diff-heading">
+                <div><h2>版本差异</h2><p>按内容、归属分类、责任声明和 SEO / 路径分组展示，共 {{ revision_diff.changed_count }} 个字段发生变化。</p></div>
+                {% if revision_diff.has_previous_revision %}<p class="article-review-meta">当前 #{{ revision_diff.current_revision.id }} 对比上一版本 #{{ revision_diff.previous_revision.id }}</p>{% endif %}
+            </div>
+            {% if revision_diff.has_previous_revision %}
+                {% for group in revision_diff.groups %}
+                    <section class="article-review-diff-group">
+                        <h3>{{ group.label }}</h3>
+                        {% for field in group.changed_fields %}
+                            <details open>
+                                <summary>{{ field.label }}</summary>
+                                {% if field.is_streamfield %}
+                                    <div class="article-review-diff-columns">
+                                        <div><h4>上一版本</h4><ol class="article-review-block-list">{% for block in field.previous %}<li>{{ block }}</li>{% empty %}<li>（空）</li>{% endfor %}</ol></div>
+                                        <div><h4>当前版本</h4><ol class="article-review-block-list">{% for block in field.current %}<li>{{ block }}</li>{% empty %}<li>（空）</li>{% endfor %}</ol></div>
+                                    </div>
+                                {% else %}
+                                    {% if field.diff %}<pre>{{ field.diff }}</pre>{% else %}<div class="article-review-diff-columns"><div><h4>上一版本</h4><pre>{{ field.previous|default:"（空）" }}</pre></div><div><h4>当前版本</h4><pre>{{ field.current|default:"（空）" }}</pre></div></div>{% endif %}
+                                {% endif %}
+                            </details>
+                        {% empty %}
+                            <p class="article-admin-secondary">本分组没有字段变化。</p>
+                        {% endfor %}
+                    </section>
+                {% endfor %}
+            {% else %}
+                <p>暂无上一版本可供对比。</p>
+            {% endif %}
+        </section>
+    </div>
+
+    <script src="{% static 'articles/js/editor-protection.js' %}" defer></script>
+{% endblock %}

@@ -1,0 +1,1064 @@
+{% extends "wagtailadmin/base.html" %}
+{% load i18n static %}
+
+{% block titletag %}{{ title }}{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<style>
+.placement-ui {
+    --placement-accent: var(--w-color-teal-100, #007d7e);
+    --placement-accent-soft: color-mix(in srgb, var(--placement-accent) 9%, transparent);
+    --placement-ink: var(--w-color-text-label, #1f2937);
+    --placement-muted: var(--w-color-text-context, #5f6b7a);
+    --placement-line: var(--w-color-border-furniture, #d8dee5);
+    --placement-panel: var(--w-color-surface-page, #fff);
+    --placement-field: var(--w-color-surface-field, #f5f7f8);
+    max-width: 118rem;
+    margin: 0 auto;
+}
+
+.placement-ui__intro {
+    max-width: 72rem;
+    margin-top: .35rem;
+    color: var(--placement-muted);
+    font-size: .95rem;
+    line-height: 1.65;
+}
+
+.placement-surface {
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+    border: 1px solid var(--placement-line);
+    border-radius: .75rem;
+    background: var(--placement-panel);
+    box-shadow: 0 .2rem .8rem rgba(15, 23, 42, .045);
+}
+
+.placement-surface__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem 1.4rem;
+    border-bottom: 1px solid var(--placement-line);
+    background: linear-gradient(115deg, var(--placement-accent-soft), transparent 54%);
+}
+
+.placement-surface__header h2,
+.placement-step__header h3,
+.placement-preview__header h3 {
+    margin: 0;
+    color: var(--placement-ink);
+}
+
+.placement-surface__header p {
+    max-width: 58rem;
+    margin: .3rem 0 0;
+    color: var(--placement-muted);
+    line-height: 1.55;
+}
+
+.placement-kicker {
+    display: block;
+    margin-bottom: .3rem;
+    color: var(--placement-accent);
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+}
+
+.placement-mode {
+    flex: 0 0 auto;
+    padding: .4rem .7rem;
+    border: 1px solid color-mix(in srgb, var(--placement-accent) 28%, var(--placement-line));
+    border-radius: 999px;
+    color: var(--placement-accent);
+    background: var(--placement-panel);
+    font-size: .78rem;
+    font-weight: 700;
+}
+
+.placement-filter {
+    padding: 1.2rem 1.4rem 1.35rem;
+}
+
+.placement-filter .fields {
+    display: grid;
+    grid-template-columns: minmax(18rem, 1.6fr) minmax(14rem, 1fr) minmax(14rem, 1fr);
+    gap: .85rem 1rem;
+    margin: 0;
+}
+
+.placement-filter .fields > li {
+    margin: 0;
+    padding: 0;
+}
+
+.placement-filter label,
+.placement-field label {
+    display: block;
+    margin-bottom: .35rem;
+    color: var(--placement-ink);
+    font-weight: 650;
+}
+
+.placement-filter input,
+.placement-filter select,
+.placement-field input:not([type="checkbox"]),
+.placement-field select,
+.placement-field textarea {
+    width: 100%;
+    max-width: none;
+}
+
+.placement-filter__actions {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    margin-top: 1rem;
+}
+
+.placement-filter__result {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    margin: 1rem 0 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--placement-line);
+    color: var(--placement-muted);
+}
+
+.placement-filter__count {
+    display: inline-grid;
+    min-width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border-radius: 999px;
+    color: #fff;
+    background: var(--placement-accent);
+    font-weight: 700;
+}
+
+.placement-editor__body {
+    padding: 1.25rem 1.4rem 0;
+}
+
+.placement-builder {
+    display: grid;
+    grid-template-columns: minmax(0, 1.65fr) minmax(21rem, .72fr);
+    gap: 1.15rem;
+    align-items: start;
+}
+
+.placement-builder__main {
+    display: grid;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.placement-step-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    align-items: stretch;
+}
+
+.placement-step {
+    min-width: 0;
+    padding: 1.15rem;
+    border: 1px solid var(--placement-line);
+    border-radius: .65rem;
+    background: var(--placement-panel);
+}
+
+.placement-step__header,
+.placement-preview__header {
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+    margin-bottom: 1rem;
+}
+
+.placement-step__number {
+    display: grid;
+    flex: 0 0 2rem;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border-radius: .55rem;
+    color: #fff;
+    background: var(--placement-accent);
+    font-size: .82rem;
+    font-weight: 800;
+    box-shadow: 0 .25rem .65rem color-mix(in srgb, var(--placement-accent) 22%, transparent);
+}
+
+.placement-step__header p,
+.placement-preview__header p {
+    margin: .25rem 0 0;
+    color: var(--placement-muted);
+    font-size: .82rem;
+    line-height: 1.5;
+}
+
+.placement-field + .placement-field {
+    margin-top: .9rem;
+}
+
+.placement-field .help,
+.placement-field__hint {
+    margin: .38rem 0 0;
+    color: var(--placement-muted);
+    font-size: .78rem;
+    line-height: 1.5;
+}
+
+.placement-field .error-message {
+    margin: .4rem 0 0;
+}
+
+.placement-eligibility {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .5rem;
+    margin-top: 1rem;
+}
+
+.placement-eligibility span {
+    position: relative;
+    padding: .55rem .55rem .55rem 1.55rem;
+    border-radius: .45rem;
+    color: var(--placement-muted);
+    background: var(--placement-field);
+    font-size: .74rem;
+    line-height: 1.35;
+}
+
+.placement-eligibility span::before {
+    position: absolute;
+    top: .62rem;
+    left: .58rem;
+    width: .5rem;
+    height: .5rem;
+    border-radius: 999px;
+    background: var(--placement-accent);
+    content: "";
+}
+
+.placement-capacity {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: .55rem;
+    margin: 1rem 0 .75rem;
+}
+
+.placement-capacity div {
+    padding: .75rem .5rem;
+    border: 1px solid var(--placement-line);
+    border-radius: .5rem;
+    text-align: center;
+    background: var(--placement-field);
+}
+
+.placement-capacity span {
+    display: block;
+    color: var(--placement-muted);
+    font-size: .72rem;
+}
+
+.placement-capacity strong {
+    display: block;
+    margin-top: .2rem;
+    color: var(--placement-ink);
+    font-size: 1.25rem;
+    line-height: 1.1;
+}
+
+.placement-status--danger { color: var(--w-color-critical-200, #b4191f); }
+.placement-status--ok { color: var(--w-color-positive-100, #157f5b); }
+
+.placement-overrides {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(15rem, .75fr);
+    gap: .9rem 1rem;
+}
+
+.placement-overrides .placement-field:first-child {
+    grid-column: 1 / -1;
+}
+
+.placement-overrides .placement-field + .placement-field,
+.placement-schedule .placement-field + .placement-field {
+    margin-top: 0;
+}
+
+.placement-schedule {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .9rem 1rem;
+}
+
+.placement-schedule__options {
+    display: grid;
+    grid-template-columns: minmax(10rem, .7fr) repeat(2, minmax(9rem, .65fr));
+    gap: .75rem;
+    margin-top: .9rem;
+}
+
+.placement-toggle {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    min-height: 3.65rem;
+    padding: .75rem .85rem;
+    border: 1px solid var(--placement-line);
+    border-radius: .5rem;
+    background: var(--placement-field);
+}
+
+.placement-toggle input[type="checkbox"] {
+    flex: 0 0 auto;
+    width: 1.1rem;
+    height: 1.1rem;
+    margin: 0;
+}
+
+.placement-toggle label {
+    margin: 0;
+    font-weight: 700;
+}
+
+.placement-toggle small {
+    display: block;
+    margin-top: .12rem;
+    color: var(--placement-muted);
+    font-size: .72rem;
+    font-weight: 400;
+    line-height: 1.35;
+}
+
+.placement-preview {
+    position: sticky;
+    top: 1rem;
+    overflow: hidden;
+    border: 1px solid var(--placement-line);
+    border-radius: .65rem;
+    background: var(--placement-field);
+}
+
+.placement-preview__header {
+    align-items: center;
+    margin: 0;
+    padding: 1rem;
+    border-bottom: 1px solid var(--placement-line);
+    background: var(--placement-panel);
+}
+
+.placement-preview__live {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    margin-left: auto;
+    color: var(--w-color-positive-100, #157f5b);
+    font-size: .72rem;
+    font-weight: 700;
+}
+
+.placement-preview__live::before {
+    width: .48rem;
+    height: .48rem;
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 0 0 .2rem color-mix(in srgb, currentColor 15%, transparent);
+    content: "";
+}
+
+.placement-preview-card {
+    margin: 1rem;
+    overflow: hidden;
+    border: 1px solid var(--placement-line);
+    border-radius: .6rem;
+    background: var(--placement-panel);
+    box-shadow: 0 .45rem 1.25rem rgba(15, 23, 42, .08);
+}
+
+.placement-preview-card .c-card__image {
+    display: block;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: #dcebf1;
+}
+
+.placement-preview-card .c-card__image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.placement-preview-card .c-card__body {
+    padding: 1rem;
+}
+
+.placement-preview-card .c-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .3rem;
+    margin-bottom: .55rem;
+    color: var(--placement-accent);
+    font-size: .72rem;
+    font-weight: 700;
+}
+
+.placement-preview-card h3 {
+    margin: 0;
+    color: var(--placement-ink);
+    font-size: 1.15rem;
+    line-height: 1.35;
+}
+
+.placement-preview-card p {
+    display: -webkit-box;
+    margin: .55rem 0 0;
+    overflow: hidden;
+    color: var(--placement-muted);
+    line-height: 1.55;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+}
+
+.placement-preview__note {
+    margin: 0;
+    padding: 0 1rem 1rem;
+    color: var(--placement-muted);
+    font-size: .76rem;
+    line-height: 1.5;
+}
+
+.placement-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 1.2rem -1.4rem 0;
+    padding: .9rem 1.4rem;
+    border-top: 1px solid var(--placement-line);
+    background: color-mix(in srgb, var(--placement-panel) 92%, transparent);
+    box-shadow: 0 -.3rem 1rem rgba(15, 23, 42, .04);
+    backdrop-filter: blur(.55rem);
+}
+
+.placement-actions__hint {
+    margin: 0;
+    color: var(--placement-muted);
+    font-size: .78rem;
+}
+
+.placement-actions__buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .6rem;
+}
+
+.placement-form-errors {
+    margin-bottom: 1rem;
+    padding: .85rem 1rem;
+    border-left: .25rem solid var(--w-color-critical-200, #b4191f);
+    border-radius: .35rem;
+    background: color-mix(in srgb, var(--w-color-critical-200, #b4191f) 8%, transparent);
+}
+
+.placement-server-preview,
+.placement-current {
+    padding: 1.3rem 1.4rem;
+}
+
+.placement-server-preview__frame {
+    max-width: 52rem;
+    padding: 1.25rem;
+    border: 1px solid var(--placement-line);
+    border-radius: .6rem;
+    background: var(--placement-field);
+}
+
+.placement-current__heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: .35rem;
+}
+
+.placement-current__heading h2 {
+    margin: 0;
+}
+
+.placement-current table {
+    margin-top: 1rem;
+}
+
+.placement-current td,
+.placement-current th {
+    vertical-align: middle;
+}
+
+.placement-order-actions {
+    white-space: nowrap;
+}
+
+.placement-order-actions .button,
+.placement-order-actions form {
+    margin-right: .25rem;
+}
+
+@media (max-width: 1100px) {
+    .placement-builder {
+        grid-template-columns: 1fr;
+    }
+
+    .placement-preview {
+        position: static;
+    }
+
+    .placement-preview-card {
+        display: grid;
+        grid-template-columns: minmax(15rem, .8fr) minmax(0, 1.2fr);
+    }
+
+    .placement-preview-card .c-card__image {
+        aspect-ratio: auto;
+        min-height: 14rem;
+    }
+}
+
+@media (max-width: 800px) {
+    .placement-filter .fields,
+    .placement-step-grid,
+    .placement-overrides,
+    .placement-schedule,
+    .placement-schedule__options {
+        grid-template-columns: 1fr;
+    }
+
+    .placement-overrides .placement-field:first-child {
+        grid-column: auto;
+    }
+
+    .placement-preview-card {
+        display: block;
+    }
+
+    .placement-preview-card .c-card__image {
+        aspect-ratio: 16 / 9;
+        min-height: 0;
+    }
+}
+
+@media (max-width: 600px) {
+    .placement-surface__header,
+    .placement-current__heading,
+    .placement-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .placement-mode {
+        align-self: flex-start;
+    }
+
+    .placement-editor__body,
+    .placement-filter,
+    .placement-current,
+    .placement-server-preview {
+        padding-right: 1rem;
+        padding-left: 1rem;
+    }
+
+    .placement-actions {
+        margin-right: -1rem;
+        margin-left: -1rem;
+        padding-right: 1rem;
+        padding-left: 1rem;
+    }
+
+    .placement-actions__buttons .button {
+        flex: 1 1 auto;
+        text-align: center;
+    }
+
+    .placement-eligibility {
+        grid-template-columns: 1fr;
+    }
+}
+
+.bulk-placement-grid {
+    display: grid;
+    grid-template-columns: minmax(20rem, .78fr) minmax(32rem, 1.35fr);
+    align-items: start;
+    gap: 1rem;
+}
+
+.bulk-placement-grid .placement-step {
+    min-width: 0;
+}
+
+.bulk-placement-grid .placement-step:nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+}
+
+.bulk-placement-grid .placement-step:nth-child(2) {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+}
+
+.bulk-placement-grid .placement-step:nth-child(3) {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.bulk-placement-grid select[multiple] {
+    width: 100%;
+    min-height: 20rem;
+}
+
+.bulk-placement-summary {
+    margin: .75rem 0 0;
+    padding: .75rem .85rem;
+    border-radius: .45rem;
+    background: var(--placement-field);
+    color: var(--placement-muted);
+}
+
+@media (max-width: 1100px) {
+    .bulk-placement-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .bulk-placement-grid .placement-step:nth-child(n) {
+        grid-column: 1;
+        grid-row: auto;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="w-header">
+    <div class="row">
+        <div class="left">
+            <h1>{{ title }}</h1>
+            <p class="placement-ui__intro">仅审核通过且已上线的文章可进入投放。请先选文章和目标，再配置展示内容与生效时间；审核通过不等于自动上前台。</p>
+        </div>
+    </div>
+</header>
+
+<div class="nice-padding">
+    <div class="placement-ui">
+        <section class="placement-surface" id="placement-filters">
+            <div class="placement-surface__header">
+                <div>
+                    <span class="placement-kicker">Content inventory</span>
+                    <h2>筛选投放与可用文章</h2>
+                    <p>先缩小文章、目标和版位范围，便于快速定位待维护内容。</p>
+                </div>
+            </div>
+            <div class="placement-filter">
+                <form method="get" action="{% url 'placements:index' %}">
+                    <ul class="fields">
+                        {% for field in filter_form %}
+                            {% if field.is_hidden %}
+                                {{ field }}
+                            {% else %}
+                                <li>
+                                    {{ field.label_tag }}
+                                    {{ field }}
+                                    {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+                    </ul>
+                    <div class="placement-filter__actions">
+                        <button type="submit" class="button">应用筛选</button>
+                        <a class="button button-secondary" href="{% url 'placements:index' %}">重置条件</a>
+                    </div>
+                </form>
+                <p class="placement-filter__result">
+                    <span class="placement-filter__count">{{ approved_article_count }}</span>
+                    <span>共有 {{ approved_article_count }} 篇可投放文章。目标范围包括主站、固定栏目、启用中的子期刊和 Search 静态推荐页。</span>
+                </p>
+            </div>
+        </section>
+
+        {% if can_add %}
+            <section
+                class="placement-surface"
+                id="bulk-journal-placement"
+                data-bulk-placement
+                data-articles-url="{% url 'placements:bulk_articles' %}"
+                data-capacity-url="{% url 'placements:capacity' %}"
+            >
+                <div class="placement-surface__header">
+                    <div>
+                        <span class="placement-kicker">Bulk placement</span>
+                        <h2>批量投放到同一子期刊</h2>
+                        <p>一次选择多篇审核通过文章，统一投放到同一个子期刊和固定版位。</p>
+                    </div>
+                    <span class="placement-mode">批量模式</span>
+                </div>
+                <form method="post" action="{% url 'placements:index' %}" data-bulk-placement-form>
+                    <div class="placement-editor__body">
+                        {% csrf_token %}
+                        <input type="hidden" name="mode" value="bulk_journal">
+                        {% if bulk_form.non_field_errors %}<div class="placement-form-errors">{{ bulk_form.non_field_errors }}</div>{% endif %}
+                        <div class="bulk-placement-grid">
+                            <section class="placement-step">
+                                <div class="placement-step__header">
+                                    <span class="placement-step__number">01</span>
+                                    <div><h3>选择子期刊与版位</h3><p>所选文章将统一进入该目标版位。</p></div>
+                                </div>
+                                {% with field=bulk_form.journal %}<div class="placement-field">{{ field.label_tag }}{{ field }}{% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}</div>{% endwith %}
+                                {% with field=bulk_form.slot %}<div class="placement-field">{{ field.label_tag }}{{ field }}{% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}</div>{% endwith %}
+                                <div class="placement-capacity" data-bulk-capacity-panel>
+                                    <div><span>最大容量</span><strong data-bulk-capacity-max>—</strong></div>
+                                    <div><span>当前占用</span><strong data-bulk-capacity-current>—</strong></div>
+                                    <div><span>剩余容量</span><strong data-bulk-capacity-remaining>—</strong></div>
+                                </div>
+                            </section>
+                            <section class="placement-step">
+                                <div class="placement-step__header">
+                                    <span class="placement-step__number">02</span>
+                                    <div><h3>批量选择文章</h3><p>切换子期刊后，可用文章列表会自动刷新。</p></div>
+                                </div>
+                                <div class="placement-field">
+                                    <label for="bulk-article-search">快速筛选</label>
+                                    <input id="bulk-article-search" type="search" placeholder="输入标题或静态 slug" data-bulk-article-search>
+                                </div>
+                                {% with field=bulk_form.articles %}<div class="placement-field">{{ field.label_tag }}{{ field }}{% if field.help_text %}<p class="placement-field__hint">{{ field.help_text }}</p>{% endif %}{% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}</div>{% endwith %}
+                                <p class="placement-field__hint" data-bulk-articles-message aria-live="polite">正在加载该子期刊的可用文章…</p>
+                                <p class="bulk-placement-summary"><strong data-bulk-selected-count>0</strong> 篇已选择。已启用的重复投放会自动跳过。</p>
+                            </section>
+                            <section class="placement-step">
+                                <div class="placement-step__header">
+                                    <span class="placement-step__number">03</span>
+                                    <div><h3>统一生效设置</h3><p>批量设置置顶与生效时间。</p></div>
+                                </div>
+                                {% for field in bulk_form %}{% if field.name != "journal" and field.name != "slot" and field.name != "articles" %}<div class="placement-field">{{ field.label_tag }}{{ field }}{% if field.help_text %}<p class="placement-field__hint">{{ field.help_text }}</p>{% endif %}{% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}</div>{% endif %}{% endfor %}
+                                <p class="placement-field__hint" data-bulk-capacity-message>选择版位后自动检查容量。</p>
+                                <button type="submit" class="button" data-bulk-submit>一键投放所选文章</button>
+                            </section>
+                        </div>
+                    </div>
+                </form>
+            </section>
+        {% endif %}
+
+        {% if can_add or editing_placement %}
+            <section
+                class="placement-surface"
+                id="placement-editor"
+                data-placement-workbench
+                data-capacity-url="{% url 'placements:capacity' %}"
+                data-preview-fallback="{% static 'images/reference/article-1.png' %}"
+            >
+                <div class="placement-surface__header">
+                    <div>
+                        <span class="placement-kicker">Controlled placement</span>
+                        <h2>{% if editing_placement %}编辑投放 #{{ editing_placement.pk }}{% else %}受控投放工作台{% endif %}</h2>
+                        <p>按内容来源、投放位置、展示覆盖和发布规则四步完成配置，右侧会同步显示文章卡片效果。</p>
+                    </div>
+                    <span class="placement-mode">{% if editing_placement %}编辑模式{% else %}新增投放{% endif %}</span>
+                </div>
+
+                <form method="post" enctype="multipart/form-data" action="{% url 'placements:index' %}" data-placement-form>
+                    <div class="placement-editor__body">
+                        {% csrf_token %}
+                        {% if editing_placement %}<input type="hidden" name="placement_id" value="{{ editing_placement.pk }}">{% endif %}
+                        <input type="hidden" name="article_query" value="{{ article_query }}">
+
+                        {% if editing_placement %}
+                            <p><a href="{% url 'placements:index' %}#placement-editor">退出编辑，改为新增投放</a></p>
+                        {% endif %}
+                        {% if form.non_field_errors %}
+                            <div class="placement-form-errors">{{ form.non_field_errors }}</div>
+                        {% endif %}
+
+                        <div class="placement-builder">
+                            <div class="placement-builder__main">
+                                <div class="placement-step-grid">
+                                    <section class="placement-step">
+                                        <div class="placement-step__header">
+                                            <span class="placement-step__number">01</span>
+                                            <div>
+                                                <h3>选择文章</h3>
+                                                <p>仅显示当前可投放的正式文章。</p>
+                                            </div>
+                                        </div>
+                                        {% with field=form.article %}
+                                            <div class="placement-field">
+                                                {{ field.label_tag }}
+                                                {{ field }}
+                                                {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                            </div>
+                                        {% endwith %}
+                                        <div class="placement-eligibility" aria-label="文章投放条件">
+                                            <span>审核已通过</span>
+                                            <span>文章已上线</span>
+                                            <span>期刊已启用</span>
+                                        </div>
+                                    </section>
+
+                                    <section class="placement-step">
+                                        <div class="placement-step__header">
+                                            <span class="placement-step__number">02</span>
+                                            <div>
+                                                <h3>确定位置</h3>
+                                                <p>选择页面目标及模板预设版位。</p>
+                                            </div>
+                                        </div>
+                                        {% with field=form.target %}
+                                            <div class="placement-field">
+                                                {{ field.label_tag }}
+                                                {{ field }}
+                                                {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                            </div>
+                                        {% endwith %}
+                                        {% with field=form.slot %}
+                                            <div class="placement-field">
+                                                {{ field.label_tag }}
+                                                {{ field }}
+                                                {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                            </div>
+                                        {% endwith %}
+                                        <div class="placement-capacity" data-capacity-panel>
+                                            <div><span>最大容量</span><strong data-capacity-max>—</strong></div>
+                                            <div><span>区间占用</span><strong data-capacity-current>—</strong></div>
+                                            <div><span>剩余容量</span><strong data-capacity-remaining>—</strong></div>
+                                        </div>
+                                        <p class="placement-field__hint" data-capacity-message>选择目标、版位和生效区间后自动检查容量。</p>
+                                    </section>
+                                </div>
+
+                                <section class="placement-step">
+                                    <div class="placement-step__header">
+                                        <span class="placement-step__number">03</span>
+                                        <div>
+                                            <h3>设置展示内容</h3>
+                                            <p>覆盖项均为可选；留空时沿用文章原始标题、摘要和图片。</p>
+                                        </div>
+                                    </div>
+                                    <div class="placement-overrides">
+                                        {% with field=form.override_title %}
+                                            <div class="placement-field">
+                                                {{ field.label_tag }}
+                                                {{ field }}
+                                                <p class="placement-field__hint">仅影响本次投放卡片，不修改文章原标题。</p>
+                                                {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                            </div>
+                                        {% endwith %}
+                                        {% with field=form.override_summary %}
+                                            <div class="placement-field">
+                                                {{ field.label_tag }}
+                                                {{ field }}
+                                                <p class="placement-field__hint">建议控制在 2–3 行，便于列表页快速阅读。</p>
+                                                {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                            </div>
+                                        {% endwith %}
+                                        {% with field=form.override_image %}
+                                            <div class="placement-field">
+                                                {{ field.label_tag }}
+                                                {{ field }}
+                                                <p class="placement-field__hint">留空时使用文章默认图片；选择覆盖图只影响当前版位，不修改文章详情页封面。</p>
+                                                {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                            </div>
+                                        {% endwith %}
+                                        {% with field=form.override_image_alt %}
+                                            <div class="placement-field">
+                                                {{ field.label_tag }}
+                                                {{ field }}
+                                                <p class="placement-field__hint">描述图片在当前版位中的信息；留空时按文章封面 Alt、图片描述或图片标题回退，正式发布前必须有可用 Alt。</p>
+                                                {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                            </div>
+                                        {% endwith %}
+                                    </div>
+                                </section>
+
+                                <section class="placement-step">
+                                    <div class="placement-step__header">
+                                        <span class="placement-step__number">04</span>
+                                        <div>
+                                            <h3>安排顺序与时间</h3>
+                                            <p>控制同版位内的优先级以及投放生效区间。</p>
+                                        </div>
+                                    </div>
+                                    <div class="placement-schedule">
+                                        {% with field=form.starts_at %}
+                                            <div class="placement-field">
+                                                {{ field.label_tag }}
+                                                {{ field }}
+                                                <p class="placement-field__hint">留空表示保存后立即生效。</p>
+                                                {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                            </div>
+                                        {% endwith %}
+                                        {% with field=form.ends_at %}
+                                            <div class="placement-field">
+                                                {{ field.label_tag }}
+                                                {{ field }}
+                                                <p class="placement-field__hint">留空表示长期有效。</p>
+                                                {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                            </div>
+                                        {% endwith %}
+                                    </div>
+                                    <div class="placement-schedule__options">
+                                        {% with field=form.sort_order %}
+                                            <div class="placement-field">
+                                                {{ field.label_tag }}
+                                                {{ field }}
+                                                <p class="placement-field__hint">数值越小，同级排序越靠前。</p>
+                                                {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                            </div>
+                                        {% endwith %}
+                                        {% with field=form.is_pinned %}
+                                            <div class="placement-toggle">
+                                                {{ field }}
+                                                <div>
+                                                    {{ field.label_tag }}
+                                                    <small>优先于同版位普通内容</small>
+                                                </div>
+                                            </div>
+                                            {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                        {% endwith %}
+                                        {% with field=form.is_active %}
+                                            <div class="placement-toggle">
+                                                {{ field }}
+                                                <div>
+                                                    {{ field.label_tag }}
+                                                    <small>关闭后不会进入正式发布</small>
+                                                </div>
+                                            </div>
+                                            {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                                        {% endwith %}
+                                    </div>
+                                </section>
+                            </div>
+
+                            <aside class="placement-preview" data-live-preview>
+                                <div class="placement-preview__header">
+                                    <span class="placement-step__number">⌁</span>
+                                    <div>
+                                        <h3>文章卡片预览</h3>
+                                        <p>输入内容时实时更新。</p>
+                                    </div>
+                                    <span class="placement-preview__live">实时</span>
+                                </div>
+                                <article class="placement-preview-card c-card">
+                                    <a class="c-card__image" aria-hidden="true" tabindex="-1">
+                                        <img data-preview-image src="{% static 'images/reference/article-1.png' %}" alt="文章预览图">
+                                    </a>
+                                    <div class="c-card__body">
+                                        <span class="c-meta">
+                                            <span data-preview-target>选择投放目标</span>
+                                            <span aria-hidden="true">·</span>
+                                            <span data-preview-slot>选择版位</span>
+                                        </span>
+                                        <h3 data-preview-title>选择文章后显示标题</h3>
+                                        <p data-preview-summary>摘要覆盖为空时，正式生成将使用文章原摘要。</p>
+                                    </div>
+                                </article>
+                                <p class="placement-preview__note">此处用于快速校对信息层级；“服务端正式组件预览”会使用真实模板生成最终效果。</p>
+                            </aside>
+                        </div>
+
+                        <div class="placement-actions">
+                            <p class="placement-actions__hint">保存前请确认目标、版位、容量和生效时间。</p>
+                            <div class="placement-actions__buttons">
+                                <button type="submit" name="action" value="preview" class="button button-secondary">正式组件预览</button>
+                                <button type="submit" name="action" value="save" class="button">{% if editing_placement %}保存修改{% else %}保存投放{% endif %}</button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </section>
+        {% endif %}
+
+        {% if preview_placement %}
+            <section class="placement-surface placement-server-preview" id="placement-preview" data-placement-preview="true">
+                <h2>正式文章卡片预览（未保存）</h2>
+                <p>目标：{{ preview_target_label }}；版位：{{ preview_placement.slot.title }}（{{ preview_placement.slot.code }}）</p>
+                <div class="placement-server-preview__frame">
+                    {% include "components/static_article_card.html" with placement=preview_placement %}
+                </div>
+            </section>
+        {% endif %}
+
+        <section
+            class="placement-surface placement-current"
+            id="current-placements"
+            data-reorder-url="{% url 'placements:reorder' %}"
+            data-can-reorder="{% if can_change %}1{% else %}0{% endif %}"
+        >
+            <div class="placement-current__heading">
+                <h2>当前生效内容（{{ current_total }}）</h2>
+                <span class="placement-mode">实时投放清单</span>
+            </div>
+            <p class="help-block">排序只作用于同一目标和同一固定版位，不会改变模板结构；未来生效内容可通过精确目标和版位筛选维护。</p>
+            {% if current_placements %}
+                <div class="w-overflow-x-auto">
+                    <table class="listing">
+                        <thead>
+                            <tr>
+                                <th>文章</th>
+                                <th>目标</th>
+                                <th>版位</th>
+                                <th>排序</th>
+                                <th>生效区间</th>
+                                <th>覆盖</th>
+                                {% if can_change %}<th>操作</th>{% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for placement in current_placements %}
+                                <tr
+                                    data-placement-id="{{ placement.pk }}"
+                                    data-placement-group="{{ placement.target_type }}:{{ placement.target_slug }}:{{ placement.target_category_id|default:'' }}:{{ placement.slot_id }}"
+                                >
+                                    <td><strong>{{ placement.article.title }}</strong><br><small>{{ placement.article.primary_journal }}</small></td>
+                                    <td>{{ placement.get_target_type_display }}{% if placement.target_slug %} / {{ placement.target_slug }}{% endif %}</td>
+                                    <td>{{ placement.slot.title }}<br><code>{{ placement.slot.code }}</code></td>
+                                    <td>{% if placement.is_pinned %}<strong>置顶</strong> / {% endif %}<span data-sort-order>{{ placement.sort_order }}</span></td>
+                                    <td>{% if placement.starts_at %}{{ placement.starts_at }}{% else %}立即{% endif %}<br>至 {% if placement.ends_at %}{{ placement.ends_at }}{% else %}长期{% endif %}</td>
+                                    <td>
+                                        {% if placement.override_title %}标题{% endif %}
+                                        {% if placement.override_summary %} 摘要{% endif %}
+                                        {% if placement.override_image %} 图片{% endif %}
+                                        {% if not placement.override_title and not placement.override_summary and not placement.override_image %}无{% endif %}
+                                    </td>
+                                    {% if can_change %}
+                                        <td class="placement-order-actions">
+                                            <button type="button" class="button button-small button-secondary" data-move="up" title="上移">↑</button>
+                                            <button type="button" class="button button-small button-secondary" data-move="down" title="下移">↓</button>
+                                            <a class="button button-small button-secondary" href="{% url 'placements:index' %}?edit={{ placement.pk }}#placement-editor">编辑</a>
+                                            <form method="post" action="{% url 'placements:deactivate' placement.pk %}" style="display:inline" onsubmit="return confirm('确认停用此投放？');">
+                                                {% csrf_token %}
+                                                <button class="button button-small button-secondary" type="submit">停用</button>
+                                            </form>
+                                        </td>
+                                    {% endif %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if current_truncated %}<p class="help-block">仅显示前 100 条，请缩小筛选范围。</p>{% endif %}
+            {% else %}
+                <p>当前筛选范围内没有生效投放。</p>
+            {% endif %}
+        </section>
+    </div>
+</div>
+<script src="{% static 'placements/placements-workbench.js' %}?v=20260730-2"></script>
+{% endblock %}

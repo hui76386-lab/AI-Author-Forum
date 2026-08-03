@@ -1,0 +1,180 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+{% block titletag %}{{ mode_label }}{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=mode_label icon="site" %}
+<div class="nice-padding" id="managed-navigation-admin">
+  <nav class="w-flex w-gap-4 w-mb-6" aria-label="栏目配置范围">
+    <a class="button {% if mode == 'main' %}button-primary{% else %}button-secondary{% endif %}" href="?mode=main">主站栏目</a>
+    <a class="button {% if mode == 'journal' %}button-primary{% else %}button-secondary{% endif %}" href="?mode=journal">子期刊栏目</a>
+    <a class="button {% if mode == 'template' %}button-primary{% else %}button-secondary{% endif %}" href="?mode=template">默认子期刊模板</a>
+  </nav>
+
+  {% if mode == 'journal' %}
+    <form method="get" class="w-mb-6">
+      <input type="hidden" name="mode" value="journal">
+      <label for="journal-select"><strong>选择子期刊</strong></label>
+      <select id="journal-select" name="journal" onchange="this.form.submit()">
+        {% for journal in journals %}
+          <option value="{{ journal.pk }}" {% if navigation_set.journal_id == journal.pk %}selected{% endif %}>{{ journal.name }} ({{ journal.slug }})</option>
+        {% empty %}<option>没有可用子期刊</option>{% endfor %}
+      </select>
+      <noscript><button class="button">加载</button></noscript>
+    </form>
+  {% endif %}
+
+  {% if navigation_set %}
+    <div class="help-block w-mb-5">
+      <strong>{{ navigation_set }}</strong> · 版本 {{ navigation_set.version }} · {{ navigation_set.get_status_display }}
+      · 预计影响 {{ impact.paths|length }} 个静态页面
+    </div>
+
+    <div class="w-flex w-flex-wrap w-gap-3 w-mb-6">
+      <a class="button button-secondary" href="{{ preview_url }}" target="_blank" rel="noopener noreferrer">预览栏目</a>
+      {% if can_copy_template %}
+        <form method="post">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}"><input type="hidden" name="journal" value="{{ navigation_set.journal_id }}"><input type="hidden" name="operation" value="template_preview"><button class="button button-secondary">从模板复制</button></form>
+      {% endif %}
+      {% if can_publish %}
+        <form method="post">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="publish_changes"><button class="button button-primary">发布变更</button></form>
+      {% endif %}
+    </div>
+
+    <details class="w-mb-8">
+      <summary><strong>桌面端与移动端真实前台预览</strong></summary>
+      <p>预览用于检查分组顺序、下拉宽度、超长名称、空状态与移动端折叠菜单；隐藏项只在下方管理树显示，不会进入前台菜单。</p>
+      <div class="managed-preview-grid">
+        <div><h3>桌面端</h3><iframe title="桌面端栏目预览" src="{{ preview_url }}" class="managed-preview-desktop"></iframe></div>
+        <div><h3>移动端</h3><iframe title="移动端栏目预览" src="{{ preview_url }}" class="managed-preview-mobile"></iframe></div>
+      </div>
+    </details>
+
+    {% if confirmation %}
+      <section class="help-block help-critical w-mb-8" aria-label="二次确认">
+        <h2>二次确认</h2>
+        <p>{{ confirmation.message }}</p>
+        {% if confirmation.kind == 'template_copy' %}
+          <p>当前配置：{{ confirmation.current_groups }} 组 / {{ confirmation.current_items }} 项；模板：{{ confirmation.template_groups }} 组 / {{ confirmation.template_items }} 项；将重建 {{ confirmation.affected_page_count }} 个页面。旧配置将归档，不会被无提示删除。</p>
+          <details><summary>查看受影响路径</summary><ul>{% for path in confirmation.paths %}<li><code>{{ path }}</code></li>{% endfor %}</ul></details>
+          <form method="post">{% csrf_token %}<input type="hidden" name="mode" value="journal"><input type="hidden" name="journal" value="{{ navigation_set.journal_id }}"><input type="hidden" name="operation" value="template_copy"><input type="hidden" name="confirmed" value="1"><button class="button button-warning">确认覆盖复制</button></form>
+        {% elif confirmation.kind == 'duplicate_soft_limit' %}
+          <form method="post">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="duplicate_item"><input type="hidden" name="item_id" value="{{ confirmation.item.pk }}"><input type="hidden" name="confirmed" value="1"><button class="button button-warning">确认复制</button></form>
+        {% elif confirmation.kind == 'group_soft_limit' %}
+          <form method="post">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="save_group"><input type="hidden" name="confirm_soft_limit" value="1">{% for field in confirmation.form.visible_fields %}{% formattedfield field %}{% endfor %}<button class="button button-warning">确认保存第 9 个分组</button></form>
+        {% elif confirmation.kind == 'item_soft_limit' %}
+          <form method="post">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="save_item"><input type="hidden" name="group_id" value="{{ confirmation.group.pk }}"><input type="hidden" name="confirm_soft_limit" value="1">{% for field in confirmation.form.visible_fields %}{% formattedfield field %}{% endfor %}<button class="button button-warning">确认保存第 21 个入口</button></form>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {% if references and reference_item %}
+      <section class="help-block w-mb-8" id="reference-preview">
+        <h2>删除前影响预览：{{ reference_item.label }}</h2>
+        <ul>
+          <li>文章分类：{{ references.article_categories }}</li>
+          <li>活动投放：{{ references.active_placements }}</li>
+          <li>全部历史投放：{{ references.placements }}</li>
+          <li>静态页面：{{ references.static_pages }}</li>
+          <li>导航引用：{{ references.navigation_references }}</li>
+          <li>历史发布版本：{{ references.historical_versions }}</li>
+          <li>历史 Redirect：{{ references.redirects }}</li>
+        </ul>
+        {% if references.can_hard_delete %}
+          <form method="post" onsubmit="return confirm('仅从未发布且无任何引用的草稿可以硬删除。确认删除？')">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="hard_delete_item"><input type="hidden" name="item_id" value="{{ reference_item.pk }}"><button class="button button-warning">受控硬删除</button></form>
+        {% else %}<p><strong>存在引用或权限不足，默认只允许隐藏或归档，不提供普通硬删除。</strong></p>{% endif %}
+      </section>
+    {% endif %}
+
+    <section class="w-mb-8">
+      <h2>分组和栏目入口树</h2>
+      <p>{% if can_reorder %}拖动只允许在当前配置内调整分组顺序，或在两层结构内移动栏目入口；保存时带版本号并由服务端重新校验。{% else %}当前角色只读，不能拖动或修改。{% endif %}</p>
+      <div id="navigation-tree" data-version="{{ navigation_set.version }}" data-reorder="{% if can_reorder %}1{% else %}0{% endif %}">
+        {% for group in groups %}
+          <article class="managed-nav-group" data-group-id="{{ group.pk }}" {% if can_reorder %}draggable="true"{% endif %}>
+            <header class="managed-nav-group-header">
+              <span class="drag-handle" aria-hidden="true">≡</span>
+              <strong>{{ group.label }}</strong> <code>{{ group.code }}</code>
+              <span class="status-tag">{{ group.get_status_display }}{% if not group.is_visible %} / 隐藏{% endif %}</span>
+              {% if can_manage %}
+                <a href="?mode={{ mode }}{% if navigation_set.journal_id %}&journal={{ navigation_set.journal_id }}{% endif %}&edit_group={{ group.pk }}">编辑</a>
+                <form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="group_id" value="{{ group.pk }}"><input type="hidden" name="operation" value="{% if group.is_visible %}hide_group{% else %}enable_group{% endif %}"><button class="button button-small button-secondary">{% if group.is_visible %}隐藏{% else %}启用{% endif %}</button></form>
+              {% endif %}
+            </header>
+            <ol class="managed-nav-items" data-group-id="{{ group.pk }}">
+              {% for item in group.items.all %}
+                <li class="managed-nav-item" data-item-id="{{ item.pk }}" {% if can_reorder %}draggable="true"{% endif %}>
+                  <span class="drag-handle" aria-hidden="true">≡</span>
+                  <strong>{{ item.label }}</strong>
+                  <span>{{ item.get_target_type_display }}</span>
+                  <code>{{ item.target_url|default:'无直接地址' }}</code>
+                  <span class="status-tag">{{ item.get_status_display }}{% if not item.is_visible %} / 隐藏{% endif %}</span>
+                  <span class="managed-actions">
+                    <a href="?mode={{ mode }}{% if navigation_set.journal_id %}&journal={{ navigation_set.journal_id }}{% endif %}&references={{ item.pk }}#reference-preview">查看引用</a>
+                      {% if item.target_type == 'content_column' and can_edit_content %}<a href="?mode={{ mode }}{% if navigation_set.journal_id %}&journal={{ navigation_set.journal_id }}{% endif %}&edit_config={{ item.pk }}#content-config-form">内容配置</a>{% endif %}
+                    {% if can_manage %}
+                      <a href="?mode={{ mode }}{% if navigation_set.journal_id %}&journal={{ navigation_set.journal_id }}{% endif %}&edit_item={{ item.pk }}#item-form">编辑</a>
+                      <form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="duplicate_item"><input type="hidden" name="item_id" value="{{ item.pk }}"><button class="link-button">复制</button></form>
+                      {% if item.status == 'archived' %}
+                        <form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="restore_item"><input type="hidden" name="item_id" value="{{ item.pk }}"><button class="link-button">恢复</button></form>
+                      {% else %}
+                        <form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="{% if item.is_visible %}hide_item{% else %}enable_item{% endif %}"><input type="hidden" name="item_id" value="{{ item.pk }}"><button class="link-button">{% if item.is_visible %}隐藏{% else %}启用{% endif %}</button></form>
+                        <form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="archive_item"><input type="hidden" name="item_id" value="{{ item.pk }}"><button class="link-button">归档</button></form>
+                      {% endif %}
+                    {% endif %}
+                  </span>
+                </li>
+              {% empty %}<li class="empty-item">该分组暂无栏目入口。</li>{% endfor %}
+            </ol>
+            {% if can_manage %}<a class="button button-small button-secondary" href="?mode={{ mode }}{% if navigation_set.journal_id %}&journal={{ navigation_set.journal_id }}{% endif %}&add_to_group={{ group.pk }}#item-form">+ 添加栏目</a>{% endif %}
+          </article>
+        {% empty %}<div class="help-block">当前配置无导航分组；前台将显示受控空状态。</div>{% endfor %}
+      </div>
+      <div id="reorder-status" role="status" aria-live="polite"></div>
+    </section>
+
+    {% if can_manage %}
+      <section class="managed-form" id="group-form">
+        <h2>{% if edit_group %}编辑导航分组{% else %}+ 添加导航分组{% endif %}</h2>
+        <form method="post">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="save_group">{% if edit_group %}<input type="hidden" name="group_id" value="{{ edit_group.pk }}">{% endif %}{% for field in group_form.visible_fields %}{% formattedfield field %}{% endfor %}<button class="button button-primary">保存分组</button></form>
+      </section>
+
+      {% if groups %}
+      <section class="managed-form" id="item-form">
+        <h2>{% if edit_item %}编辑栏目入口{% else %}+ 添加栏目{% endif %}</h2>
+        <form method="post" id="navigation-item-form">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="save_item">{% if edit_item %}<input type="hidden" name="item_id" value="{{ edit_item.pk }}">{% endif %}
+          <label for="item-group"><strong>所属分组</strong></label><select id="item-group" name="group_id">{% for group in groups %}<option value="{{ group.pk }}" {% if edit_item.group_id == group.pk or item_form_group.pk == group.pk %}selected{% endif %}>{{ group.label }}</option>{% endfor %}</select>
+          {% for field in item_form.visible_fields %}<div class="target-field" data-field="{{ field.name }}">{% formattedfield field %}</div>{% endfor %}
+          <button class="button button-primary">保存栏目入口</button>
+        </form>
+      </section>
+      {% endif %}
+    {% endif %}
+
+    {% if config_form and edit_config_item and can_edit_content %}
+      <section class="managed-form" id="content-config-form">
+        <h2>内容栏目配置：{{ edit_config_item.label }}</h2>
+        <p>仅开放受控富文本、封面、分类、筛选、分页、SEO 和空状态；不提供 HTML/JS/iframe、颜色或自由布局。</p>
+        <form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="mode" value="{{ mode }}">{% if navigation_set.journal_id %}<input type="hidden" name="journal" value="{{ navigation_set.journal_id }}">{% endif %}<input type="hidden" name="operation" value="save_content_config"><input type="hidden" name="item_id" value="{{ edit_config_item.pk }}">{% for field in config_form.visible_fields %}{% formattedfield field %}{% endfor %}<button class="button button-primary">保存内容栏目配置</button></form>
+      </section>
+    {% endif %}
+  {% else %}
+    <div class="help-block help-critical">没有可管理的栏目配置。</div>
+  {% endif %}
+</div>
+<style>
+  .managed-nav-group{border:1px solid var(--w-color-border-furniture);padding:1rem;margin-bottom:1rem;background:var(--w-color-surface-page)}
+  .managed-nav-group-header,.managed-nav-item{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}.managed-nav-group-header{margin-bottom:.75rem}.managed-nav-items{min-height:2.5rem;padding-left:1.5rem}.managed-nav-item{padding:.65rem;border-top:1px solid var(--w-color-border-furniture)}
+  .drag-handle{font-size:1.35rem;cursor:grab}.status-tag{padding:.1rem .45rem;background:var(--w-color-surface-menus);border-radius:.2rem}.managed-actions{margin-left:auto;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}.inline-form{display:inline}.link-button{border:0;background:none;color:var(--w-color-text-link-default);text-decoration:underline;cursor:pointer;padding:0}.managed-form{border-top:1px solid var(--w-color-border-furniture);padding-top:1.5rem;margin-top:2rem;max-width:70rem}.managed-preview-grid{display:grid;grid-template-columns:minmax(0,1fr) 24rem;gap:1rem;align-items:start}.managed-preview-desktop{width:100%;height:36rem;border:1px solid #999}.managed-preview-mobile{width:23.4rem;height:42rem;border:1px solid #999}.is-dragging{opacity:.45}.drop-target{outline:2px dashed var(--w-color-focus)}
+  @media(max-width:800px){.managed-preview-grid{grid-template-columns:1fr}.managed-preview-mobile{max-width:100%}.managed-actions{margin-left:0;width:100%}}
+</style>
+<script>
+(function(){
+  const tree=document.getElementById('navigation-tree'); if(!tree||tree.dataset.reorder!=='1') return;
+  const status=document.getElementById('reorder-status'); let dragged=null; let kind='';
+  tree.addEventListener('dragstart',e=>{const item=e.target.closest('.managed-nav-item'); const group=e.target.closest('.managed-nav-group'); if(item){dragged=item;kind='item';e.stopPropagation()}else if(group){dragged=group;kind='group'} if(dragged)dragged.classList.add('is-dragging')});
+  tree.addEventListener('dragend',()=>{if(dragged)dragged.classList.remove('is-dragging');document.querySelectorAll('.drop-target').forEach(x=>x.classList.remove('drop-target'));dragged=null});
+  tree.addEventListener('dragover',e=>{e.preventDefault(); if(kind==='item'){const list=e.target.closest('.managed-nav-items'); if(!list)return; list.classList.add('drop-target'); const after=[...list.querySelectorAll('.managed-nav-item:not(.is-dragging)')].find(el=>e.clientY<el.getBoundingClientRect().top+el.offsetHeight/2); list.insertBefore(dragged,after||null)}else if(kind==='group'){const group=e.target.closest('.managed-nav-group:not(.is-dragging)');if(!group)return; const rect=group.getBoundingClientRect(); tree.insertBefore(dragged,e.clientY<rect.top+rect.height/2?group:group.nextSibling)}});
+  tree.addEventListener('drop',async e=>{e.preventDefault();document.querySelectorAll('.drop-target').forEach(x=>x.classList.remove('drop-target'));const groups=[...tree.querySelectorAll(':scope > .managed-nav-group')];const payload={operation:'reorder_tree',expected_version:Number(tree.dataset.version),groups:groups.map(g=>Number(g.dataset.groupId)),items:{}};groups.forEach(g=>payload.items[g.dataset.groupId]=[...g.querySelectorAll('.managed-nav-item')].map(i=>Number(i.dataset.itemId)));status.textContent='正在保存排序…';const response=await fetch(location.href,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':document.querySelector('[name=csrfmiddlewaretoken]').value},body:JSON.stringify(payload)});const data=await response.json();if(!response.ok){status.textContent='排序保存失败：'+data.error;location.reload();return}tree.dataset.version=data.version;status.textContent='排序已保存并写入审计日志（版本 '+data.version+'）。'});
+  const form=document.getElementById('navigation-item-form'); if(form){const type=form.querySelector('[name=target_type]');const fields={category:['content_column'],page:['wagtail_page'],internal_path:['internal_path'],external_url:['external_url'],open_in_new_tab:['external_url']};const refresh=()=>Object.entries(fields).forEach(([name,types])=>{const node=form.querySelector('[data-field="'+name+'"]');if(node)node.hidden=!types.includes(type.value)});type.addEventListener('change',refresh);refresh()}
+})();
+</script>
+{% endblock %}

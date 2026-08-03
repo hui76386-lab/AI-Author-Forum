@@ -1,0 +1,21 @@
+# Isolated preproduction overlay for DOCX/Markdown import capacity acceptance.
+#
+# It must be combined with docker-compose.production.yml and
+# docker-compose.local-middleware.yml under a dedicated Compose project name.
+# The services, volumes, and network then remain isolated from middleware used by
+# other applications on the same server. This file intentionally does not hold
+# secrets.
+services:
+  database:
+    # Match the PostgreSQL major version available on the target server.
+    image: pgvector/pgvector:pg15
+
+  redis:
+    # Match the Redis major/minor line available on the target server.
+    image: redis:7.2-alpine
+
+  worker:
+    # The worker has Celery concurrency=2. A 2 GiB isolated preproduction limit
+    # accommodates the documented 200-document conversion workload while leaving
+    # a 30% safety headroom against the 70% acceptance ceiling.
+    mem_limit: 2g

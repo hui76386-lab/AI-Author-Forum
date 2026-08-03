@@ -1,0 +1,134 @@
+﻿{% load wagtailadmin_tags %}
+{% if dashboard_has_content %}
+<div id="role-dashboard" class="business-dashboard" data-role-dashboard data-readonly="{{ admin_permission_flags.is_readonly_dashboard|yesno:'true,false' }}">
+  <section class="business-dashboard__intro" aria-labelledby="business-dashboard-title">
+    <div>
+      <span class="business-dashboard__eyebrow">业务工作台</span>
+      <h2 id="business-dashboard-title">按“主对象 → 从属操作”完成内容交付</h2>
+      <p>先选择子期刊或文章，再处理它下面的栏目、审核、投放与发布。文章归属和前台展示分开管理。</p>
+    </div>
+    {% if quick_actions %}
+      <div class="business-dashboard__quick-links" aria-label="快捷操作">
+        {% for action in quick_actions %}
+          <a class="button{% if forloop.first %} button-primary{% else %} button-secondary{% endif %}" href="{{ action.url }}">{{ action.label }}</a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="business-dashboard__section" aria-labelledby="workflow-heading">
+    <div class="business-dashboard__section-heading">
+      <div>
+        <span class="business-dashboard__eyebrow">统一流程</span>
+        <h2 id="workflow-heading">从内容归属到固定 HTML</h2>
+      </div>
+      <p>审核通过不会自动上线，必须经过投放和静态发布。</p>
+    </div>
+    <ol class="workflow-steps">
+      {% for step in workflow_steps %}
+        <li class="workflow-step{% if not step.is_available %} workflow-step--disabled{% endif %}">
+          {% if step.url %}<a href="{{ step.url }}">{% else %}<div>{% endif %}
+            <span class="workflow-step__number">{{ step.number }}</span>
+            <span class="workflow-step__body">
+              <strong>{{ step.title }}</strong>
+              <small>{{ step.description }}</small>
+              {% if step.metric_label %}<span class="workflow-step__metric">{{ step.metric_label }}：{{ step.metric_value }}</span>{% endif %}
+            </span>
+          {% if step.url %}</a>{% else %}</div>{% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  {% if workspace_cards %}
+  <section class="business-dashboard__section" aria-labelledby="workspace-heading">
+    <div class="business-dashboard__section-heading">
+      <div>
+        <span class="business-dashboard__eyebrow">主从关系</span>
+        <h2 id="workspace-heading">先选主对象，再做相关操作</h2>
+      </div>
+      <p>每张卡片只展示当前角色可以访问的入口。</p>
+    </div>
+    <div class="workspace-grid">
+      {% for card in workspace_cards %}
+        <article class="workspace-card" data-workspace-card="{{ card.code }}">
+          <h3>{{ card.title }}</h3>
+          <p>{{ card.description }}</p>
+          <ul>
+            {% for link in card.links %}
+              <li><a href="{{ link.url }}">{{ link.label }}<span aria-hidden="true">→</span></a></li>
+            {% endfor %}
+          </ul>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if quick_actions %}
+  <section class="business-dashboard__section" aria-labelledby="quick-actions-heading">
+    <div class="business-dashboard__section-heading">
+      <div>
+        <span class="business-dashboard__eyebrow">当前角色</span>
+        <h2 id="quick-actions-heading">常用操作</h2>
+      </div>
+    </div>
+    <div class="action-grid">
+      {% for action in quick_actions %}
+        <a class="action-card" href="{{ action.url }}">
+          <strong>{{ action.label }}</strong>
+          <span>{{ action.description }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="business-dashboard__section" aria-labelledby="todo-heading">
+    <div class="business-dashboard__section-heading">
+      <div>
+        <span class="business-dashboard__eyebrow">数据与待办</span>
+        <h2 id="todo-heading">需要关注的工作</h2>
+      </div>
+    </div>
+    <div class="business-dashboard__panels">
+      {% for section in dashboard_sections %}
+        {% panel id=section.code heading=section.title classname="w-panel--dashboard" %}
+          <div data-dashboard-section="{{ section.code }}">
+            <p class="w-mt-0 w-mb-5 w-text-text-meta">{{ section.description }}</p>
+            <div class="metric-grid">
+              {% for metric in section.metrics %}
+                <a class="metric-card" href="{{ metric.url }}" data-dashboard-metric="{{ metric.label }}" data-dashboard-tone="{{ metric.tone }}">
+                  <span>{{ metric.label }}</span>
+                  <strong>{{ metric.value }}</strong>
+                  {% if metric.description %}<small>{{ metric.description }}</small>{% endif %}
+                </a>
+              {% endfor %}
+            </div>
+            {% if section.items %}
+              <div class="business-dashboard__recent">
+                <h3>最近记录</h3>
+                <ul>
+                  {% for item in section.items %}
+                    <li>
+                      <a href="{{ item.url }}">{{ item.title }}</a>
+                      {% if item.action %}<span> · {{ item.action }}</span>{% endif %}
+                      {% if item.latest_revision_created_at %}<span> · {{ item.latest_revision_created_at|date:"Y-m-d H:i" }}</span>{% endif %}
+                      {% if item.created_at %}<span> · {{ item.created_at|date:"Y-m-d H:i" }}</span>{% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+          </div>
+        {% endpanel %}
+      {% endfor %}
+    </div>
+  </section>
+</div>
+<style>
+.business-dashboard{--business-border:var(--w-color-border-furniture);display:grid;gap:2rem;margin-bottom:3rem}.business-dashboard h2,.business-dashboard h3{margin:0}.business-dashboard__intro{display:flex;justify-content:space-between;align-items:flex-start;gap:2rem;padding:1.5rem;border:1px solid var(--business-border);border-left:.35rem solid var(--w-color-primary);background:var(--w-color-surface-page)}.business-dashboard__intro h2{font-size:1.65rem;margin:.25rem 0 .5rem}.business-dashboard__intro p,.business-dashboard__section-heading p{max-width:54rem;margin:0;color:var(--w-color-text-meta)}.business-dashboard__eyebrow{display:block;color:var(--w-color-text-meta);font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.business-dashboard__quick-links{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem}.business-dashboard__section{display:grid;gap:1rem}.business-dashboard__section-heading{display:flex;align-items:end;justify-content:space-between;gap:1rem}.business-dashboard__section-heading h2{margin-top:.2rem}.workflow-steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.75rem;margin:0;padding:0;list-style:none}.workflow-step{position:relative;min-width:0}.workflow-step:not(:last-child)::after{content:"";position:absolute;right:-.75rem;top:1.55rem;width:.75rem;border-top:1px solid var(--business-border)}.workflow-step>a,.workflow-step>div{display:flex;gap:.75rem;height:100%;padding:1rem;border:1px solid var(--business-border);border-radius:.25rem;background:var(--w-color-surface-page);color:inherit;text-decoration:none}.workflow-step>a:hover{border-color:var(--w-color-primary);box-shadow:0 0 0 1px var(--w-color-primary)}.workflow-step--disabled{opacity:.55}.workflow-step__number{display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:var(--w-color-primary);color:white;font-weight:700}.workflow-step__body{display:flex;min-width:0;flex-direction:column;gap:.35rem}.workflow-step__body strong{font-size:1rem}.workflow-step__body small{color:var(--w-color-text-meta);line-height:1.45}.workflow-step__metric{font-size:.75rem;font-weight:600;color:var(--w-color-primary)}.workspace-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}.workspace-card{display:flex;flex-direction:column;min-height:14rem;padding:1.25rem;border:1px solid var(--business-border);border-radius:.25rem;background:var(--w-color-surface-page)}.workspace-card h3{font-size:1.15rem}.workspace-card p{flex:1;color:var(--w-color-text-meta);line-height:1.55}.workspace-card ul{display:grid;gap:.35rem;margin:0;padding:0;list-style:none}.workspace-card a{display:flex;justify-content:space-between;gap:1rem;padding:.45rem 0;border-top:1px solid var(--business-border);font-weight:600;text-decoration:none}.action-grid,.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem}.action-card,.metric-card{display:flex;flex-direction:column;gap:.45rem;padding:1rem;border:1px solid var(--business-border);border-radius:.25rem;background:var(--w-color-surface-page);color:inherit;text-decoration:none}.action-card:hover,.metric-card:hover{border-color:var(--w-color-primary)}.action-card span,.metric-card span,.metric-card small{color:var(--w-color-text-meta)}.metric-card strong{font-size:1.75rem}.metric-card[data-dashboard-tone="danger"]{border-left:.3rem solid var(--w-color-critical-200)}.metric-card[data-dashboard-tone="warning"]{border-left:.3rem solid var(--w-color-warning-100)}.business-dashboard__panels{display:grid;gap:1rem}.business-dashboard__recent{margin-top:1rem}.business-dashboard__recent ul{margin:0;padding-left:1.25rem}.business-dashboard__recent span{color:var(--w-color-text-meta)}
+@media(max-width:1200px){.workflow-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.workflow-step::after{display:none}.workspace-grid,.action-grid,.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.business-dashboard__intro,.business-dashboard__section-heading{align-items:flex-start;flex-direction:column}.business-dashboard>*{min-width:0}.business-dashboard__intro{width:100%;min-width:0;box-sizing:border-box}.business-dashboard__intro>div{width:100%;min-width:0}.business-dashboard__intro h2{font-size:1.4rem;overflow-wrap:anywhere;word-break:break-word}.business-dashboard__quick-links{width:100%;justify-content:flex-start}.business-dashboard__quick-links .button{max-width:100%;white-space:normal}.workflow-steps,.workspace-grid,.action-grid,.metric-grid{grid-template-columns:1fr}}
+</style>
+{% endif %}

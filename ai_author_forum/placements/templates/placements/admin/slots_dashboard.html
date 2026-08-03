@@ -1,0 +1,167 @@
+{% extends "wagtailadmin/base.html" %}
+
+{% block titletag %}{{ title }}{% endblock %}
+
+{% block content %}
+<header class="w-header">
+    <div class="row">
+        <div class="left">
+            <h1>{{ title }}</h1>
+            <p class="help-block">{{ description }}</p>
+        </div>
+    </div>
+</header>
+
+<div class="nice-padding" data-slot-dashboard="true">
+    <section class="panel" id="slot-scope-navigation">
+        <h2>版位范围</h2>
+        <p class="help-block">模板结构和稳定版位编码由代码维护；运营端只能调整名称、数量、取数模式、说明、启停和后台排序。</p>
+        <p>
+            {% for scope_value, scope_label in scope_choices %}
+                <a class="button{% if selected_scope != scope_value %} button-secondary{% endif %}" href="{% url 'layout-slots:index' %}?scope={{ scope_value }}">{{ scope_label }}</a>
+            {% endfor %}
+        </p>
+    </section>
+
+    <section class="panel" id="slot-filters">
+        <h2>选择版位与预览目标</h2>
+        <form method="get" action="{% url 'layout-slots:index' %}">
+            {% if filter_form.non_field_errors %}<div class="help-block help-critical">{{ filter_form.non_field_errors }}</div>{% endif %}
+            <ul class="fields">
+                {% for field in filter_form %}
+                    <li class="field">
+                        {{ field.label_tag }}
+                        {{ field }}
+                        {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+            <button type="submit" class="button">查看版位</button>
+            <a class="button button-secondary" href="{% url 'layout-slots:index' %}">重置</a>
+        </form>
+        <p class="help-block">栏目和子期刊版位需要选择具体栏目或启用中的子期刊，才能查看正式上线内容和版位预览。</p>
+    </section>
+
+    <section class="panel" id="slot-list">
+        <h2>当前范围版位（{{ scope_slots|length }}）</h2>
+        {% if scope_slots %}
+        <div class="w-overflow-x-auto">
+            <table class="listing">
+                <thead>
+                    <tr>
+                        <th>版位</th>
+                        <th>稳定编码</th>
+                        <th>最多数量</th>
+                        <th>取数模式</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for slot in scope_slots %}
+                    <tr data-slot-code="{{ slot.code }}"{% if selected_slot.pk == slot.pk %} class="selected"{% endif %}>
+                        <td><strong>{{ slot.title }}</strong></td>
+                        <td><code>{{ slot.code }}</code></td>
+                        <td>{{ slot.max_items }}</td>
+                        <td>{{ slot.get_fill_mode_display }}</td>
+                        <td>{% if slot.is_active %}启用{% else %}<strong>停用</strong>{% endif %}</td>
+                        <td>
+                            <a class="button button-small button-secondary" href="{% url 'layout-slots:index' %}?scope={{ selected_scope }}&amp;slot={{ slot.pk }}{% if target_value %}&amp;target={{ target_value|urlencode }}{% endif %}">管理与预览</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+            <p>当前范围尚未配置固定版位。</p>
+        {% endif %}
+    </section>
+
+    {% if selected_slot %}
+    <section class="panel" id="slot-editor" data-selected-slot="{{ selected_slot.code }}">
+        <h2>受控版位配置：{{ selected_slot.title }}</h2>
+        <dl>
+            <dt>稳定编码</dt><dd><code>{{ selected_slot.code }}</code></dd>
+            <dt>固定范围</dt><dd>{{ selected_slot.get_scope_display }}</dd>
+            <dt>当前模式</dt><dd>{{ selected_slot.get_fill_mode_display }}</dd>
+        </dl>
+        <p class="help-block">稳定编码和固定范围不可在后台修改；不提供新增模板结构、改变布局或自由拖拽能力。</p>
+        {% if can_change %}
+        <form method="post" action="{% url 'layout-slots:index' %}">
+            {% csrf_token %}
+            <input type="hidden" name="slot_id" value="{{ selected_slot.pk }}">
+            <input type="hidden" name="target" value="{{ target_value }}">
+            {% if slot_form.non_field_errors %}<div class="help-block help-critical">{{ slot_form.non_field_errors }}</div>{% endif %}
+            <ul class="fields">
+                {% for field in slot_form %}
+                    <li class="field">
+                        {{ field.label_tag }}
+                        {{ field }}
+                        {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+                        {% if field.errors %}<p class="error-message">{{ field.errors|join:", " }}</p>{% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+            <button type="submit" class="button">保存版位配置</button>
+        </form>
+        {% else %}
+            <p>你拥有版位查看权限，但没有修改版位配置的权限。</p>
+        {% endif %}
+    </section>
+
+    <section class="panel" id="slot-current-content">
+        <h2>当前上线内容{% if target_label %}：{{ target_label }}{% endif %}（{{ current_total }}）</h2>
+        <p class="help-block">此处直接复用 <code>get_slot_items()</code> 的正式生效时间、审核状态、子期刊隔离和排序规则；停用版位不会返回上线内容。</p>
+        {% if not target_value %}
+            <p>请先选择具体栏目或子期刊，再查看该目标下的当前上线内容。</p>
+        {% elif current_placements %}
+            <div class="w-overflow-x-auto">
+                <table class="listing">
+                    <thead>
+                        <tr><th>文章</th><th>排序</th><th>生效区间</th><th>展示覆盖</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for placement in current_placements %}
+                        <tr data-slot-placement-id="{{ placement.pk }}">
+                            <td><strong>{{ placement.display_title }}</strong><br><small>{{ placement.article.primary_journal }}</small></td>
+                            <td>{% if placement.is_pinned %}<strong>置顶</strong> / {% endif %}{{ placement.sort_order }}</td>
+                            <td>
+                                {% if placement.starts_at %}{{ placement.starts_at }}{% else %}立即{% endif %}<br>
+                                至 {% if placement.ends_at %}{{ placement.ends_at }}{% else %}长期{% endif %}
+                            </td>
+                            <td>
+                                {% if placement.override_title %}标题{% endif %}
+                                {% if placement.override_summary %}{% if placement.override_title %}、{% endif %}摘要{% endif %}
+                                {% if placement.override_image %}{% if placement.override_title or placement.override_summary %}、{% endif %}图片{% endif %}
+                                {% if not placement.override_title and not placement.override_summary and not placement.override_image %}无{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if current_truncated %}<p class="help-block">当前上线内容超过新的最多展示数量，预览仅显示前 {{ selected_slot.max_items }} 条；请先在投放管理中处理超限内容。</p>{% endif %}
+        {% else %}
+            <p>该目标当前没有符合正式上线条件的投放内容。</p>
+        {% endif %}
+    </section>
+
+    <section class="panel" id="slot-preview" data-slot-preview="true">
+        <h2>版位预览{% if target_label %}：{{ target_label }} / {{ selected_slot.title }}{% endif %}</h2>
+        <p class="help-block">预览复用正式文章卡片和固定模板结构，不写入数据库，也不会触发静态发布。</p>
+        {% if current_placements %}
+            <div style="display: grid; gap: 1.5rem; max-width: 64rem; padding: 1.5rem; border: 1px solid var(--w-color-border-furniture);">
+                {% for placement in current_placements %}
+                    {% include "components/static_article_card.html" with placement=placement %}
+                {% endfor %}
+            </div>
+        {% elif target_value %}
+            <p>暂无可预览的上线内容。</p>
+        {% else %}
+            <p>选择具体目标后可生成版位预览。</p>
+        {% endif %}
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

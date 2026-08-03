@@ -1,0 +1,197 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+
+{% block titletag %}文章批量导入中心{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title="文章批量导入中心" icon="upload" %}
+<div class="nice-padding article-import">
+  <nav class="article-import__topbar" aria-label="文章导入操作">
+    <a class="button button-secondary" href="{{ back_url }}">返回</a>
+    <a class="button button-secondary" href="{{ template_url }}">下载 XLSX 模板</a>
+    <a class="button button-secondary" href="{{ template_url }}&amp;format=csv">下载 CSV 模板</a>
+    <a class="button button-secondary" href="{{ template_url }}&amp;format=document-zip">下载文档 ZIP 示例包</a>
+  </nav>
+
+  <section class="article-import__scope {% if is_journal_scope %}article-import__scope--journal{% endif %}" aria-labelledby="scope-title">
+    <span class="article-import__eyebrow">{% if is_journal_scope %}本刊文章导入{% else %}全局文章导入{% endif %}</span>
+    <h2 id="scope-title">{% if target_journal %}已锁定：{{ target_journal.name_cn|default:target_journal.name }}{% else %}支持一个文件导入多个子期刊{% endif %}</h2>
+    <p>{% if target_journal %}目标子期刊由服务端锁定。文档或清单不能覆盖本刊范围；跨刊行会被拒绝。{% else %}清单可逐行填写 journal_slug；直接上传 DOCX/Markdown 时必须选择默认子期刊。{% endif %}</p>
+  </section>
+
+  <aside class="article-import__rule" role="note">
+    <strong>一键导入不等于直接发布。</strong>
+    上传后必须先完成安全预检并由有权限用户人工确认。新增和更新文章都强制回到草稿，不会自动审核、创建投放或执行静态发布。
+  </aside>
+
+  <section class="article-import__panel" aria-labelledby="upload-title">
+    <h2 id="upload-title">1. 上传并预检</h2>
+    <ul class="article-import__format-list">
+      <li>支持 XLSX、CSV、ZIP、DOCX、MD 和 Markdown，单次上传最大 50 MB。</li>
+      <li>DOCX/MD 直接上传只导入一篇；多篇文档必须使用 ZIP，并由 articles.xlsx 或 articles.csv 清单逐行引用。</li>
+      <li>DOCX 的复杂排版、不支持元素、修订或批注可能降级并产生警告；宏、ActiveX、OLE、外部资源会被拒绝。</li>
+      <li>Markdown 本地图片必须与文档一起放入 ZIP；直接上传 Markdown 不能携带本地图片。</li>
+      <li>预览阶段不写文章、图片、栏目、投放或静态发布业务数据。</li>
+    </ul>
+    <form method="post" enctype="multipart/form-data" action="{{ upload_url }}" id="article-import-form" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="help-critical" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="article-import__form-grid">
+        <div class="article-import__field article-import__field--wide">{{ form.source_file.as_field_group }}</div>
+        <div class="article-import__field">{{ form.default_journal.as_field_group }}</div>
+        <div class="article-import__field" id="csv-encoding-field">{{ form.csv_encoding.as_field_group }}</div>
+      </div>
+      <fieldset class="article-import__document-fields" id="document-fields">
+        <legend>单篇 DOCX / Markdown 默认元数据</legend>
+        <p class="help-block">文档安全元数据只会填补空值；表单值优先。DOCX 通常没有可靠文章类型，请显式选择。标题和 slug 可在后台预检中安全推断。</p>
+        <div class="article-import__form-grid">
+          <div class="article-import__field">{{ form.document_title.as_field_group }}</div>
+          <div class="article-import__field">{{ form.document_slug.as_field_group }}</div>
+          <div class="article-import__field">{{ form.document_article_type.as_field_group }}</div>
+          <div class="article-import__field">{{ form.document_authors.as_field_group }}</div>
+          <div class="article-import__field">{{ form.document_ai_co_authors.as_field_group }}</div>
+          <div class="article-import__field">{{ form.document_publication_date.as_field_group }}</div>
+        </div>
+      </fieldset>
+      <button type="submit" class="button button-primary">上传并开始预检</button>
+    </form>
+  </section>
+
+  {% if job %}
+  <section class="article-import__panel" id="job-panel" data-status-url="{{ status_url }}?job_id={{ job.pk }}" data-status="{{ job.status }}" aria-labelledby="preview-title">
+    <div class="article-import__heading">
+      <div>
+        <h2 id="preview-title">2. 预览与确认</h2>
+        <p>任务 #{{ job.pk }} · {{ job.package_name }} · 来源 {{ job.source_format|default:"—" }} · 状态：<strong id="job-status">{{ job.get_status_display }}</strong></p>
+      </div>
+      {% if job.error_report %}<a id="error-report-link" class="button button-secondary" href="{% url 'article_admin:import_errors' job.pk %}">下载错误报告</a>{% else %}<a id="error-report-link" class="button button-secondary" href="#" hidden>下载错误报告</a>{% endif %}
+    </div>
+
+    <div id="job-live-status" class="article-import__progress" role="status" aria-live="polite">
+      {% if job.status == 'validating' or job.status == 'pending' %}
+        后台预检中：已处理 <strong id="preview-processed">{{ job.summary.preview_processed_rows|default:0 }}</strong> / <strong id="preview-total">{{ job.summary.preview_total_rows|default:0 }}</strong> 行；文档 <strong id="document-count">{{ job.summary.document_count|default:0 }}</strong> 个；转换警告 <strong id="warning-count">{{ job.summary.conversion_warning_count|default:0 }}</strong> 条。
+      {% else %}
+        预检进度：{{ job.summary.preview_processed_rows|default:job.total_rows }} / {{ job.summary.preview_total_rows|default:job.total_rows }} 行；文档 {{ job.summary.document_count|default:0 }} 个；转换警告 {{ job.summary.conversion_warning_count|default:0 }} 条。
+      {% endif %}
+    </div>
+
+    <div class="article-import__metrics">
+      <article><span>总行数</span><strong>{{ metrics.total }}</strong></article>
+      <article><span>新增</span><strong>{{ metrics.created }}</strong></article>
+      <article><span>更新</span><strong>{{ metrics.updated }}</strong></article>
+      <article><span>跳过</span><strong>{{ metrics.skipped }}</strong></article>
+      <article><span>失败</span><strong>{{ metrics.failed }}</strong></article>
+      <article><span>可疑文本</span><strong>{{ metrics.suspicious }}</strong></article>
+    </div>
+    {% if job.summary.template_warning %}<div class="article-import__warning" role="alert"><strong>模板版本提示：</strong>{{ job.summary.template_warning }}</div>{% endif %}
+
+    <div class="article-import__table-wrap" tabindex="0" aria-label="逐行安全预览，可横向和纵向滚动">
+      <table class="listing full-width article-import__preview-table">
+        <thead>
+          <tr>
+            <th>行号</th><th>来源</th><th>元数据来源</th><th>转换器</th><th>统计</th><th>转换警告</th>
+            <th>动作与目标</th><th>文章信息</th><th>正文安全</th><th>清洗后正文片段</th><th>错误与建议</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          <tr class="{% if row.status == 'failed' %}article-import__row--failed{% endif %}">
+            <td>{{ row.row_no }}</td>
+            <td><strong>{{ row.normalized_data.source_format|default:row.source_format|default:"—" }}</strong><br><code>{{ row.normalized_data.source_path|default:row.source_path|default:"—" }}</code></td>
+            <td>{% for key, value in row.normalized_data.metadata_sources.items %}<span class="article-import__chip">{{ key }}：{{ value }}</span>{% empty %}—{% endfor %}</td>
+            <td>{{ row.normalized_data.converter_name|default:"—" }}<br><small>{{ row.normalized_data.converter_version }}</small></td>
+            <td>字符：{% firstof row.normalized_data.conversion_statistics.source_characters row.normalized_data.conversion_statistics.visible_characters "—" %}<br>HTML：{{ row.normalized_data.conversion_statistics.html_bytes|default:"—" }} B<br>图片：{{ row.normalized_data.generated_asset_count|default:0 }}</td>
+            <td>
+              <strong>{{ row.conversion_warnings|length }}</strong>
+              {% if row.conversion_warnings %}<details><summary>展开警告</summary><ul>{% for warning in row.conversion_warnings %}<li><code>{{ warning.code }}</code> {{ warning.message }}</li>{% endfor %}</ul></details>{% endif %}
+            </td>
+            <td>{{ row.action|default:"—" }}<br><code>{% firstof row.normalized_data.journal_slug row.raw_data.journal_slug "—" %}</code></td>
+            <td><strong>{% firstof row.normalized_data.title row.raw_data.title "—" %}</strong><br><code>{% firstof row.normalized_data.slug row.raw_data.slug "—" %}</code><br>{% firstof row.normalized_data.article_type row.raw_data.article_type "—" %}<br>{% firstof row.normalized_data.authors row.raw_data.authors "—" %}</td>
+            <td>{% if row.normalized_data.body_security_validated %}<span class="article-import__safe">已通过统一 HTML 安全校验</span>{% elif row.status == 'failed' %}<span class="article-import__unsafe">未通过</span>{% else %}等待校验{% endif %}</td>
+            <td><span class="article-import__snippet">{{ row.normalized_data.body_preview_text|default:"—" }}</span></td>
+            <td>{% if row.error_code %}<code>{{ row.error_code }}</code><br>{% endif %}{{ row.error_message|default:"校验通过" }}{% if row.normalized_data.suggestion %}<br><small><strong>修正建议：</strong>{{ row.normalized_data.suggestion }}</small>{% endif %}</td>
+          </tr>
+        {% empty %}<tr><td colspan="11">后台预检尚未生成逐行结果。</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if job.status == 'ready' %}
+    <form method="post" action="{{ confirm_url }}" class="article-import__confirm">
+      {% csrf_token %}
+      {{ confirm_form.job_id }}
+      {% if can_override_suspicious_text %}{{ confirm_form.allow_suspicious_text.as_field_group }}{{ confirm_form.override_reason.as_field_group }}{% endif %}
+      <button class="button button-primary" type="submit">确认导入草稿</button>
+    </form>
+    {% elif job.status == 'pending' or job.status == 'validating' or job.status == 'importing' %}
+      <p class="article-import__running" aria-live="polite">后台任务执行中，页面会自动轮询。请勿重复提交。</p>
+    {% elif job.status == 'completed' %}
+      <p class="article-import__done">任务已完成。请继续人工编辑、审核、投放和静态发布流程。</p>
+    {% elif job.status == 'failed' %}
+      <p class="article-import__failed" role="alert">任务失败：{{ job.notes }}</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="article-import__panel" aria-labelledby="recent-title">
+    <h2 id="recent-title">最近导入任务</h2>
+    <div class="article-import__table-wrap" tabindex="0"><table class="listing full-width"><thead><tr><th>任务</th><th>范围</th><th>目标子期刊</th><th>来源</th><th>状态</th><th>创建时间</th></tr></thead><tbody>
+    {% for recent in recent_jobs %}<tr><td><a href="{% url 'article_admin:import' %}?{% if recent.target_journal_id %}journal={{ recent.target_journal_id }}&amp;{% endif %}job={{ recent.pk }}">#{{ recent.pk }} {{ recent.package_name }}</a></td><td>{{ recent.get_import_scope_display }}</td><td>{{ recent.target_journal|default:"—" }}</td><td>{{ recent.source_format|default:"—" }}</td><td>{{ recent.get_status_display }}</td><td>{{ recent.created_at }}</td></tr>
+    {% empty %}<tr><td colspan="6">暂无任务。</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+<style>
+.article-import{box-sizing:border-box;max-width:112rem;min-width:0;overflow:hidden}.article-import *{box-sizing:border-box}.article-import__topbar,.article-import__heading{display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap}.article-import__topbar{justify-content:flex-end;margin-bottom:1rem}.article-import__scope,.article-import__panel,.article-import__rule{min-width:0;padding:1.25rem;margin-bottom:1rem;border:1px solid var(--w-color-border-furniture);background:var(--w-color-surface-page)}.article-import__scope{border-inline-start:.4rem solid var(--w-color-primary)}.article-import__scope--journal{border-inline-start-color:var(--w-color-warning-100);background:var(--w-color-surface-header)}.article-import__eyebrow{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em}.article-import__scope h2,.article-import__panel h2{margin:.2rem 0 .5rem}.article-import__rule{border-color:var(--w-color-warning-100)}.article-import__format-list{padding-inline-start:1.4rem}.article-import__form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.article-import__field{min-width:0}.article-import__field--wide{grid-column:1/-1}.article-import__document-fields{margin:1rem 0;padding:1rem;border:1px solid var(--w-color-border-furniture)}.article-import__document-fields[hidden],#csv-encoding-field[hidden]{display:none}.article-import__progress,.article-import__running,.article-import__done,.article-import__failed,.article-import__warning{padding:1rem;margin-top:1rem}.article-import__progress,.article-import__running{background:var(--w-color-info-50)}.article-import__warning{background:var(--w-color-warning-50)}.article-import__done{background:var(--w-color-positive-50)}.article-import__failed{background:var(--w-color-critical-50)}.article-import__metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.75rem;margin:1rem 0}.article-import__metrics article{min-width:0;padding:1rem;border:1px solid var(--w-color-border-furniture)}.article-import__metrics span{display:block;color:var(--w-color-text-meta)}.article-import__metrics strong{font-size:1.7rem}.article-import__table-wrap{width:100%;max-width:100%;max-height:34rem;overflow:auto;border:1px solid var(--w-color-border-furniture);overscroll-behavior:contain}.article-import__preview-table{min-width:130rem}.article-import__preview-table th,.article-import__preview-table td{vertical-align:top;max-width:22rem;overflow-wrap:anywhere}.article-import__row--failed{background:var(--w-color-critical-50)}.article-import__chip{display:block;margin:.15rem 0}.article-import__safe{color:var(--w-color-positive-100)}.article-import__unsafe{color:var(--w-color-critical-100)}.article-import__snippet{display:block;max-height:9rem;overflow:auto;white-space:normal}.article-import__confirm{margin-top:1rem;padding-top:1rem;border-top:1px solid var(--w-color-border-furniture)}
+@media(max-width:800px){.article-import__metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.article-import__topbar{justify-content:flex-start}.article-import__form-grid{grid-template-columns:1fr}}
+@media(max-width:480px){.article-import{padding-inline:.75rem}.article-import__metrics{grid-template-columns:1fr}.article-import__topbar .button{width:100%;text-align:center}.article-import__scope,.article-import__panel,.article-import__rule{padding:1rem}.article-import__heading{align-items:flex-start}}
+</style>
+<script>
+(function(){
+  const form=document.getElementById('article-import-form');
+  if(form){
+    const file=form.querySelector('input[type="file"]');
+    const documentFields=document.getElementById('document-fields');
+    const csvField=document.getElementById('csv-encoding-field');
+    function updateConditionalFields(){
+      const name=(file && file.files && file.files[0] ? file.files[0].name : '').toLowerCase();
+      const isDocument=/\.(docx|md|markdown)$/.test(name);
+      const isCsv=/\.csv$/.test(name);
+      documentFields.hidden=!isDocument;
+      documentFields.setAttribute('aria-hidden',String(!isDocument));
+      csvField.hidden=!isCsv;
+      csvField.setAttribute('aria-hidden',String(!isCsv));
+    }
+    if(file){file.addEventListener('change',updateConditionalFields)}
+    updateConditionalFields();
+    const firstError=form.querySelector('.error input,.error select,.error textarea,[aria-invalid="true"]');
+    if(firstError){firstError.focus()}
+  }
+
+  const panel=document.getElementById('job-panel');
+  if(!panel || ['ready','completed','failed'].includes(panel.dataset.status)){return}
+  const url=panel.dataset.statusUrl;
+  async function poll(){
+    try{
+      const response=await fetch(url,{headers:{'X-Requested-With':'XMLHttpRequest'}});
+      if(response.ok){
+        const data=await response.json();
+        document.getElementById('job-status').textContent=data.status;
+        const processed=document.getElementById('preview-processed');
+        const total=document.getElementById('preview-total');
+        const docs=document.getElementById('document-count');
+        const warnings=document.getElementById('warning-count');
+        if(processed){processed.textContent=data.preview_processed_rows}
+        if(total){total.textContent=data.preview_total_rows}
+        if(docs){docs.textContent=data.summary.document_count || 0}
+        if(warnings){warnings.textContent=data.conversion_warning_count || 0}
+        const errorLink=document.getElementById('error-report-link');
+        if(errorLink && data.errors_url){errorLink.href=data.errors_url;errorLink.hidden=false}
+        if(data.terminal){window.location.reload();return}
+      }
+    }catch(error){}
+    window.setTimeout(poll,2000)
+  }
+  window.setTimeout(poll,1200)
+})();
+</script>
+{% endblock %}

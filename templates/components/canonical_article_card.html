@@ -1,0 +1,19 @@
+﻿{% load article_images wagtailimages_tags i18n_frontend %}
+{% article_image article as visual %}
+
+<article class="c-news-listing-card flex flex-col md:flex-row md:gap-10 md:items-start w-full h-full group">
+    <a href="{{ article.get_absolute_url|localized_url }}" class="c-news-listing-card__image block rounded-md overflow-hidden md:w-64 md:flex-none">
+        {% if visual.image %}
+            {% image visual.image fill-512x320 as card_image %}
+            <img src="{{ card_image.url }}" width="{{ card_image.width }}" height="{{ card_image.height }}" alt="{{ visual.alt }}" class="aspect-[8/5] w-full object-cover"{% if card_image.focal_point %} style="{{ card_image.object_position_style }}"{% endif %}>
+        {% else %}
+            <img src="{{ visual.placeholder_url }}" width="512" height="320" alt="{{ visual.alt }}" class="aspect-[8/5] w-full object-cover">
+        {% endif %}
+    </a>
+    <div class="c-news-listing-card__body md:h-full md:justify-center md:flex md:flex-col md:max-w-[767px]">
+        <p class="text-sm md:text-base text-grey-700 dark:text-grey-200 font-codepro pt-7 md:pt-0 pb-2.5"><span class="text-mackerel-300 font-medium uppercase mr-1">{{ article.article_type|article_type_label }}</span>{% if article.primary_journal_id %}<span class="text-grey-700 dark:text-grey-200 ml-1"> / {{ article.primary_journal }}</span>{% endif %}</p>
+        <a href="{{ article.get_absolute_url|localized_url }}" class="text-xl md:text-2xl font-bold leading-8 md:leading-10 underline underline-offset-8 decoration-[1.5px] decoration-mackerel-200 hover:decoration-mackerel-300">{{ article.title }}</a>
+        {% if article.abstract %}<p class="text-grey-700 dark:text-grey-200 pt-2.5 leading-6">{{ article.abstract }}</p>{% endif %}
+        {% if article.authors %}<div class="text-sm md:text-base text-grey-700 dark:text-grey-200 font-codepro pt-7">{{ article.authors }}</div>{% endif %}
+    </div>
+</article>

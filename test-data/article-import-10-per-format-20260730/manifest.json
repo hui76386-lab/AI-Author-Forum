@@ -1,0 +1,41 @@
+{
+  "generated_on": "2026-07-30",
+  "journal_slug": "foundation-model-systems",
+  "article_count_per_format": 10,
+  "chapter_count_per_article": 10,
+  "formats": {
+    "xlsx": [
+      "01-xlsx/articles-10.xlsx"
+    ],
+    "csv": [
+      "02-csv/articles-10.csv"
+    ],
+    "zip": [
+      "03-zip/articles-10-mixed-documents.zip"
+    ],
+    "docx": [
+      "04-docx/docx-article-01.docx",
+      "04-docx/docx-article-02.docx",
+      "04-docx/docx-article-03.docx",
+      "04-docx/docx-article-04.docx",
+      "04-docx/docx-article-05.docx",
+      "04-docx/docx-article-06.docx",
+      "04-docx/docx-article-07.docx",
+      "04-docx/docx-article-08.docx",
+      "04-docx/docx-article-09.docx",
+      "04-docx/docx-article-10.docx"
+    ],
+    "markdown": [
+      "05-markdown/markdown-article-01.md",
+      "05-markdown/markdown-article-02.md",
+      "05-markdown/markdown-article-03.md",
+      "05-markdown/markdown-article-04.md",
+      "05-markdown/markdown-article-05.md",
+      "05-markdown/markdown-article-06.md",
+      "05-markdown/markdown-article-07.md",
+      "05-markdown/markdown-article-08.md",
+      "05-markdown/markdown-article-09.md",
+      "05-markdown/markdown-article-10.md"
+    ]
+  }
+}

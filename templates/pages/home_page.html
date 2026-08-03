@@ -1,0 +1,89 @@
+{% extends "base_page.html" %}
+{% load static wagtailcore_tags i18n_frontend %}
+{% block content %}
+<div class="u-container u-container--home">
+  {% if hero_placements %}
+  <section class="c-home-hero" aria-labelledby="home-heading" data-home-slot="home_hero">
+    {% include "components/static_article_hero.html" with placement=hero_placements.0 %}
+  </section>
+  {% endif %}
+
+  {% if featured_placements %}
+  <section class="c-content-row c-content-row--featured" data-home-slot="home_featured">
+    <div class="c-section-heading"><h2>{% ui_text 'featured_content' 'Featured Content' %}</h2><a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'view_all' 'View all' %}</a></div>
+    <div class="c-featured-grid c-featured-grid--home">
+      {% for placement in featured_placements %}{% include "components/static_article_card.html" with placement=placement %}{% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="c-content-row">
+    <div class="c-section-heading"><h2>{% ui_text 'news_comment' 'News &amp; Comment' %}</h2><a href="{{ '/explore-content/news/'|localized_url }}">{% ui_text 'latest' 'Latest' %}</a></div>
+    <div class="c-three-column">
+      <ul class="c-article-list">
+        {% for placement in featured_placements|slice:":4" %}
+        <li data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0">
+          <span>{{ placement.article.article_type|article_type_label }}</span>
+          <a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>
+          <small>{{ placement.article.authors }} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
+        </li>
+        {% empty %}<li><span>{% ui_text 'editorial' 'Editorial' %}</span><a href="{{ '/explore-content/news/'|localized_url }}">{% ui_text 'content_prepared' 'Content is being prepared' %}</a><small>AI Author Forum ? {% ui_text 'news_comment' 'News &amp; Comment' %}</small></li>{% endfor %}
+      </ul>
+      <ul class="c-article-list">
+        {% for placement in latest_ai_article_placements|slice:":4" %}
+        <li data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0">
+          <span>{{ placement.article.article_type|article_type_label }}</span>
+          <a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>
+          <small>{{ placement.article.authors }} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
+        </li>
+        {% empty %}<li><span>{% ui_text 'ai_article' 'AI Article' %}</span><a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'explore_latest_ai' 'Explore the latest AI articles' %}</a><small>{% ui_text 'static_editorial_collection' 'Static editorial collection' %}</small></li>{% endfor %}
+      </ul>
+      <aside class="c-side-panel">
+        <img src="{% static 'images/reference/collection.png' %}" alt="{% ui_text 'collections' 'AI Author Forum collections' %}">
+        <h3>{% ui_text 'collections' 'Collections' %}</h3>
+        <p>{% ui_text 'collections_intro' 'Curated collections connect articles, journals and responsible AI authorship guidance.' %}</p>
+      </aside>
+    </div>
+  </section>
+
+  {% if latest_ai_article_placements %}
+  <section class="c-content-row" data-home-slot="latest_ai_article">
+    <div class="c-section-heading"><h2>{% ui_text 'latest_ai_article' 'Latest AI Article' %}</h2><a href="{{ '/search/?q=AI%20Article'|localized_url }}">{% ui_text 'search_articles' 'Search articles' %}</a></div>
+    <ul class="c-article-list c-article-list--two">
+      {% for placement in latest_ai_article_placements %}
+      <li data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0">
+        <span>{{ placement.article.article_type|article_type_label }}</span>
+        <a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>
+        <small>{{ placement.article.authors }} ? {% ui_text 'article' 'Article' %} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <section class="c-content-row">
+    <div class="c-section-heading"><h2>{% ui_text 'altmetric' 'Altmetric' %}</h2></div>
+    <div class="c-altmetric-grid">
+      {% for placement in latest_ai_article_placements|slice:":4" %}
+      <article class="c-altmetric-item" data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0">
+        <a href="{{ placement.article.get_absolute_url|localized_url }}"><span class="c-altmetric-badge" aria-label="Altmetric score {{ forloop.counter|add:'500' }}"><span>{{ forloop.counter|add:'500' }}</span></span></a>
+        <h3><a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a></h3>
+      </article>
+      {% empty %}
+      <article class="c-altmetric-item"><span class="c-altmetric-badge"><span>500</span></span><h3>{% ui_text 'altmetric_placeholder' 'Altmetric trends will appear as articles are published.' %}</h3></article>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if visual_story_placements %}
+  <section class="c-content-row c-content-row--visual-stories" data-home-slot="home_visual_stories">
+    <div class="c-section-heading"><h2>Research Highlights</h2><a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'view_all' 'View all' %}</a></div>
+    <div class="c-visual-story-grid">
+      {% for placement in visual_story_placements %}{% include "components/static_visual_story_card.html" with placement=placement %}{% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% include_block page.body %}
+</div>
+{% endblock %}

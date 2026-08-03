@@ -1,0 +1,36 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+{% block content %}
+<div class="nice-padding import-center">
+  <div class="import-heading"><div><h1>Journal import center</h1><p>Preview row-by-row validation results first, then confirm the import. The preview does not modify journals, articles, placements, or static publishing data.</p></div><a class="button button-secondary" href="{% url 'journals_import_template' %}">Download controlled Excel template</a></div>
+  <section class="panel import-panel"><h2>1. Upload and validate</h2><form method="post" enctype="multipart/form-data">{% csrf_token %}{% for field in form %}{% formattedfield field %}{% endfor %}<button class="button button-primary" type="submit">Validate package</button></form></section>
+
+  {% if preview_jobs %}
+  <section class="panel import-panel" id="import-preview" data-status-url="{{ status_url }}">
+    <h2>2. Row-by-row preview</h2>
+    {% if has_blocking_suspicious_text %}<div class="help-block help-critical"><strong>Suspicious text was detected, Import confirmation has been blocked.</strong><p>Correct the trusted source file first. Only a superuser may provide a reason and select"Import source text unchanged"; The system will not automatically convert or guess a recovery.</p></div>{% endif %}
+    {% for job in preview_jobs %}
+    <div class="import-job">
+      <h3>{% if job.scope == 'journals' %}Journals{% else %}articles{% endif %}  -  Job #{{ job.id }}  -  {{ job.status_label }}</h3>
+      <div class="import-metrics"><span>Total rows<strong>{{ job.total_rows }}</strong></span><span>Create<strong>{{ job.created }}</strong></span><span>Update<strong>{{ job.updated }}</strong></span><span>Skip<strong>{{ job.skipped }}</strong></span><span>Failed<strong>{{ job.failed }}</strong></span><span>Suspicious text<strong>{{ job.suspicious_text_count }}</strong></span></div>
+      {% if job.error_report_url %}<p><a href="{{ job.error_report_url }}">Download row-level errors and suspicious-text report</a></p>{% endif %}
+      {% if job.process_error %}<p class="help critical">{{ job.process_error }}</p>{% endif %}
+      <div class="import-table"><table class="listing"><thead><tr><th>Row</th><th>Action</th><th>Status</th><th>Error</th><th>Source data and suspicious items</th></tr></thead><tbody>
+      {% for row in job.rows %}<tr{% if row.raw_data.suspicious_text_issues %} class="suspicious-row"{% endif %}><td>{{ row.row_no }}</td><td>{{ row.action|default:"Failed" }}</td><td>{{ row.status }}</td><td>{{ row.error_message|default:"—" }}</td><td>
+        {% if row.raw_data.suspicious_text_issues %}<ul class="suspicious-list">{% for issue in row.raw_data.suspicious_text_issues %}<li><strong>{{ issue.field_name }}</strong>: {{ issue.message }}<br><small>Original value: {{ issue.raw_value }}; Suggestion: {{ issue.suggestion }}</small></li>{% endfor %}</ul>{% endif %}
+        <details><summary>View source data</summary><code>{{ row.raw_data }}</code></details>
+      </td></tr>{% empty %}<tr><td colspan="5">No data rows.</td></tr>{% endfor %}
+      </tbody></table></div>
+    </div>{% endfor %}
+
+    {% if preview_ready %}<form method="post" action="{% url 'journals_import_confirm' %}" class="confirm-form">{% csrf_token %}{{ confirm_form.journal_job_id }}{{ confirm_form.article_job_id }}{{ confirm_form.csv_encoding }}
+      {% if can_publish %}{% formattedfield confirm_form.publish_static_site %}{% endif %}
+      {% if has_blocking_suspicious_text %}<div class="override-box">{% formattedfield confirm_form.override_suspicious_text %}{% formattedfield confirm_form.override_reason %}</div>{% endif %}
+      <button class="button button-primary" type="submit"{% if has_blocking_suspicious_text and not request.user.is_superuser %} disabled title="Only a superuser may import source text unchanged"{% endif %}>Confirm import</button>
+    </form>{% elif preview_in_progress %}<p>The job is running in the background, Refresh this page later to check progress.</p>{% endif %}
+  </section>{% endif %}
+
+  <section class="panel import-panel"><h2>Recent import jobs</h2><table class="listing"><thead><tr><th>Job</th><th>Package</th><th>Status</th><th>Created</th></tr></thead><tbody>{% for job in recent_jobs %}<tr><td>#{{ job.pk }}</td><td>{{ job.package_name }}</td><td>{{ job.get_status_display }}</td><td>{{ job.created_at }}</td></tr>{% empty %}<tr><td colspan="4">No jobs yet.</td></tr>{% endfor %}</tbody></table></section>
+</div>
+<style>.import-center{max-width:100rem}.import-heading{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap}.import-panel{padding:1rem;margin-top:1.5rem}.import-job{margin-top:1rem;padding:1rem;border:1px solid var(--w-color-border-furniture)}.import-metrics{display:grid;grid-template-columns:repeat(6,minmax(6rem,1fr));gap:.5rem}.import-metrics span{padding:.6rem;background:var(--w-color-surface-field)}.import-metrics strong{display:block;font-size:1.25rem}.import-table{max-height:36rem;overflow:auto}.suspicious-row{background:#fff1f0}.suspicious-list{color:var(--w-color-critical-200);margin:0 0 .5rem}.suspicious-list small{color:inherit}.import-table code{white-space:pre-wrap;word-break:break-word}.override-box{border:2px solid var(--w-color-critical-200);padding:1rem;margin:1rem 0}@media(max-width:800px){.import-metrics{grid-template-columns:repeat(2,1fr)}}</style>
+{% endblock %}

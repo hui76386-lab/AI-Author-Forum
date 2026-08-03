@@ -1,0 +1,28 @@
+{% extends "base_page.html" %}
+{% load i18n_frontend %}
+{% block title %}{{ page_title|default:'Journals by discipline' }}{% endblock %}
+{% block breadcrumbs %}
+<nav class="c-breadcrumbs u-container" aria-label="{% ui_text 'breadcrumb' 'Breadcrumb' %}"><ol><li><a href="{% localize_url '/' %}">{% ui_text 'home' 'Home' %}</a></li><li>Journals</li></ol></nav>
+{% endblock %}
+{% block content %}
+<div class="u-container c-journals-page">
+  <div class="c-journals-main">
+    <h1>{{ page_title|default:'Journals by discipline' }}</h1>
+    <p>Explore the 120 journals in the discipline sequence defined by the Top 120 journals catalogue.</p>
+    <nav class="c-az-nav" aria-label="Journal disciplines">
+      {% for group in journal_groups %}<a href="#{{ group.anchor }}">{{ group.code }}</a>{% endfor %}
+    </nav>
+    {% for group in journal_groups %}
+    <section id="{{ group.anchor }}" class="c-letter-group">
+      <h2><span aria-hidden="true">{{ group.code }}. </span>{{ group.title }}</h2>
+      <ul>
+        {% for journal in group.journals %}<li><a href="{{ '/journals/'|add:journal.slug|add:'/'|localized_url }}">{{ journal|localized_journal_name }}</a></li>{% endfor %}
+      </ul>
+    </section>
+    {% empty %}<p class="c-empty-state">{% ui_text 'no_active_journals' 'No active journals are currently available.' %}</p>{% endfor %}
+  </div>
+  <aside class="c-right-rail">
+    <section><h2>{% ui_text 'quick_links' 'Quick links' %}</h2>{% for group in journal_groups %}<a href="#{{ group.anchor }}">{{ group.code }}. {{ group.title }}</a>{% endfor %}</section>
+  </aside>
+</div>
+{% endblock %}

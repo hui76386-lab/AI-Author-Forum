@@ -1,0 +1,105 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+
+{% block titletag %}主站配置 · 只读摘要{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title subtitle="只读摘要" icon="cog" only %}
+
+<div class="nice-padding site-settings-summary" data-readonly="true">
+  <nav class="site-settings-summary__breadcrumb" aria-label="当前位置">
+    <a href="{% url 'wagtailadmin_home' %}">后台首页</a>
+    <span aria-hidden="true">/</span>
+    <strong>主站配置</strong>
+  </nav>
+
+  <section class="site-settings-summary__notice" aria-label="页面权限说明">
+    <div>
+      <strong>当前页面用于查看全站基础配置</strong>
+      <p>这里只展示主站身份、默认 SEO 和静态发布基线，不提供保存、删除或发布操作。</p>
+    </div>
+    {% if can_change %}
+      <a class="button button-primary" href="{% url 'wagtailsettings:edit' app_name='site_settings' model_name='sitesettings' %}">编辑主站配置</a>
+    {% else %}
+      <span class="site-settings-summary__readonly-badge">只读</span>
+    {% endif %}
+  </section>
+
+  <div class="site-settings-summary__grid">
+    <section class="site-settings-summary__card" aria-labelledby="site-identity-heading">
+      <div class="site-settings-summary__card-heading">
+        <span>01</span>
+        <div>
+          <h2 id="site-identity-heading">主站身份</h2>
+          <p>用于统一前台品牌和当前站点识别。</p>
+        </div>
+      </div>
+      <dl>
+        <div><dt>主站名称</dt><dd>{{ site_settings.site_name|default:"—" }}</dd></div>
+        <div><dt>当前站点</dt><dd>{{ site.site_name|default:site.hostname }}</dd></div>
+        <div><dt>站点域名</dt><dd><code>{{ site.hostname }}{% if site.port != 80 %}:{{ site.port }}{% endif %}</code></dd></div>
+        <div><dt>主站 Logo</dt><dd>{% if site_settings.logo %}{{ site_settings.logo.title }}{% else %}<span class="w-text-meta">未配置</span>{% endif %}</dd></div>
+        <div><dt>默认图片</dt><dd>{% if site_settings.default_image %}{{ site_settings.default_image.title }}{% else %}<span class="w-text-meta">未配置</span>{% endif %}</dd></div>
+      </dl>
+    </section>
+
+    <section class="site-settings-summary__card" aria-labelledby="site-seo-heading">
+      <div class="site-settings-summary__card-heading">
+        <span>02</span>
+        <div>
+          <h2 id="site-seo-heading">默认 SEO</h2>
+          <p>页面未单独配置时使用的站点级默认值。</p>
+        </div>
+      </div>
+      <dl>
+        <div><dt>默认标题</dt><dd>{{ site_settings.seo_title|default:"未配置" }}</dd></div>
+        <div class="site-settings-summary__wide"><dt>默认描述</dt><dd>{{ site_settings.seo_description|default:"未配置"|linebreaksbr }}</dd></div>
+      </dl>
+    </section>
+
+    <section class="site-settings-summary__card site-settings-summary__card--wide" aria-labelledby="site-publish-heading">
+      <div class="site-settings-summary__card-heading">
+        <span>03</span>
+        <div>
+          <h2 id="site-publish-heading">发布与控制基线</h2>
+          <p>这些配置影响静态文件输出和核心导航的维护边界。</p>
+        </div>
+      </div>
+      <dl>
+        <div><dt>静态输出根目录</dt><dd><code>{{ site_settings.static_output_root }}</code></dd></div>
+        <div><dt>核心导航</dt><dd>{% if site_settings.core_navigation_locked %}<span class="site-settings-summary__status site-settings-summary__status--locked">已锁定</span>{% else %}<span class="site-settings-summary__status">未锁定</span>{% endif %}</dd></div>
+      </dl>
+      <p class="site-settings-summary__hint">静态输出根目录只描述发布基线；具体生成、失败重试和回滚仍在“编排与发布 → 静态发布”中执行并记录审计日志。</p>
+    </section>
+  </div>
+</div>
+
+<style>
+  .site-settings-summary { max-width: 1180px; }
+  .site-settings-summary__breadcrumb { display: flex; gap: .5rem; align-items: center; margin: 0 0 1rem; color: var(--w-color-text-meta); }
+  .site-settings-summary__notice { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; border: 1px solid var(--w-color-border-furniture); border-left: .35rem solid var(--w-color-primary); border-radius: .4rem; background: var(--w-color-surface-page); }
+  .site-settings-summary__notice p { margin: .25rem 0 0; color: var(--w-color-text-meta); }
+  .site-settings-summary__readonly-badge { flex: 0 0 auto; padding: .35rem .7rem; border-radius: 999px; background: var(--w-color-grey-100); color: var(--w-color-text-meta); font-weight: 700; }
+  .site-settings-summary__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+  .site-settings-summary__card { min-width: 0; padding: 1.5rem; border: 1px solid var(--w-color-border-furniture); border-radius: .5rem; background: var(--w-color-surface-page); box-shadow: 0 1px 2px rgb(0 0 0 / 5%); }
+  .site-settings-summary__card--wide { grid-column: 1 / -1; }
+  .site-settings-summary__card-heading { display: flex; gap: .9rem; align-items: flex-start; margin-bottom: 1rem; }
+  .site-settings-summary__card-heading > span { display: grid; place-items: center; width: 2rem; height: 2rem; flex: 0 0 auto; border-radius: 50%; background: var(--w-color-primary); color: white; font-size: .75rem; font-weight: 700; }
+  .site-settings-summary__card h2 { margin: 0; font-size: 1.25rem; }
+  .site-settings-summary__card-heading p { margin: .2rem 0 0; color: var(--w-color-text-meta); }
+  .site-settings-summary__card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: 0; }
+  .site-settings-summary__card dl > div { min-width: 0; padding: .8rem; border-radius: .35rem; background: var(--w-color-surface-menus); }
+  .site-settings-summary__card dt { margin-bottom: .3rem; color: var(--w-color-text-meta); font-size: .78rem; font-weight: 700; }
+  .site-settings-summary__card dd { margin: 0; overflow-wrap: anywhere; }
+  .site-settings-summary__wide { grid-column: 1 / -1; }
+  .site-settings-summary__status { display: inline-block; padding: .2rem .55rem; border-radius: 999px; background: var(--w-color-grey-100); }
+  .site-settings-summary__status--locked { background: var(--w-color-positive-100); color: var(--w-color-positive-200); }
+  .site-settings-summary__hint { margin: 1rem 0 0; color: var(--w-color-text-meta); }
+  @media (max-width: 700px) {
+    .site-settings-summary__notice { align-items: flex-start; flex-direction: column; }
+    .site-settings-summary__grid { grid-template-columns: 1fr; }
+    .site-settings-summary__card--wide { grid-column: auto; }
+    .site-settings-summary__card dl { grid-template-columns: 1fr; }
+    .site-settings-summary__wide { grid-column: auto; }
+  }
+</style>
+{% endblock %}

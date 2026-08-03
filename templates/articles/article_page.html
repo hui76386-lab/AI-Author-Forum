@@ -1,0 +1,52 @@
+{% extends "base_page.html" %}
+{% load article_images wagtailcore_tags wagtailimages_tags i18n_frontend %}
+{% block title %}{{ seo.title|default:article.title }}{% endblock %}
+{% block meta_tags %}{{ block.super }}{% if is_preview or request.in_preview_panel %}<meta name="robots" content="noindex,nofollow">{% endif %}<meta property="og:type" content="article"><meta property="og:title" content="{{ article.title }}">{% if seo.description %}<meta property="og:description" content="{{ seo.description }}">{% endif %}{% if seo.canonical_url %}<link rel="canonical" href="{{ seo.canonical_url|localized_url }}">{% endif %}{% endblock %}
+{% block breadcrumbs %}
+<nav class="c-breadcrumbs u-container" aria-label="{% ui_text 'breadcrumb' 'Breadcrumb' %}"><ol><li><a href="{% localize_url '/' %}">{% ui_text 'home' 'Home' %}</a></li>{% if primary_category %}<li><a href="{{ '/journals/'|localized_url }}">{% ui_text 'journals' 'Journals' %}</a></li><li><a href="{{ '/journals/'|add:primary_journal.slug|add:'/'|localized_url }}">{{ primary_journal|localized_journal_name }}</a></li>{% for node in primary_category_ancestors %}<li><a href="{{ node.get_absolute_url|localized_url }}">{{ node.name }}</a></li>{% endfor %}<li><a href="{{ primary_category.get_absolute_url|localized_url }}">{{ primary_category.name }}</a></li>{% else %}<li><a href="{% if article_type %}{% localize_url '/explore-content/' %}{{ article_type }}/{% else %}{% localize_url '/explore-content/ai-article/' %}{% endif %}">{{ article_type_label }}</a></li>{% endif %}<li>{{ article.title }}</li></ol></nav>
+{% endblock %}
+{% block content %}
+{% article_image article as visual %}
+<article class="u-container c-article-page">
+  <aside class="c-article-tools" aria-label="{% ui_text 'article' 'Article' %}">
+    <a href="#full-text">{% ui_text 'full_text' 'Full text' %}</a>
+    <a href="{% localize_url '/search/' %}?author={{ authors_text|urlencode }}">{% ui_text 'author_search' 'Author search' %}</a>
+    <a href="{% localize_url '/search/' %}?aiAuthor={{ ai.co_authors_text|urlencode }}">{% ui_text 'ai_coauthor_short' 'AI co author' %}</a>
+    <a href="{{ '/search/'|localized_url }}">{% ui_text 'reprints_permissions' 'Reprints and permissions' %}</a>
+  </aside>
+  <div class="c-article-body" id="full-text">
+    <span class="c-article-type">{{ article_type_label }}</span>
+    {% if article.first_published_at %}<time datetime="{{ article.first_published_at|date:'c' }}">{{ article.first_published_at|date:'Y-m-d' }}</time>{% endif %}
+    <h1>{{ article.title }}</h1>
+    <p class="c-standfirst">{{ article.abstract }}</p>
+    <div class="c-byline"><span>{% ui_text 'by' 'By' %} <strong>{{ authors_text }}</strong></span>{% if ai.co_authors_text %}<span>{% ui_text 'ai_coauthor_label' 'AI co-author' %}: <strong>{{ ai.co_authors_text }}</strong></span>{% endif %}</div>
+    <div class="c-share-row"><a href="{% localize_url '/search/' %}?author={{ authors_text|urlencode }}">{% ui_text 'view_author_publications' 'View author publications' %}</a><a href="{% localize_url '/search/' %}?aiAuthor={{ ai.co_authors_text|urlencode }}">{% ui_text 'search_ai_coauthor' 'Search AI co author' %}</a><a href="{{ '/search/'|localized_url }}">{% ui_text 'email' 'Email' %}</a></div>
+    <figure class="c-article-figure">{% if visual.image %}{% image visual.image width-1200 as featured_visual %}<img src="{{ featured_visual.url }}" width="{{ featured_visual.width }}" height="{{ featured_visual.height }}" alt="{{ visual.alt }}">{% else %}<img src="{{ visual.placeholder_url }}" width="1200" height="675" alt="{{ visual.alt }}">{% endif %}<figcaption>{{ primary_journal|localized_journal_name|default:'AI Author Forum' }} {% ui_text 'article_visual_credit' 'visual. Credit: AI Author Forum upload area' %}</figcaption></figure>
+    {% for block in article.body %}
+      {% if block.block_type == "heading" %}
+        <h2 class="c-article-section-heading">{{ block.value }}</h2>
+      {% elif block.block_type == "paragraph" %}
+        <div class="c-rich-page">{{ block.value|richtext }}</div>
+      {% elif block.block_type == "image" %}
+        <figure class="c-article-figure">{% if block.value.image %}{% image block.value.image width-1200 as article_image %}<img src="{{ article_image.url }}" width="{{ article_image.width }}" height="{{ article_image.height }}" alt="{{ block.value.alt_text|default:article_image.alt }}">{% endif %}{% if block.value.caption %}<figcaption>{{ block.value.caption }}</figcaption>{% endif %}</figure>
+      {% elif block.block_type == "quote" %}
+        <blockquote class="c-article-quote"><p>{{ block.value.quote|linebreaksbr }}</p>{% if block.value.attribution %}<cite>{{ block.value.attribution }}</cite>{% endif %}</blockquote>
+      {% elif block.block_type == "list" %}
+        {% if block.value.list_type == "ordered" %}<ol class="c-article-content-list">{% for item in block.value.items %}<li>{{ item|richtext }}</li>{% endfor %}</ol>{% else %}<ul class="c-article-content-list">{% for item in block.value.items %}<li>{{ item|richtext }}</li>{% endfor %}</ul>{% endif %}
+      {% elif block.block_type == "table" %}
+        <div class="c-article-table" role="region" aria-label="Article data table" tabindex="0">{% include_block block %}</div>
+      {% elif block.block_type == "document" %}
+        <aside class="c-article-document"><strong>{{ block.value.link_text|default:block.value.document.title }}</strong>{% if block.value.description %}<p>{{ block.value.description }}</p>{% endif %}<a href="{{ block.value.document.file.url }}">{% ui_text 'download_document' 'Download document' %}</a></aside>
+      {% elif block.block_type == "html" %}
+        <div class="c-article-raw-html">{% include_block block %}</div>
+      {% else %}
+        {% include_block block %}
+      {% endif %}
+    {% empty %}<p class="c-empty-state">{% ui_text 'no_article_body' 'No article body has been added yet.' %}</p>{% endfor %}
+    {% if ai.has_contribution %}<section><h2>{% ui_text 'ai_authorship_declaration' 'AI authorship declaration' %}</h2>{% if ai.contribution_statement %}<p>{{ ai.contribution_statement|linebreaksbr }}</p>{% endif %}{% if ai.responsibility_statement %}<p>{{ ai.responsibility_statement|linebreaksbr }}</p>{% endif %}</section>{% endif %}
+    <section><h2>{% ui_text 'methods_responsibility' 'Methods and responsibility' %}</h2><p>{% ui_text 'methods_responsibility_text' 'This article page records human responsibility, AI contribution, editorial verification and reader-facing context within the shared publishing workflow.' %}</p></section>
+    {% if keywords %}<section class="c-related"><h2>{% ui_text 'related_articles' 'Related Articles' %}</h2>{% for keyword in keywords %}<a href="{% localize_url '/search/' %}?q={{ keyword|urlencode }}"><span>{{ keyword }}</span>{% ui_text 'explore_related' 'Explore related AI authorship recommendations' %}</a>{% endfor %}</section>{% endif %}
+  </div>
+  <aside class="c-right-rail"><section><h2>{% ui_text 'subjects' 'Subjects' %}</h2>{% if primary_category %}<a href="{{ primary_category.get_absolute_url|localized_url }}">{{ primary_category.name }}</a>{% endif %}{% for category in related_categories %}<a href="{{ category.get_absolute_url|localized_url }}">{{ category.name }}</a>{% endfor %}{% for keyword in keywords %}<a href="{% localize_url '/search/' %}?q={{ keyword|urlencode }}">{{ keyword }}</a>{% endfor %}</section><section><h2>{% ui_text 'latest_on' 'Latest on:' %}</h2>{% for journal in related_journals %}<a href="{{ '/journals/'|add:journal.slug|add:'/'|localized_url }}">{{ journal|localized_journal_name }}</a>{% empty %}<a href="{{ '/journals/'|localized_url }}">{% ui_text 'view_all_journals' 'View all journals' %}</a>{% endfor %}</section></aside>
+</article>
+{% endblock %}

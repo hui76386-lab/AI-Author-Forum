@@ -1,0 +1,28 @@
+{% extends "base_page.html" %}
+{% load wagtailimages_tags i18n_frontend %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block content %}
+<div class="u-container c-content-column">
+  <section class="c-content-row">
+    <div class="c-section-heading"><h1>{% ui_text 'browse_issues' 'Browse issues' %}</h1>{% if journal %}<p>{{ journal|localized_journal_name }}</p>{% endif %}</div>
+  </section>
+  {% for year, issues in archive_groups %}
+    <section class="c-content-row" aria-labelledby="issues-{{ year }}">
+      <h2 id="issues-{{ year }}">{{ year }}</h2>
+      <div class="c-featured-grid">
+        {% for issue in issues %}
+          <article class="c-card">
+            {% if issue.cover_image %}{% image issue.cover_image fill-480x600 as cover %}<img src="{{ cover.url }}" width="{{ cover.width }}" height="{{ cover.height }}" alt="{{ issue.cover_image.description|default:issue.cover_image.title }}">{% endif %}
+            <p>{{ issue.volume_label }}{% if issue.volume_label and issue.issue_number %}, {% endif %}{{ issue.issue_number }}</p>
+            <h3><a href="{{ issue.scope_path|localized_url }}">{{ issue.title }}</a></h3>
+            <time datetime="{{ issue.publication_date|date:'Y-m-d' }}">{{ issue.publication_date|date:'F j, Y' }}</time>
+            {% if issue.summary %}<p>{{ issue.summary }}</p>{% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% empty %}
+    <p class="c-empty-state">{% ui_text 'no_archived_issues' 'No published issues are available.' %}</p>
+  {% endfor %}
+</div>
+{% endblock %}

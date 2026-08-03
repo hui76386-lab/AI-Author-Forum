@@ -1,0 +1,36 @@
+﻿{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+{% block content %}
+<div class="nice-padding import-center">
+  <div class="import-heading"><div><h1>子期刊导入中心</h1><p>先预览逐行校验结果，再确认导入。预览不会修改子期刊、文章、投放或静态发布数据。</p></div><a class="button button-secondary" href="{% url 'journals_import_template' %}">下载受控 Excel 模板</a></div>
+  <section class="panel import-panel"><h2>1. 上传并校验</h2><form method="post" enctype="multipart/form-data">{% csrf_token %}{% for field in form %}{% formattedfield field %}{% endfor %}<button class="button button-primary" type="submit">校验数据包</button></form></section>
+
+  {% if preview_jobs %}
+  <section class="panel import-panel" id="import-preview" data-status-url="{{ status_url }}">
+    <h2>2. 逐行预览</h2>
+    {% if has_blocking_suspicious_text %}<div class="help-block help-critical"><strong>检测到可疑文本，确认导入已被阻止。</strong><p>请优先修正可信源文件。只有超级管理员可以填写理由后选择“按原文导入”；系统不会自动转换或猜测恢复。</p></div>{% endif %}
+    {% for job in preview_jobs %}
+    <div class="import-job">
+      <h3>{% if job.scope == 'journals' %}子期刊{% else %}文章{% endif %} · 任务 #{{ job.id }} · {{ job.status_label }}</h3>
+      <div class="import-metrics"><span>总行数<strong>{{ job.total_rows }}</strong></span><span>新增<strong>{{ job.created }}</strong></span><span>更新<strong>{{ job.updated }}</strong></span><span>跳过<strong>{{ job.skipped }}</strong></span><span>失败<strong>{{ job.failed }}</strong></span><span>可疑文本<strong>{{ job.suspicious_text_count }}</strong></span></div>
+      {% if job.error_report_url %}<p><a href="{{ job.error_report_url }}">下载逐行错误与可疑文本报告</a></p>{% endif %}
+      {% if job.process_error %}<p class="help critical">{{ job.process_error }}</p>{% endif %}
+      <div class="import-table"><table class="listing"><thead><tr><th>行号</th><th>动作</th><th>状态</th><th>错误</th><th>源数据与可疑项</th></tr></thead><tbody>
+      {% for row in job.rows %}<tr{% if row.raw_data.suspicious_text_issues %} class="suspicious-row"{% endif %}><td>{{ row.row_no }}</td><td>{{ row.action|default:"失败" }}</td><td>{{ row.status }}</td><td>{{ row.error_message|default:"—" }}</td><td>
+        {% if row.raw_data.suspicious_text_issues %}<ul class="suspicious-list">{% for issue in row.raw_data.suspicious_text_issues %}<li><strong>{{ issue.field_name }}</strong>：{{ issue.message }}<br><small>原值：{{ issue.raw_value }}；建议：{{ issue.suggestion }}</small></li>{% endfor %}</ul>{% endif %}
+        <details><summary>查看源数据</summary><code>{{ row.raw_data }}</code></details>
+      </td></tr>{% empty %}<tr><td colspan="5">没有数据行。</td></tr>{% endfor %}
+      </tbody></table></div>
+    </div>{% endfor %}
+
+    {% if preview_ready %}<form method="post" action="{% url 'journals_import_confirm' %}" class="confirm-form">{% csrf_token %}{{ confirm_form.journal_job_id }}{{ confirm_form.article_job_id }}{{ confirm_form.csv_encoding }}
+      {% if can_publish %}{% formattedfield confirm_form.publish_static_site %}{% endif %}
+      {% if has_blocking_suspicious_text %}<div class="override-box">{% formattedfield confirm_form.override_suspicious_text %}{% formattedfield confirm_form.override_reason %}</div>{% endif %}
+      <button class="button button-primary" type="submit"{% if has_blocking_suspicious_text and not request.user.is_superuser %} disabled title="仅超级管理员可按原文导入"{% endif %}>确认导入</button>
+    </form>{% elif preview_in_progress %}<p>任务正在后台运行，可以稍后刷新页面查看。</p>{% endif %}
+  </section>{% endif %}
+
+  <section class="panel import-panel"><h2>最近导入任务</h2><table class="listing"><thead><tr><th>任务</th><th>数据包</th><th>状态</th><th>创建时间</th></tr></thead><tbody>{% for job in recent_jobs %}<tr><td>#{{ job.pk }}</td><td>{{ job.package_name }}</td><td>{{ job.get_status_display }}</td><td>{{ job.created_at }}</td></tr>{% empty %}<tr><td colspan="4">暂无任务。</td></tr>{% endfor %}</tbody></table></section>
+</div>
+<style>.import-center{max-width:100rem}.import-heading{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap}.import-panel{padding:1rem;margin-top:1.5rem}.import-job{margin-top:1rem;padding:1rem;border:1px solid var(--w-color-border-furniture)}.import-metrics{display:grid;grid-template-columns:repeat(6,minmax(6rem,1fr));gap:.5rem}.import-metrics span{padding:.6rem;background:var(--w-color-surface-field)}.import-metrics strong{display:block;font-size:1.25rem}.import-table{max-height:36rem;overflow:auto}.suspicious-row{background:#fff1f0}.suspicious-list{color:var(--w-color-critical-200);margin:0 0 .5rem}.suspicious-list small{color:inherit}.import-table code{white-space:pre-wrap;word-break:break-word}.override-box{border:2px solid var(--w-color-critical-200);padding:1rem;margin:1rem 0}@media(max-width:800px){.import-metrics{grid-template-columns:repeat(2,1fr)}}</style>
+{% endblock %}

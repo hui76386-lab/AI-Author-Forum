@@ -1,0 +1,9 @@
+﻿{% extends "wagtailadmin/base.html" %}
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title icon="view" only %}
+<div class="nice-padding"><p>该列表仅展示系统 automatic category Placement。记录不可编辑、不可删除；修复以文章 live revision 的栏目关系为准。</p>
+<div class="table-wrapper"><table class="listing"><thead><tr><th>Article ID / 标题</th><th>Live revision</th><th>Target category</th><th>Role</th><th>Active</th><th>最近同步</th><th>Request ID</th><th>异常</th><th>操作</th></tr></thead><tbody>
+{% for item in placements %}<tr><td>#{{ item.article_id }}<br><strong>{{ item.article.title }}</strong></td><td>{{ item.article.live_revision_id|default:'-' }}</td><td>#{{ item.target_category_id }}<br><code>{{ item.target_category.code }}</code><br>{{ item.target_category.full_path }}</td><td>{{ item.metadata.category_assignment_role|default:'-' }}</td><td>{{ item.is_active|yesno:'是,否' }}</td><td>{{ item.updated_at }}</td><td><code>{{ item.metadata.sync_request_id|default:'-' }}</code></td><td>{{ item.article.placement_sync_error|default:'-' }}</td><td>{% if can_retry %}<form method="post">{% csrf_token %}<input type="hidden" name="article_id" value="{{ item.article_id }}"><input type="hidden" name="request_id" value="admin-retry-{{ item.article_id }}"><button class="button button-small">重新同步此文章</button></form>{% else %}只读{% endif %}</td></tr>
+{% empty %}<tr><td colspan="9">暂无系统栏目 Placement。</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

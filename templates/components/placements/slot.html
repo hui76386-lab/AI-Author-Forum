@@ -1,0 +1,12 @@
+{% load placement_tags wagtailcore_tags wagtailimages_tags wagtailsettings_tags %}
+{% slot_items slot_code target_type|default:"main_site" target_slug|default:"" limit as placements %}
+
+{% if placements %}
+    <section class="site-padding site-container py-14" data-layout-slot="{{ slot_code }}">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {% for placement in placements %}
+                {% include "components/placements/article-card.html" with placement=placement %}
+            {% endfor %}
+        </div>
+    </section>
+{% endif %}

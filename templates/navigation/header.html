@@ -1,0 +1,47 @@
+﻿{% load wagtailcore_tags wagtailsettings_tags i18n_frontend %}
+{% wagtail_site as current_site %}
+<header class="c-header">
+  <div class="c-header__masthead">
+    <a class="c-logo" href="{% localize_url '/' %}" aria-label="{% ui_text 'home_aria' 'AI Author Forum home' %}">{{ site_settings.site_name|default:current_site.site_name|default:'AI Author Forum' }}</a>
+    <nav class="c-utility-nav" aria-label="{% ui_text 'utility_navigation' 'Utility navigation' %}">
+      <a href="{{ '/journals/'|localized_url }}">{% ui_text 'view_all_journals' 'View all journals' %}</a>
+      {% include "components/language_switcher.html" %}
+      <button class="c-primary-nav-toggle" type="button" data-primary-nav-toggle aria-expanded="false" aria-controls="primary-navigation">{% ui_text 'menu' 'Menu' %}</button>
+      <button class="c-search-button" type="button" data-search-toggle aria-expanded="false" aria-controls="site-search-panel">
+        <span class="c-search-icon" aria-hidden="true"></span>
+        {% ui_text 'search' 'Search' %}
+      </button>
+    </nav>
+  </div>
+  <nav class="c-primary-nav" id="primary-navigation" aria-label="{% ui_text 'primary_navigation' 'Primary navigation' %}" data-managed-navigation-scope="{{ managed_navigation.scope|default:'main_site' }}">
+    {% for group in managed_navigation.groups %}
+    <div class="c-primary-nav__item{% if group.is_active %} is-active{% endif %}" data-navigation-group="{{ group.code }}">
+      <button type="button" class="c-primary-nav__button" data-nav-button aria-expanded="false" aria-controls="nav-{{ group.code }}">{{ group.label }}</button>
+      <div class="c-nav-dropdown" id="nav-{{ group.code }}" hidden>
+        {% for item in group.items %}
+        <a href="{{ item.url|localized_url }}" data-navigation-item="{{ item.code }}" data-target-type="{{ item.target_type }}"{% if item.open_in_new_tab %} target="_blank" rel="{{ item.rel|default:'noopener noreferrer' }}"{% endif %}{% if item.is_active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+        {% empty %}
+        <span class="c-nav-dropdown__empty">{% ui_text 'no_visible_entries' 'No visible entries' %}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% empty %}
+    <p class="c-primary-nav__empty" data-navigation-empty-state>{% ui_text 'no_navigation_configured' 'No navigation columns are currently configured.' %}</p>
+    {% endfor %}
+    <div class="c-primary-nav__spacer" aria-hidden="true"></div>
+  </nav>
+  <div class="c-search-dropdown" id="site-search-panel" hidden>
+    <form class="c-search-dropdown__form" action="{{ '/search/'|localized_url }}" method="get">
+      <label>{% ui_text 'search_terms' 'Search terms' %}
+        <input name="q" type="search" autocomplete="off" placeholder="{% ui_text 'search_placeholder' 'Search AI Author Forum' %}">
+      </label>
+      <label>{% ui_text 'journal_scope' 'Journal scope' %}
+        <select name="journal">
+          <option value="">{% ui_text 'all_journals' 'All journals' %}</option>
+          {% for journal in header_journals %}<option value="{{ journal|localized_journal_name }}">{{ journal|localized_journal_name }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit">{% ui_text 'search' 'Search' %}</button>
+    </form>
+  </div>
+</header>

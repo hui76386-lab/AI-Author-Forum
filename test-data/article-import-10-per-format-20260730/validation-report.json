@@ -1,0 +1,858 @@
+{
+  "validated_on": "2026-07-30",
+  "database": "temporary copy; production/local database not modified",
+  "total_uploads": 23,
+  "total_preview_rows": 50,
+  "ready_uploads": 23,
+  "failed_rows": 0,
+  "all_ready": true,
+  "results": [
+    {
+      "path": "01-xlsx/articles-10.xlsx",
+      "status": "ready",
+      "row_count": 10,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 10,
+        "created_rows": 10,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": null,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "xlsx",
+        "parser_version": "article-import-v2",
+        "preview_processed_rows": 10,
+        "preview_total_rows": 10,
+        "conversion_warning_count": 0,
+        "conversion_warning_codes": [],
+        "document_count": 0,
+        "generated_image_count": 0,
+        "converters": []
+      }
+    },
+    {
+      "path": "02-csv/articles-10.csv",
+      "status": "ready",
+      "row_count": 10,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 10,
+        "created_rows": 10,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": null,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "csv",
+        "parser_version": "article-import-v2",
+        "preview_processed_rows": 10,
+        "preview_total_rows": 10,
+        "conversion_warning_count": 0,
+        "conversion_warning_codes": [],
+        "document_count": 0,
+        "generated_image_count": 0,
+        "converters": []
+      }
+    },
+    {
+      "path": "03-zip/articles-10-mixed-documents.zip",
+      "status": "ready",
+      "row_count": 10,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 10,
+        "created_rows": 10,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": null,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "zip",
+        "parser_version": "article-import-v2",
+        "preview_processed_rows": 10,
+        "preview_total_rows": 10,
+        "conversion_warning_count": 70,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 10,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          },
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "04-docx/docx-article-01.docx",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {
+          "article_type": "ai_article"
+        },
+        "template_warning": "",
+        "source_format": "docx",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 12,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_SLUG_INFERRED",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "04-docx/docx-article-02.docx",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {
+          "article_type": "ai_article"
+        },
+        "template_warning": "",
+        "source_format": "docx",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 12,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_SLUG_INFERRED",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "04-docx/docx-article-03.docx",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {
+          "article_type": "ai_article"
+        },
+        "template_warning": "",
+        "source_format": "docx",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 12,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_SLUG_INFERRED",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "04-docx/docx-article-04.docx",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {
+          "article_type": "ai_article"
+        },
+        "template_warning": "",
+        "source_format": "docx",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 12,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_SLUG_INFERRED",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "04-docx/docx-article-05.docx",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {
+          "article_type": "ai_article"
+        },
+        "template_warning": "",
+        "source_format": "docx",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 12,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_SLUG_INFERRED",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "04-docx/docx-article-06.docx",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {
+          "article_type": "ai_article"
+        },
+        "template_warning": "",
+        "source_format": "docx",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 12,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_SLUG_INFERRED",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "04-docx/docx-article-07.docx",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {
+          "article_type": "ai_article"
+        },
+        "template_warning": "",
+        "source_format": "docx",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 12,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_SLUG_INFERRED",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "04-docx/docx-article-08.docx",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {
+          "article_type": "ai_article"
+        },
+        "template_warning": "",
+        "source_format": "docx",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 12,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_SLUG_INFERRED",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "04-docx/docx-article-09.docx",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {
+          "article_type": "ai_article"
+        },
+        "template_warning": "",
+        "source_format": "docx",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 12,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_SLUG_INFERRED",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "04-docx/docx-article-10.docx",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {
+          "article_type": "ai_article"
+        },
+        "template_warning": "",
+        "source_format": "docx",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 12,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_SLUG_INFERRED",
+          "ARTICLE_DOCUMENT_UNSUPPORTED_ELEMENT"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "mammoth",
+            "version": "1.11.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "05-markdown/markdown-article-01.md",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "markdown",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 2,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "05-markdown/markdown-article-02.md",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "markdown",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 2,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "05-markdown/markdown-article-03.md",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "markdown",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 2,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "05-markdown/markdown-article-04.md",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "markdown",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 2,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "05-markdown/markdown-article-05.md",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "markdown",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 2,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "05-markdown/markdown-article-06.md",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "markdown",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 2,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "05-markdown/markdown-article-07.md",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "markdown",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 2,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "05-markdown/markdown-article-08.md",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "markdown",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 2,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "05-markdown/markdown-article-09.md",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "markdown",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 2,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    },
+    {
+      "path": "05-markdown/markdown-article-10.md",
+      "status": "ready",
+      "row_count": 1,
+      "failed_rows": 0,
+      "errors": [],
+      "summary": {
+        "total_rows": 1,
+        "created_rows": 1,
+        "updated_rows": 0,
+        "skipped_rows": 0,
+        "failed_rows": 0,
+        "suspicious_text_count": 0,
+        "default_journal_id": 155,
+        "csv_encoding": "auto",
+        "document_defaults": {},
+        "template_warning": "",
+        "source_format": "markdown",
+        "parser_version": "document-import-v1",
+        "preview_processed_rows": 1,
+        "preview_total_rows": 1,
+        "conversion_warning_count": 2,
+        "conversion_warning_codes": [
+          "ARTICLE_DOCUMENT_DUPLICATE_TITLE_REMOVED",
+          "ARTICLE_DOCUMENT_METADATA_OVERRIDDEN"
+        ],
+        "document_count": 1,
+        "generated_image_count": 0,
+        "converters": [
+          {
+            "name": "markdown-it-py",
+            "version": "4.0.0"
+          }
+        ]
+      }
+    }
+  ]
+}

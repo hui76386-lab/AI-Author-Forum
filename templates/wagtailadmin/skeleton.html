@@ -1,0 +1,94 @@
+<!doctype html>
+{% load wagtailadmin_tags i18n i18n_frontend %}
+{% get_current_language as LANGUAGE_CODE %}
+{% get_current_language_bidi as LANGUAGE_BIDI %}
+<html lang="{{ LANGUAGE_CODE }}" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}" class="{% admin_theme_classname %}">
+    <head>
+        <meta charset="utf-8" />
+        <title>{% block titletag %}{% endblock %} - {% block branding_title %}Wagtail{% endblock %}</title>
+        <meta name="description" content="" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="robots" content="noindex" />
+        <meta name="color-scheme" content="{% admin_theme_color_scheme %}">
+
+        {% block css %}{% endblock %}
+
+        {% block branding_favicon %}{% endblock %}
+
+        <style>
+            .aaf-admin-language-switcher {
+                position: fixed;
+                inset-block-start: 12px;
+                inset-inline-end: 14px;
+                z-index: 1000;
+                display: flex;
+                gap: 4px;
+                padding: 4px;
+                border-radius: 999px;
+                background: color-mix(in srgb, var(--w-color-surface-page, #fff) 92%, transparent);
+                box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+            }
+            .aaf-admin-language-switcher__button {
+                min-height: 30px;
+                padding: 3px 10px;
+                border: 0;
+                border-radius: 999px;
+                background: transparent;
+                color: var(--w-color-text-label, #262626);
+                font-size: 12px;
+                font-weight: 700;
+                line-height: 1.3;
+                cursor: pointer;
+            }
+            .aaf-admin-language-switcher__button:hover,
+            .aaf-admin-language-switcher__button:focus-visible {
+                background: var(--w-color-surface-button-default, #f6f6f8);
+            }
+            .aaf-admin-language-switcher__button.is-active {
+                background: var(--w-color-primary, #007d7e);
+                color: #fff;
+            }
+            @media (max-width: 50em) {
+                .aaf-admin-language-switcher {
+                    inset-block-start: auto;
+                    inset-block-end: 12px;
+                    inset-inline-end: 12px;
+                }
+            }
+        </style>
+
+    </head>
+    {% sidebar_collapsed as sidebar_collapsed %}
+    {% fragment as bodyclass %}{% block bodyclass %}{% endblock %}{% endfragment %}
+    <body id="wagtail" class="{% classnames bodyclass sidebar_collapsed|yesno:"sidebar-collapsed," messages|yesno:"has-messages," %}" data-controller="w-init" data-w-init-ready-class="ready">
+        {% block icons_sprite %}
+            <div data-sprite></div>
+
+            <script src="{% versioned_static 'wagtailadmin/js/icons.js' %}" data-icon-url="{% icon_sprite_url %}"></script>
+        {% endblock %}
+
+        <noscript class="capabilitymessage">
+            {% blocktrans trimmed %}
+                JavaScript is required to use Wagtail, but it is currently disabled.<br />
+                Here are the <a href="https://www.enable-javascript.com/" target="_blank" rel="noreferrer">instructions how to enable JavaScript in your web browser</a>.
+            {% endblocktrans %}
+        </noscript>
+
+        {% block js %}{% endblock %}
+
+        <a class="skiplink button" href="#main" data-controller="w-focus" data-action="w-focus#focus:prevent">{% trans 'Skip to main content' %}</a>
+
+
+        <form class="aaf-admin-language-switcher" action="{% url 'set_language' %}" method="post" aria-label="{% trans 'Language' %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            {% for option in LANGUAGE_SWITCH_OPTIONS %}
+                <button type="submit" name="language" value="{{ option.code }}" lang="{{ option.code }}" class="aaf-admin-language-switcher__button{% if option.active %} is-active{% endif %}"{% if option.active %} aria-current="true"{% endif %}>{{ option.native_name }}</button>
+            {% endfor %}
+        </form>
+
+        <div class="wrapper">
+            {% block furniture %}{% endblock %}
+        </div>
+    </body>
+</html>

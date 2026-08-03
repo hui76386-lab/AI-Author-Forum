@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+from django.utils import translation
+from django.utils.functional import lazy
+
+from ai_author_forum.utils.i18n import (
+    DEFAULT_LANGUAGE,
+    ENGLISH_LANGUAGE,
+    normalize_language,
+)
+
+ADMIN_TRANSLATIONS = {
+    DEFAULT_LANGUAGE: {
+        "articles.manage": "\u6587\u7ae0\u7ba1\u7406",
+        "articles.manage.description": "\u7edf\u4e00\u7684\u6587\u7ae0\u5185\u5bb9\u5165\u53e3\uff1b\u6587\u7ae0\u5ba1\u6838\u901a\u8fc7\u540e\u4ecd\u9700\u7ecf\u6295\u653e\u914d\u7f6e\u624d\u80fd\u51fa\u73b0\u5728\u524d\u53f0\u3002",
+        "articles.review": "\u6587\u7ae0\u5ba1\u6838",
+        "articles.review.description": "\u7edf\u4e00\u7684\u6587\u7ae0\u5ba1\u6838\u5165\u53e3\uff0c\u5ba1\u6838\u901a\u8fc7\u4e0d\u7b49\u4e8e\u76f4\u63a5\u6295\u653e\u5230\u524d\u53f0\u3002",
+        "journals": "\u5b50\u671f\u520a",
+        "journals.title": "\u5b50\u671f\u520a\u5217\u8868",
+        "journals.description": "\u7edf\u4e00\u7ef4\u62a4\u5b50\u671f\u520a\u8d44\u6599\u3001\u5217\u8868\u7b5b\u9009\u548c\u9759\u6001\u4e3b\u9875\u53d1\u5e03\u72b6\u6001\u3002",
+        "placements.homepage": "\u9996\u9875\u7f16\u6392",
+        "placements.all": "\u5168\u90e8\u6587\u7ae0\u6295\u653e",
+        "placements.manage": "\u6295\u653e\u7ba1\u7406",
+        "placements.manage.description": "\u5c06\u5ba1\u6838\u901a\u8fc7\u7684\u6587\u7ae0\u6295\u653e\u5230\u4e3b\u7ad9\u3001\u680f\u76ee\u3001\u5b50\u671f\u520a\u6216 Search \u7684\u53d7\u63a7\u7248\u4f4d\u3002",
+        "placements.slots": "\u7248\u4f4d\u7ba1\u7406",
+        "placements.slots.title": "\u7248\u4f4d\u7ba1\u7406\u4e2d\u5fc3",
+        "placements.slots.description": "\u7ba1\u7406\u4e3b\u7ad9\u3001\u680f\u76ee\u3001\u5b50\u671f\u520a\u548c Search \u7684\u56fa\u5b9a\u7248\u4f4d\uff1b\u53ea\u5f00\u653e\u53d7\u63a7\u914d\u7f6e\uff0c\u4e0d\u63d0\u4f9b\u7834\u574f\u7edf\u4e00\u6a21\u677f\u7684\u81ea\u7531\u62d6\u62fd\u3002",
+        "placements.system_categories": "\u7cfb\u7edf\u680f\u76ee\u6295\u653e\uff08\u53ea\u8bfb\uff09",
+        "placements.system_categories.description": "\u6309 live \u6587\u7ae0\u680f\u76ee\u5173\u7cfb\u751f\u6210\u7684 Placement\uff1b\u6b64\u5904\u4ec5\u53ef\u67e5\u770b\u548c\u89e6\u53d1\u4e13\u7528\u91cd\u8bd5\u3002",
+        "static_publish": "\u9759\u6001\u53d1\u5e03",
+        "static_publish.description": "\u7edf\u4e00\u7684\u9759\u6001\u751f\u6210\u3001\u9010\u9875\u9762\u7ed3\u679c\u3001manifest\u3001\u5931\u8d25\u91cd\u8bd5\u548c\u56de\u6eda\u5165\u53e3\u3002",
+        "site_settings": "\u4e3b\u7ad9\u914d\u7f6e",
+        "site_settings.navigation": "\u680f\u76ee\u4e0e\u5bfc\u822a",
+        "site_settings.images": "\u56fe\u7247",
+        "site_settings.documents": "\u6587\u6863",
+        "site_settings.content": "\u5185\u5bb9\u4e0e\u5ba1\u6838",
+        "site_settings.delivery": "\u7f16\u6392\u4e0e\u53d1\u5e03",
+        "site_settings.assets": "\u7d20\u6750\u4e0e\u914d\u7f6e",
+        "site_settings.main_navigation": "\u4e3b\u7ad9\u680f\u76ee",
+        "site_settings.journal_navigation": "\u5b50\u671f\u520a\u680f\u76ee",
+        "site_settings.journal_template": "\u9ed8\u8ba4\u5b50\u671f\u520a\u6a21\u677f",
+        "site_settings.navigation_groups": "\u5bfc\u822a\u5206\u7ec4",
+        "site_settings.navigation_baseline": "\u5bfc\u822a\u57fa\u7ebf",
+        "site_settings.content_columns": "\u5185\u5bb9\u680f\u76ee\u914d\u7f6e",
+        "site_settings.content_readiness": "\u5185\u5bb9\u5c31\u7eea\u68c0\u67e5",
+        "site_settings.audit_logs": "\u5ba1\u8ba1\u65e5\u5fd7",
+        "site_settings.navigation_audit_logs": "\u680f\u76ee\u53d8\u66f4\u8bb0\u5f55",
+        "site_settings.role_presets": "\u89d2\u8272\u6743\u9650\u9884\u8bbe",
+        "articles.pending_review": "待审核",
+        "placements.sync_errors": "投放同步异常",
+        "journals.list": "子期刊列表",
+        "journals.categories": "栏目管理",
+        "journals.import": "批量导入",
+        "site_settings.content_domain": "内容生产",
+        "site_settings.journal_domain": "子期刊运营",
+    },
+    ENGLISH_LANGUAGE: {
+        "articles.manage": "Article management",
+        "articles.manage.description": "Unified article content entry; approved articles still need placement configuration before appearing on the public site.",
+        "articles.review": "Article review",
+        "articles.review.description": "Unified article review entry; review approval does not publish directly to the public site.",
+        "journals": "Journals",
+        "journals.title": "Journal list",
+        "journals.description": "Maintain journal profiles, list filters, and static homepage publication status in one place.",
+        "placements.homepage": "Homepage composition",
+        "placements.all": "All article placements",
+        "placements.manage": "Placement management",
+        "placements.manage.description": "Place approved articles into controlled slots on the main site, sections, journals, or Search.",
+        "placements.slots": "Slot management",
+        "placements.slots.title": "Slot management center",
+        "placements.slots.description": "Manage fixed slots for the main site, sections, journals, and Search; only controlled configuration is exposed, with no free-form dragging that can break the shared template.",
+        "placements.system_categories": "System category placements (read-only)",
+        "placements.system_categories.description": "Placements generated from live article/category relationships; view only and trigger dedicated retries here.",
+        "static_publish": "Static publishing",
+        "static_publish.description": "Unified entry for static generation, per-page results, manifest, failed retries, and rollback.",
+        "site_settings": "Site settings",
+        "site_settings.navigation": "Sections & navigation",
+        "site_settings.images": "Images",
+        "site_settings.documents": "Documents",
+        "site_settings.content": "Content & review",
+        "site_settings.delivery": "Layout & publishing",
+        "site_settings.assets": "Assets & settings",
+        "site_settings.main_navigation": "Main-site sections",
+        "site_settings.journal_navigation": "Journal sections",
+        "site_settings.journal_template": "Default journal template",
+        "site_settings.navigation_groups": "Navigation groups",
+        "site_settings.navigation_baseline": "Navigation baseline",
+        "site_settings.content_columns": "Content column settings",
+        "site_settings.content_readiness": "Content readiness",
+        "site_settings.audit_logs": "Audit logs",
+        "site_settings.navigation_audit_logs": "Section change logs",
+        "site_settings.role_presets": "Role permission presets",
+        "articles.pending_review": "Pending review",
+        "placements.sync_errors": "Placement sync issues",
+        "journals.list": "Journal list",
+        "journals.categories": "Category management",
+        "journals.import": "Bulk import",
+        "site_settings.content_domain": "Content production",
+        "site_settings.journal_domain": "Journal operations",
+    },
+}
+
+
+def _admin_text(key: str) -> str:
+    code = normalize_language(translation.get_language())
+    return (
+        ADMIN_TRANSLATIONS.get(code, {}).get(key)
+        or ADMIN_TRANSLATIONS[DEFAULT_LANGUAGE].get(key)
+        or key
+    )
+
+
+admin_text = lazy(_admin_text, str)

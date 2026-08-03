@@ -1,0 +1,6 @@
+﻿{% load i18n_frontend %}
+<nav class="c-language-switcher" aria-label="{% ui_text 'language_switcher' 'Language switcher' %}">
+  {% for option in LANGUAGE_SWITCH_OPTIONS %}
+    <a class="c-language-switcher__item{% if option.active %} is-active{% endif %}" href="{{ option.url }}" hreflang="{{ option.code }}" lang="{{ option.code }}"{% if option.active %} aria-current="true" aria-label="{% ui_text 'current_language' 'Current language' %}: {{ option.native_name }}"{% endif %}>{{ option.native_name }}</a>
+  {% endfor %}
+</nav>

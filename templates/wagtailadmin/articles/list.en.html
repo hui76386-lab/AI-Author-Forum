@@ -1,0 +1,448 @@
+{% extends "wagtailadmin/base.html" %}
+{% load i18n wagtailadmin_tags wagtailimages_tags %}
+
+{% block titletag %}{{ page_title }}{% endblock %}
+
+{% block content %}
+    {% include "wagtailadmin/shared/header.html" with title=page_title icon="doc-full" action_url=create_article_url action_text="Create article" only %}
+    {% if article_import_url %}
+      <div class="nice-padding" style="display:flex;justify-content:flex-end;margin-top:-1rem;margin-bottom:1rem">
+        <a class="button button-secondary" href="{{ article_import_url }}">{% if journal_context %}Import journal articles{% else %}Import articles{% endif %}</a>
+      </div>
+    {% endif %}
+
+    <div class="nice-padding article-admin-page">
+        <section class="article-admin-guide" aria-label="Article workflow">
+            <div>
+                <p class="article-admin-guide__eyebrow">Current primary object: Article</p>
+                <h2>Assign first, review next, then place</h2>
+                <p>Articles are filed under their primary journal. Related journals indicate only cross-journal content relationships. Approved articles must still be configured in Placement management before static publishing generates the public HTML.</p>
+            </div>
+            <ol>
+                <li><span>1</span>Article assignment</li>
+                <li><span>2</span>Content review</li>
+                <li><span>3</span>Slot placement</li>
+                <li><span>4</span>Static publishing</li>
+            </ol>
+        </section>
+
+        {% if journal_context %}
+            <section class="article-journal-context" aria-label="Current journal context">
+                <div>
+                    <span>Working in journal</span>
+                    <h2>{{ journal_context.name }}</h2>
+                    <p>{{ journal_context.name }}  -  <code>{{ journal_context.slug }}</code>. The list below only shows articles whose <strong>primary journal</strong> is this journal. This does not mean they have been placed on this journal's public site.</p>
+                </div>
+                <div class="article-journal-context__actions">
+                    <a class="button button-secondary" href="{{ journal_workspace_url }}">Return to journal workspace</a>
+                    {% if article_import_url %}<a class="button button-secondary" href="{{ article_import_url }}">Import journal articles</a>{% endif %}
+                    {% if journal_placements_url %}<a class="button button-primary" href="{{ journal_placements_url }}">Manage journal placements</a>{% endif %}
+                </div>
+            </section>
+        {% endif %}
+        <form class="article-admin-filters" method="get" aria-label="Article filters">
+            <label class="article-admin-filter--wide">
+                <span>Keyword</span>
+                <input type="search" name="q" value="{{ filters.q }}" placeholder="Title, Summary, Body, author, or keyword">
+            </label>
+
+            {% if not pending_only %}
+                <label>
+                    <span>Review status</span>
+                    <select name="review_status">
+                        <option value="">All review statuses</option>
+                        {% for value, label in status_choices %}
+                            <option value="{{ value }}"{% if filters.review_status == value %} selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            {% endif %}
+
+            <label>
+                <span>Delivery status</span>
+                <select name="publication_status">
+                    <option value="">All delivery statuses</option>
+                    {% for value, label in publication_status_choices %}
+                        <option value="{{ value }}"{% if filters.publication_status == value %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label>
+                <span>Article type</span>
+                <select name="article_type">
+                    <option value="">All types</option>
+                    {% for value, label in article_type_choices %}
+                        <option value="{{ value }}"{% if filters.article_type == value %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label>
+                <span>primary journal</span>
+                <select name="primary_journal">
+                    <option value="">All journals</option>
+                    {% for journal in journal_choices %}
+                        {% with journal.pk|stringformat:"s" as journal_id %}
+                            <option value="{{ journal.pk }}"{% if filters.primary_journal == journal_id %} selected{% endif %}>{{ journal.name }}</option>
+                        {% endwith %}
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label>
+                <span>Dynamic category</span>
+                <select name="category">
+                    <option value="">All categories</option>
+                    {% for category in category_choices %}
+                        {% with category.pk|stringformat:"s" as category_id %}
+                            <option value="{{ category.pk }}"{% if filters.category == category_id %} selected{% endif %}>{{ category.journal.name }} / {{ category.code }}</option>
+                        {% endwith %}
+                    {% endfor %}
+                </select>
+            </label>
+
+            {% if pending_only %}
+                <label>
+                    <span>Submitter</span>
+                    <input type="search" name="submitter" value="{{ filters.submitter }}" placeholder="Username">
+                </label>
+                <label>
+                    <span>Waiting time</span>
+                    <select name="waiting">
+                        <option value="">All</option>
+                        <option value="24h"{% if filters.waiting == "24h" %} selected{% endif %}>More than 24 hours</option>
+                        <option value="3d"{% if filters.waiting == "3d" %} selected{% endif %}>More than 3 days</option>
+                        <option value="7d"{% if filters.waiting == "7d" %} selected{% endif %}>More than 7 days</option>
+                    </select>
+                </label>
+            {% endif %}
+
+            <label>
+                <span>Updated from</span>
+                <input type="text" inputmode="numeric" name="updated_from" value="{{ filters.updated_from }}" placeholder="YYYY-MM-DD" pattern="\d{4}-\d{2}-\d{2}" aria-label="Updated from date in YYYY-MM-DD format">
+            </label>
+            <label>
+                <span>Updated to</span>
+                <input type="text" inputmode="numeric" name="updated_to" value="{{ filters.updated_to }}" placeholder="YYYY-MM-DD" pattern="\d{4}-\d{2}-\d{2}" aria-label="Updated to date in YYYY-MM-DD format">
+            </label>
+            <label>
+                <span>Sort</span>
+                <select name="ordering">
+                    {% for value, label in ordering_choices %}
+                        <option value="{{ value }}"{% if filters.ordering == value %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                <span>Per page</span>
+                <select name="page_size">
+                    {% for size in page_sizes %}
+                        <option value="{{ size }}"{% if filters.page_size == size %} selected{% endif %}>{{ size }} items</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <div class="article-admin-filter-actions">
+                <button class="button" type="submit">Apply filters</button>
+                <a class="button button-secondary" href="{{ reset_url }}">Clear filters</a>
+            </div>
+        </form>
+
+        <div class="article-admin-summary">
+            <strong>Filtered results {{ page_obj.paginator.count }} articles</strong>
+            <span>Page {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} page</span>
+            {% if pending_only %}<span>The pending-review list always uses review status"Pending review".</span>{% endif %}
+        </div>
+
+        <form id="article-bulk-form" method="post" action="{{ bulk_action_url }}">
+            {% csrf_token %}
+            <div class="table-wrapper">
+                <table class="listing article-admin-table">
+                    <thead>
+                        <tr>
+                            {% if can_bulk_edit or can_bulk_review %}
+                                <th class="article-admin-select-cell"><input type="checkbox" data-select-page aria-label="Select all articles on this page"></th>
+                            {% endif %}
+                            <th>Cover and title</th>
+                            <th>Primary journal and category</th>
+                            <th>Type</th>
+                            <th>Review status</th>
+                            <th>Delivery status</th>
+                            {% if pending_only %}<th>Submission</th>{% endif %}
+                            <th>Last updated</th>
+                            <th>Last editor</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for article in articles %}
+                            <tr>
+                                {% if can_bulk_edit or can_bulk_review %}
+                                    <td class="article-admin-select-cell">
+                                        <input type="checkbox" name="article_ids[]" value="{{ article.pk }}" data-article-select aria-label="Select {{ article.title }}">
+                                        <input type="hidden" name="expected_revision_{{ article.pk }}" value="{{ article.latest_revision_id|default:'' }}">
+                                    </td>
+                                {% endif %}
+                                <td class="title">
+                                    <div class="article-admin-identity">
+                                        <div class="article-admin-thumbnail">
+                                            {% if article.admin_image.image %}
+                                                {% image article.admin_image.image fill-80x50 as article_thumbnail %}
+                                                <img src="{{ article_thumbnail.url }}" width="80" height="50" alt="{{ article.admin_image.alt }}">
+                                            {% else %}
+                                                <img src="{{ article.admin_image.placeholder_url }}" width="80" height="50" alt="{{ article.admin_image.alt }}">
+                                            {% endif %}
+                                        </div>
+                                        <div>
+                                            {% if article.admin_can_edit and article.admin_urls.edit %}
+                                                <a href="{{ article.admin_urls.edit }}">{{ article.title }}</a>
+                                            {% elif article.admin_can_review and article.admin_urls.review %}
+                                                <a href="{{ article.admin_urls.review }}">{{ article.title }}</a>
+                                            {% else %}
+                                                <strong>{{ article.title }}</strong>
+                                            {% endif %}
+                                            <div class="article-admin-secondary">#{{ article.pk }}{% if article.static_slug %}  -  {{ article.static_slug }}{% endif %}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <strong>{{ article.primary_journal.name|default:"-" }}</strong>
+                                    <ul class="article-admin-categories">
+                                        {% for category in article.admin_categories %}
+                                            <li>{{ category.code }}</li>
+                                        {% empty %}
+                                            <li class="article-admin-secondary">No category assigned</li>
+                                        {% endfor %}
+                                    </ul>
+                                </td>
+                                <td>{{ article.get_article_type_display }}</td>
+                                <td>{% include "wagtailadmin/shared/status_tag.html" with label=article.get_review_status_display %}</td>
+                                <td>
+                                    {% if article.publication_status %}
+                                        {% include "wagtailadmin/shared/status_tag.html" with label=article.get_publication_status_display %}
+                                    {% else %}
+                                        <span class="article-admin-secondary">Not in delivery</span>
+                                    {% endif %}
+                                </td>
+                                {% if pending_only %}
+                                    <td>
+                                        <div>{{ article.submitted_at|date:"Y-m-d H:i"|default:"-" }}</div>
+                                        <div class="article-admin-secondary">Waiting {{ article.submitted_at|timesince|default:"-" }}</div>
+                                        <div class="article-admin-secondary">{{ article.submitted_by_username|default:"Unknown submitter" }}</div>
+                                        <div class="article-admin-secondary">revision #{{ article.latest_revision_id|default:"-" }}</div>
+                                    </td>
+                                {% endif %}
+                                <td>{{ article.latest_revision_created_at|date:"Y-m-d H:i"|default:"-" }}</td>
+                                <td>{{ article.admin_last_editor|default:"-" }}</td>
+                                <td>
+                                    <ul class="article-row-actions">
+                                                                                {% if article.admin_can_edit and article.admin_urls.edit %}<li><a href="{{ article.admin_urls.edit }}">Edit</a></li>{% endif %}
+                                        {% if article.admin_can_submit_review %}
+                                            {% if article.admin_has_primary_category and article.admin_urls.submit_review %}
+                                                <li>
+                                                    <button class="article-inline-action" type="submit" formmethod="post" formaction="{{ article.admin_urls.submit_review }}" name="next" value="{{ current_url }}">Submit for review</button>
+                                                </li>
+                                            {% elif article.admin_can_edit and article.admin_urls.edit %}
+                                                <li><a href="{{ article.admin_urls.edit }}">Assign primary category</a></li>
+                                            {% endif %}
+                                        {% endif %}
+                                        {% if article.admin_can_review and article.admin_urls.review %}<li><a href="{{ article.admin_urls.review }}">{% if article.review_status == "submitted" %}Start review{% else %}View review{% endif %}</a></li>{% endif %}
+                                        {% if article.admin_urls.preview and article.admin_can_edit %}<li><a href="{{ article.admin_urls.preview }}" target="_blank" rel="noreferrer">Dynamic preview</a></li>{% endif %}
+                                        {% if article.admin_static_preview_url %}<li><a href="{{ article.admin_static_preview_url }}" target="_blank" rel="noreferrer">Static page preview</a></li>{% endif %}
+                                        {% if article.admin_can_manage_placements and article.admin_urls.placements %}<li><a href="{{ article.admin_urls.placements }}">Manage placements</a></li>{% endif %}
+                                        {% if article.admin_urls.history and article.admin_can_edit %}<li><a href="{{ article.admin_urls.history }}">Revision history</a></li>{% endif %}
+                                        {% if not article.admin_can_edit and not article.admin_can_review and not article.admin_can_manage_placements and not article.admin_static_preview_url %}<li class="article-admin-secondary">No available actions</li>{% endif %}
+                                    </ul>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="{% if pending_only %}10{% else %}9{% endif %}"><div class="article-admin-empty"><p>No articles match the current filters.</p><a class="button button-secondary" href="{{ reset_url }}">Clear filters</a></div></td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if can_bulk_edit or can_bulk_review %}
+                <div class="article-bulk-bar" data-bulk-bar hidden>
+                    <div class="article-bulk-selected">selected <span data-selected-count>0</span> articles</div>
+                    <p class="article-admin-secondary">For imported drafts, first"set the primary category", then"Submit for review"; Bulk actions do not automatically approve articles, placement or static publishing.</p>
+                    <label>
+                        <span>Bulk actions</span>
+                        <select name="action" data-bulk-action required>
+                            <option value="">Choose an action</option>
+                            {% if can_bulk_edit %}
+                                <option value="submit_review">Submit for review</option>
+                                <option value="set_primary_journal">Set primary journal</option>
+                                <option value="set_primary_category">set the primary category</option>
+                                <option value="add_category">Add dynamic category</option>
+                                <option value="set_article_type">Set article type</option>
+                            {% endif %}
+                            {% if can_bulk_review %}
+                                <option value="approve">Bulk approve</option>
+                                <option value="reject">Bulk reject</option>
+                            {% endif %}
+                        </select>
+                    </label>
+                    <label data-bulk-param="set_primary_journal" hidden>
+                        <span>Target primary journal</span>
+                        <select name="primary_journal"><option value="">Select</option>{% for journal in journal_choices %}<option value="{{ journal.pk }}">{{ journal.name }}</option>{% endfor %}</select>
+                    </label>
+                    <label data-bulk-param="set_primary_category" hidden>
+                        <span>Target primary category</span>
+                        <select name="primary_category"><option value="">Select</option>{% for category in category_choices %}<option value="{{ category.pk }}">{{ category.journal.name }} / {{ category.code }}</option>{% endfor %}</select>
+                    </label>
+                    <label data-bulk-param="add_category" hidden>
+                        <span>Additional dynamic category</span>
+                        <select name="additional_category"><option value="">Select</option>{% for category in category_choices %}<option value="{{ category.pk }}">{{ category.journal.name }} / {{ category.code }}</option>{% endfor %}</select>
+                    </label>
+                    <label data-bulk-param="set_article_type" hidden>
+                        <span>Target article type</span>
+                        <select name="article_type"><option value="">Select</option>{% for value, label in article_type_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+                    </label>
+                    <label data-bulk-comment hidden>
+                        <span>Review comment</span>
+                        <textarea name="comment" rows="2" placeholder="Required for bulk approval or rejection"></textarea>
+                    </label>
+                    <button class="button button-primary" type="submit" data-bulk-submit>Run bulk action</button>
+                    <p class="article-bulk-warning">Up to 100 articles.The article list does not support bulk public publishing; Approved articles still require placement and static publishing.</p>
+                </div>
+            {% endif %}
+        </form>
+
+        <section class="article-bulk-results" data-bulk-results hidden aria-live="polite">
+            <div class="article-bulk-results__header">
+                <h2>Bulk action results</h2>
+                <div>
+                    <button class="button button-secondary" type="button" data-copy-failures hidden>Copy failure reason</button>
+                    <button class="button button-secondary" type="button" data-download-failures hidden>Download failure list</button>
+                </div>
+            </div>
+            <p data-bulk-summary></p>
+            <div class="table-wrapper"><table class="listing"><thead><tr><th>Article</th><th>Result</th><th>Details</th></tr></thead><tbody data-bulk-items></tbody></table></div>
+        </section>
+
+        {% if page_obj.paginator.num_pages > 1 %}
+            <nav class="pagination" aria-label="Article pagination">
+                <p>Page {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} page</p>
+                <ul>
+                    <li class="prev"><a{% if page_obj.has_previous %} href="{{ paginator_url_prefix }}p={{ page_obj.previous_page_number }}"{% endif %}>Previous</a></li>
+                    {% for page_number in page_obj.paginator.page_range %}
+                        <li class="pagination__page-number{% if page_number == page_obj.number %} pagination__page-number--current{% endif %}"><a href="{{ paginator_url_prefix }}p={{ page_number }}"{% if page_number == page_obj.number %} aria-current="page"{% endif %}>{{ page_number }}</a></li>
+                    {% endfor %}
+                    <li class="next"><a{% if page_obj.has_next %} href="{{ paginator_url_prefix }}p={{ page_obj.next_page_number }}"{% endif %}>Next</a></li>
+                </ul>
+            </nav>
+        {% endif %}
+    </div>
+
+    <style>
+    .article-admin-guide{display:flex;justify-content:space-between;align-items:center;gap:1.5rem;margin-bottom:1rem;padding:1.25rem;border:1px solid var(--w-color-border-furniture);background:var(--w-color-surface-page)}.article-admin-guide h2{margin:.15rem 0 .35rem}.article-admin-guide p{margin:0;max-width:58rem;color:var(--w-color-text-meta)}.article-admin-guide__eyebrow{font-size:.75rem!important;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.article-admin-guide ol{display:flex;align-items:center;gap:.45rem;margin:0;padding:0;list-style:none;white-space:nowrap}.article-admin-guide li{display:flex;align-items:center;gap:.35rem}.article-admin-guide li:not(:last-child)::after{content:" -> ";margin-left:.45rem;color:var(--w-color-text-meta)}.article-admin-guide li span{display:grid;place-items:center;width:1.8rem;height:1.8rem;border-radius:50%;background:var(--w-color-primary);color:#fff;font-weight:700}.article-journal-context{display:flex;justify-content:space-between;align-items:center;gap:1.25rem;margin-bottom:1rem;padding:1.15rem;border-inline-start:.35rem solid var(--w-color-primary);background:var(--w-color-surface-header)}.article-journal-context span{color:var(--w-color-text-meta);font-size:.8rem;font-weight:700}.article-journal-context h2{margin:.15rem 0}.article-journal-context p{margin:0;color:var(--w-color-text-meta)}.article-journal-context__actions{display:flex;gap:.65rem;flex-wrap:wrap;flex-shrink:0}@media(max-width:900px){.article-admin-guide,.article-journal-context{align-items:flex-start;flex-direction:column}.article-admin-guide ol{flex-wrap:wrap;white-space:normal}}@media(max-width:600px){.article-admin-guide ol{display:grid;grid-template-columns:1fr 1fr}.article-admin-guide li::after{display:none}}
+    </style>
+
+    <script>
+    (function () {
+        "use strict";
+        var form = document.getElementById("article-bulk-form");
+        if (!form) return;
+        var selections = Array.prototype.slice.call(form.querySelectorAll("[data-article-select]"));
+        var selectPage = form.querySelector("[data-select-page]");
+        var bar = form.querySelector("[data-bulk-bar]");
+        var count = form.querySelector("[data-selected-count]");
+        var actionSelect = form.querySelector("[data-bulk-action]");
+        var submit = form.querySelector("[data-bulk-submit]");
+        var results = document.querySelector("[data-bulk-results]");
+        var summary = document.querySelector("[data-bulk-summary]");
+        var items = document.querySelector("[data-bulk-items]");
+        var copyButton = document.querySelector("[data-copy-failures]");
+        var downloadButton = document.querySelector("[data-download-failures]");
+        var failedRows = [];
+
+        function selectedCount() { return selections.filter(function (box) { return box.checked; }).length; }
+        function refreshSelection() {
+            var selected = selectedCount();
+            if (count) count.textContent = String(selected);
+            if (bar) bar.hidden = selected === 0;
+            if (selectPage) {
+                selectPage.checked = selections.length > 0 && selected === selections.length;
+                selectPage.indeterminate = selected > 0 && selected < selections.length;
+            }
+        }
+        function refreshActionFields() {
+            var value = actionSelect ? actionSelect.value : "";
+            Array.prototype.forEach.call(form.querySelectorAll("[data-bulk-param]"), function (node) {
+                var isActive = node.dataset.bulkParam === value;
+                node.hidden = !isActive;
+                Array.prototype.forEach.call(node.querySelectorAll("select, input, textarea"), function (field) {
+                    field.disabled = !isActive;
+                    field.required = isActive;
+                });
+            });
+            var comment = form.querySelector("[data-bulk-comment]");
+            if (comment) {
+                var reviewAction = value === "approve" || value === "reject";
+                comment.hidden = !reviewAction;
+                var commentField = comment.querySelector("textarea");
+                if (commentField) {
+                    commentField.disabled = !reviewAction;
+                    commentField.required = reviewAction;
+                }
+            }
+        }
+        function addResultRow(item) {
+            var row = document.createElement("tr");
+            [item.title || ("Article #" + item.article_id), item.success ? "Succeeded" : "Failed", item.message].forEach(function (value) {
+                var cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell);
+            });
+            items.appendChild(row);
+        }
+        function failureText() {
+            return failedRows.map(function (item) { return (item.title || ("Article #" + item.article_id)) + ": " + item.message; }).join("\n");
+        }
+        if (selectPage) selectPage.addEventListener("change", function () { selections.forEach(function (box) { box.checked = selectPage.checked; }); refreshSelection(); });
+        selections.forEach(function (box) { box.addEventListener("change", refreshSelection); });
+        if (actionSelect) actionSelect.addEventListener("change", refreshActionFields);
+        if (copyButton) copyButton.addEventListener("click", function () { navigator.clipboard.writeText(failureText()); });
+        if (downloadButton) downloadButton.addEventListener("click", function () {
+            var blob = new Blob([failureText()], { type: "text/plain;charset=utf-8" });
+            var link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "Article bulk-action failure list.txt"; link.click(); URL.revokeObjectURL(link.href);
+        });
+        form.addEventListener("submit", function (event) {
+            event.preventDefault();
+            var value = actionSelect ? actionSelect.value : "";
+            if (!selectedCount()) return;
+            if (!value) { actionSelect.reportValidity(); return; }
+            var comment = form.querySelector('[name="comment"]');
+            if ((value === "approve" || value === "reject") && (!comment || !comment.value.trim())) { comment.setCustomValidity("A review comment is required for bulk approval or rejection."); comment.reportValidity(); return; }
+            if (comment) comment.setCustomValidity("");
+            if (["submit_review", "approve", "reject"].indexOf(value) !== -1 && !window.confirm("This action saves business records and revision, Confirm and continue?")) return;
+            submit.disabled = true;
+            var endpoint = form.getAttribute("action");
+            fetch(endpoint, { method: "POST", body: new FormData(form), credentials: "same-origin", headers: { Accept: "application/json" } })
+                .then(function (response) {
+                    return response.text().then(function (body) {
+                        var data = {};
+                        try {
+                            data = body ? JSON.parse(body) : {};
+                        } catch (error) {
+                            throw new Error("Bulk-action request failed (HTTP " + response.status + "), Refresh the page and try again.");
+                        }
+                        if (!response.ok) throw new Error(data.error || "Bulk action failed.");
+                        return data;
+                    });
+                })
+                .then(function (data) {
+                    items.textContent = ""; failedRows = (data.items || []).filter(function (item) { return !item.success; });
+                    (data.items || []).forEach(addResultRow);
+                    summary.textContent = "Selected " + data.selected_count + " articles, Succeeded " + data.success_count + " articles, Failed " + data.failure_count + " articles.";
+                    results.hidden = false; results.classList.toggle("article-bulk-results--error", data.failure_count > 0);
+                    copyButton.hidden = failedRows.length === 0; downloadButton.hidden = failedRows.length === 0;
+                    results.scrollIntoView({ behavior: "smooth", block: "start" });
+                })
+                .catch(function (error) { items.textContent = ""; summary.textContent = error.message; results.hidden = false; results.classList.add("article-bulk-results--error"); })
+                .finally(function () { submit.disabled = false; });
+        });
+        refreshSelection(); refreshActionFields();
+    }());
+    </script>
+{% endblock %}

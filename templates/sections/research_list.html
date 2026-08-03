@@ -1,0 +1,13 @@
+{% extends "base_page.html" %}
+{% load i18n_frontend %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block meta_description %}{% if column_config.seo_description %}<meta name="description" content="{{ column_config.seo_description }}">{% endif %}{% endblock %}
+{% block breadcrumbs %}{% include "sections/_column_breadcrumbs.html" %}{% endblock %}
+{% block content %}<div class="u-container c-content-column">
+{% include "sections/_column_header.html" %}
+{% if featured_placements %}<section class="c-content-row" aria-labelledby="featured-heading"><div class="c-section-heading"><h2 id="featured-heading">{% ui_text 'featured' 'Featured' %}</h2></div>{% for placement in featured_placements %}{% include "components/static_article_card.html" with placement=placement %}{% endfor %}</section>{% endif %}
+<section class="c-content-row" aria-labelledby="research-list-heading"><div class="c-section-heading"><h2 id="research-list-heading">{% ui_text 'research_articles' 'Research articles' %}</h2></div><div class="c-featured-grid">{% for placement in article_placements %}{% include "components/static_article_card.html" with placement=placement %}{% empty %}<p class="c-empty-state">{{ column_config.empty_message }}</p>{% endfor %}</div></section>
+{% include "sections/_column_pagination.html" %}
+{% if sidebar_placements %}<aside class="c-right-rail" aria-labelledby="recommended-heading"><h2 id="recommended-heading">{% ui_text 'recommended' 'Recommended' %}</h2>{% for placement in sidebar_placements %}<a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>{% endfor %}</aside>{% endif %}
+</div>{% endblock %}
+

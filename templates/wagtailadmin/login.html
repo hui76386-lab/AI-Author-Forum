@@ -1,0 +1,12 @@
+{% extends "wagtailadmin/login.html" %}
+{% load i18n %}
+
+{% block branding_title %}AI Author Forum{% endblock %}
+
+{% block branding_login %}{% get_current_language as LANGUAGE_CODE %}{% if LANGUAGE_CODE|slice:":2" == "zh" %}登录AI Author Forum{% else %}Sign in to AI Author Forum{% endif %}{% endblock %}
+
+{% block branding_logo %}
+    <div class="login-logo" aria-label="AI Author Forum">
+        <span>AI Author Forum</span>
+    </div>
+{% endblock %}

@@ -1,0 +1,78 @@
+﻿{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title icon="doc-full" only %}
+<div class="nice-padding journal-admin-page">
+  <div class="journal-admin-toolbar">
+    <p class="journal-admin-lead">统一维护子期刊资料、正式文章数量和静态主页发布状态。</p>
+    <div class="button-group">
+      {% if can_add %}<a class="button button-primary" href="{{ add_url }}">新增子期刊</a>{% endif %}
+      {% if can_import %}<a class="button button-secondary" href="{{ import_url }}">批量导入</a>{% endif %}
+      {% if can_view_snippets %}<a class="button button-secondary" href="{{ snippet_list_url }}">完整资料管理</a>{% endif %}
+    </div>
+  </div>
+
+  <div class="journal-admin-metrics">
+    <div class="journal-admin-metric"><span>子期刊总数</span><strong>{{ journal_count }}</strong></div>
+    <div class="journal-admin-metric"><span>当前启用</span><strong>{{ active_count }}</strong></div>
+    <div class="journal-admin-metric"><span>当前筛选结果</span><strong>{{ filtered_count }}</strong></div>
+  </div>
+
+  <form method="get" class="journal-filter-panel" aria-label="子期刊筛选">
+    <label>搜索<input type="search" name="q" value="{{ q }}" placeholder="中文名、英文名或 slug"></label>
+    <label>状态<select name="status"><option value="">全部状态</option>{% for value,label in status_choices %}<option value="{{ value }}"{% if selected_status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <label>A-Z<select name="az"><option value="">全部分组</option>{% for value in az_choices %}<option value="{{ value }}"{% if selected_az == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+    <label>排序<select name="ordering">
+      <option value="name"{% if selected_ordering == 'name' %} selected{% endif %}>名称升序</option>
+      <option value="-name"{% if selected_ordering == '-name' %} selected{% endif %}>名称降序</option>
+      <option value="az"{% if selected_ordering == 'az' %} selected{% endif %}>A-Z 升序</option>
+      <option value="-az"{% if selected_ordering == '-az' %} selected{% endif %}>A-Z 降序</option>
+      <option value="-article_count"{% if selected_ordering == '-article_count' %} selected{% endif %}>正式文章数从高到低</option>
+      <option value="article_count"{% if selected_ordering == 'article_count' %} selected{% endif %}>正式文章数从低到高</option>
+      <option value="-updated"{% if selected_ordering == '-updated' %} selected{% endif %}>最近更新</option>
+      <option value="updated"{% if selected_ordering == 'updated' %} selected{% endif %}>最早更新</option>
+    </select></label>
+    <label>每页<select name="per_page"><option value="25"{% if per_page == 25 %} selected{% endif %}>25</option><option value="50"{% if per_page == 50 %} selected{% endif %}>50</option><option value="100"{% if per_page == 100 %} selected{% endif %}>100</option></select></label>
+    <div class="filter-actions"><button class="button button-primary" type="submit">应用筛选</button><a class="button button-secondary" href="?">重置</a></div>
+  </form>
+
+  <div class="table-wrapper">
+    <table class="listing journal-admin-table">
+      <thead><tr><th>子期刊</th><th>状态</th><th>A-Z</th><th>正式文章数</th><th>目标文章数</th><th>静态主页</th><th>操作</th></tr></thead>
+      <tbody>
+      {% for journal in journals %}
+        <tr>
+          <td class="title">
+            <a href="{{ journal.workspace_url }}">{{ journal.name_cn|default:journal.name }}</a>
+            <small>{{ journal.name }} · <code>{{ journal.slug }}</code>{% if journal.has_slug_warning %} <span class="journal-warning" title="slug 不符合小写字母、数字和连字符规范">⚠ slug 异常</span>{% endif %}</small>
+          </td>
+          <td>{% include "wagtailadmin/shared/status_tag.html" with label=journal.status_label_cn %}</td>
+          <td>{{ journal.az_group }}{% if journal.has_az_warning %} <span class="journal-warning" title="A-Z 分组必须为 A-Z 或 #">⚠</span>{% endif %}</td>
+          <td>{{ journal.article_count }}</td><td>{{ journal.target_article_count }}</td>
+          <td>{% if journal.is_static_published %}<a href="{{ journal.frontend_url }}" target="_blank" rel="noopener">打开主页</a> <span class="w-status w-status--primary">已发布</span>{% else %}<span class="w-text-meta">未在活动 manifest 中</span>{% endif %}</td>
+          <td>{% if can_change %}<a href="{{ journal.admin_edit_url }}">编辑资料</a>{% else %}<span class="w-text-meta">只读</span>{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="journal-admin-empty">没有符合条件的子期刊。<a class="button button-small" href="?">重置筛选</a></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if paginator.num_pages > 1 %}
+  <nav class="journal-pagination" aria-label="分页">
+    <span>第 {{ page_obj.number }} / {{ paginator.num_pages }} 页，共 {{ paginator.count }} 条</span>
+    <div class="button-group">
+      {% if page_obj.has_previous %}<a class="button button-small" href="?{% if query_without_page %}{{ query_without_page }}&amp;{% endif %}p={{ page_obj.previous_page_number }}">上一页</a>{% endif %}
+      {% for number in paginator.page_range %}{% if number == page_obj.number %}<span class="button button-small button-primary" aria-current="page">{{ number }}</span>{% elif number <= 3 or number >= paginator.num_pages|add:'-2' or number >= page_obj.number|add:'-2' and number <= page_obj.number|add:'2' %}<a class="button button-small" href="?{% if query_without_page %}{{ query_without_page }}&amp;{% endif %}p={{ number }}">{{ number }}</a>{% endif %}{% endfor %}
+      {% if page_obj.has_next %}<a class="button button-small" href="?{% if query_without_page %}{{ query_without_page }}&amp;{% endif %}p={{ page_obj.next_page_number }}">下一页</a>{% endif %}
+    </div>
+  </nav>
+  {% endif %}
+</div>
+<style>
+.journal-admin-page{max-width:110rem}.journal-admin-toolbar,.journal-pagination{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}.journal-admin-lead{color:var(--w-color-text-meta)}.button-group{display:flex;gap:.5rem;flex-wrap:wrap}.journal-admin-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin:1.5rem 0}.journal-admin-metric{padding:1rem;border:1px solid var(--w-color-border-furniture)}.journal-admin-metric span,.journal-admin-table small{display:block;color:var(--w-color-text-meta)}.journal-admin-metric strong{font-size:1.75rem}.journal-filter-panel{display:grid;grid-template-columns:2fr repeat(4,minmax(9rem,1fr)) auto;gap:.75rem;align-items:end;margin:1rem 0 1.5rem;padding:1rem;background:var(--w-color-surface-field)}.journal-filter-panel label{font-weight:600}.journal-filter-panel input,.journal-filter-panel select{width:100%;margin-top:.35rem}.filter-actions{display:flex;gap:.5rem}.journal-warning{color:var(--w-color-critical-200);font-weight:600}.journal-admin-empty{text-align:center;padding:2rem}.journal-pagination{margin-top:1rem}@media(max-width:1000px){.journal-filter-panel{grid-template-columns:1fr 1fr}.journal-admin-metrics{grid-template-columns:1fr}}@media(max-width:600px){.journal-filter-panel{grid-template-columns:1fr}}
+</style>
+{% endblock %}

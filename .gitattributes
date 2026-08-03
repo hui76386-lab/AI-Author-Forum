@@ -1,0 +1,4 @@
+# Keep container entrypoints executable on Linux even when edited on Windows.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.conf text eol=lf

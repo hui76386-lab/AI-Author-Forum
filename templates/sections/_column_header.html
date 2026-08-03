@@ -1,0 +1,37 @@
+{% load wagtailcore_tags wagtailimages_tags i18n_frontend %}
+<section class="c-content-row c-content-column__hero">
+  <div class="c-section-heading"><h1>{{ navigation_item.label }}</h1></div>
+  {% if column_config.intro %}<div class="c-rich-text">{{ column_config.intro|richtext }}</div>{% endif %}
+  {% if column_config.cover_image %}{% image column_config.cover_image width-960 as cover %}<figure class="c-image-slot"><img src="{{ cover.url }}" width="{{ cover.width }}" height="{{ cover.height }}" alt="{{ column_config.cover_image.description|default:column_config.cover_image.title }}"></figure>{% endif %}
+</section>
+{% if column_config.enable_type_filter or column_config.enable_year_filter %}
+<section class="c-content-row c-column-filters" aria-labelledby="column-filter-heading">
+  <h2 id="column-filter-heading">{% ui_text 'column_filters' 'Filter this column' %}</h2>
+  {% if column_config.enable_type_filter and article_types %}
+    <div class="c-column-filters__control">
+      <label for="column-article-type"><strong>{% ui_text 'article_type' 'Article type' %}</strong></label>
+      <select id="column-article-type" data-static-filter-select data-column-filter="type">
+        <option value="{{ all_articles_url|localized_url }}"{% if not selected_article_type %} selected{% endif %}>{% ui_text 'all_articles' 'All articles' %}</option>
+        {% for option in article_types %}<option value="{{ option.url|localized_url }}"{% if selected_article_type == option.value %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+      </select>
+      <ul class="c-column-filters__fallback">
+        <li><a href="{{ all_articles_url|localized_url }}"{% if not selected_article_type %} aria-current="page"{% endif %}>{% ui_text 'all_articles' 'All articles' %}</a></li>
+        {% for option in article_types %}<li><a href="{{ option.url|localized_url }}"{% if selected_article_type == option.value %} aria-current="page"{% endif %}>{{ option.label }}</a></li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+  {% if column_config.enable_year_filter and article_years %}
+    <div class="c-column-filters__control">
+      <label for="column-year"><strong>{% ui_text 'year' 'Year' %}</strong></label>
+      <select id="column-year" data-static-filter-select data-column-filter="year">
+        <option value="{{ all_articles_url|localized_url }}"{% if not selected_year %} selected{% endif %}>{% ui_text 'all_years' 'All years' %}</option>
+        {% for option in article_years %}<option value="{{ option.url|localized_url }}"{% if selected_year == option.value %} selected{% endif %}>{{ option.value }}</option>{% endfor %}
+      </select>
+      <ul class="c-column-filters__fallback">
+        <li><a href="{{ all_articles_url|localized_url }}"{% if not selected_year %} aria-current="page"{% endif %}>{% ui_text 'all_years' 'All years' %}</a></li>
+        {% for option in article_years %}<li><a href="{{ option.url|localized_url }}"{% if selected_year == option.value %} aria-current="page"{% endif %}>{{ option.value }}</a></li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+</section>
+{% endif %}

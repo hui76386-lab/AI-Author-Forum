@@ -1,0 +1,63 @@
+﻿{% extends "base_page.html" %}
+{% load i18n_frontend %}
+{% block title %}{{ search_config.title }}{% endblock %}
+{% block breadcrumbs %}
+<nav class="c-breadcrumbs u-container" aria-label="{% ui_text 'breadcrumb' 'Breadcrumb' %}"><ol><li><a href="{% localize_url '/' %}">{% ui_text 'home' 'Home' %}</a></li><li>{% ui_text 'search' 'Search' %}</li></ol></nav>
+{% endblock %}
+{% block content %}
+<div class="u-container c-search-page" data-search-page
+  data-search-index-unavailable="{% ui_text 'search_index_unavailable' 'Search index is unavailable' %}"
+  data-search-index-error="{% ui_text 'static_search_index_load_failed' 'The static search index could not be loaded.' %}"
+  data-searchable-singular="{% ui_text 'searchable_article' 'searchable article' %}"
+  data-searchable-plural="{% ui_text 'searchable_articles' 'searchable articles' %}"
+  data-result-count-template="{% ui_text 'search_results_count' '{count} result(s)' %}"
+  data-result-for-template="{% ui_text 'search_results_for' '{count} result(s) for &quot;{query}&quot;' %}"
+>
+  <h1>{{ search_config.title }}</h1>
+  <p>{{ search_config.introduction }}</p>
+
+  <section class="c-content-row" aria-labelledby="recommended-topics-title">
+    <div class="c-section-heading"><h2 id="recommended-topics-title">{% ui_text 'recommended_topics' 'Recommended topics' %}</h2></div>
+    <div class="c-tag-row">
+      {% for keyword in search_config.keywords %}<a href="?q={{ keyword|urlencode }}">{{ keyword }}</a>{% endfor %}
+    </div>
+  </section>
+
+  <form action="{{ '/search/'|localized_url }}" method="get" role="search" data-search-form>
+    <div class="c-search-form">
+      <label>{% ui_text 'search_terms' 'Search terms' %}<input name="q" type="search" autocomplete="off" placeholder="{% ui_text 'title_keyword_author_journal' 'Title, keyword, author, or journal' %}"></label>
+      <label>{% ui_text 'journal' 'Journal' %}<select name="journal"><option value="">{% ui_text 'all_journals' 'All journals' %}</option>{% for journal in header_journals %}<option value="{{ journal.slug }}">{{ journal|localized_journal_name }}</option>{% endfor %}</select></label>
+      <button type="submit">{% ui_text 'search' 'Search' %}</button>
+    </div>
+    <details class="c-search-advanced">
+      <summary>{% ui_text 'advanced_filters' 'Advanced filters' %}</summary>
+      <div class="c-search-filters">
+        <label>{% ui_text 'subject_keyword' 'Subject or keyword' %}<input name="subject" type="search" placeholder="{% ui_text 'subject_keyword' 'Subject or keyword' %}"></label>
+        <label>{% ui_text 'author' 'Author' %}<input name="author" type="search" placeholder="{% ui_text 'author' 'Author' %}"></label>
+        <label>{% ui_text 'ai_coauthor' 'AI co-author' %}<input name="aiAuthor" type="search" placeholder="{% ui_text 'ai_coauthor' 'AI co-author' %}"></label>
+        <button type="submit">{% ui_text 'apply_filters' 'Apply filters' %}</button>
+      </div>
+    </details>
+    <a class="c-search-clear" href="{{ '/search/'|localized_url }}" data-search-clear hidden>{% ui_text 'clear_search' 'Clear search' %}</a>
+  </form>
+
+  <p class="c-result-count" data-result-count>{{ search_index|length }} {% if search_index|length == 1 %}{% ui_text 'searchable_article' 'searchable article' %}{% else %}{% ui_text 'searchable_articles' 'searchable articles' %}{% endif %}</p>
+  <div class="c-empty-state" data-empty-state hidden>{% ui_text 'no_matching_articles' 'No matching articles found.' %}</div>
+  <section class="c-search-results" aria-live="polite" aria-label="{% ui_text 'search_results' 'Search results' %}" data-search-results hidden></section>
+
+  <section class="c-search-recommendations" data-search-recommendations aria-labelledby="recommended-articles-title">
+    <div class="c-section-heading"><h2 id="recommended-articles-title">{% ui_text 'recommended_articles' 'Recommended articles' %}</h2></div>
+    {% for placement in recommended_placements %}
+    <article class="c-search-result-item">
+      <span>{{ placement.article.article_type|article_type_label }}</span>
+      <h2><a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a></h2>
+      <p>{{ placement.display_summary }}</p>
+      <p>{% ui_text 'author_label' 'Author' %}: {{ placement.article.authors }}{% if placement.article.ai_co_authors %} - {% ui_text 'ai_coauthor_label' 'AI co-author' %}: {{ placement.article.ai_co_authors }}{% endif %}</p>
+    </article>
+    {% empty %}<p class="c-empty-state">{{ search_config.empty_message }}</p>{% endfor %}
+  </section>
+
+  {{ search_index|json_script:"static-search-index" }}
+  <noscript><p class="c-empty-state">{% ui_text 'enable_js_search' 'Enable JavaScript to search the static article index. Recommended article links remain available above.' %}</p></noscript>
+</div>
+{% endblock %}

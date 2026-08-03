@@ -1,0 +1,10 @@
+{% extends "base_page.html" %}
+{% load i18n_frontend %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block breadcrumbs %}{% include "sections/_column_breadcrumbs.html" %}{% endblock %}
+{% block content %}<div class="u-container c-content-column">
+{% include "sections/_column_header.html" %}
+<section class="c-content-row" aria-labelledby="latest-column-heading"><div class="c-section-heading"><h2 id="latest-column-heading">{% ui_text 'latest' 'Latest' %}</h2></div><div class="c-featured-grid">{% for placement in featured_placements %}{% include "components/static_article_card.html" with placement=placement %}{% endfor %}{% for placement in article_placements %}{% include "components/static_article_card.html" with placement=placement %}{% empty %}{% if not featured_placements %}<p class="c-empty-state">{{ column_config.empty_message }}</p>{% endif %}{% endfor %}</div></section>
+{% include "sections/_column_pagination.html" %}
+</div>{% endblock %}
+

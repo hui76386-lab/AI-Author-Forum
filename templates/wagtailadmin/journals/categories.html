@@ -1,0 +1,300 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title icon="folder-open-inverse" only %}
+<div class="nice-padding category-workbench-page">
+  <form method="get" class="category-filter" aria-label="栏目筛选">
+    <div>
+      <label for="journal-select"><strong>子期刊</strong></label>
+      <select id="journal-select" name="journal" onchange="this.form.submit()">
+        <option value="">-- 选择子期刊 --</option>
+        {% for item in journals %}
+          <option value="{{ item.pk }}"{% if journal.pk == item.pk %} selected{% endif %}>{{ item }}（{{ item.slug }}）</option>
+        {% endfor %}
+      </select>
+      {% if not journal and status_filter == "exception" %}<input type="hidden" name="status" value="exception">{% endif %}
+    </div>
+    {% if journal %}
+      <div class="category-filter__search">
+        <label for="category-search"><strong>搜索栏目</strong></label>
+        <input id="category-search" type="search" name="q" value="{{ query }}" placeholder="名称、代码、slug 或路径">
+      </div>
+      <div>
+        <label for="category-status"><strong>状态</strong></label>
+        <select id="category-status" name="status">
+          <option value="">全部状态</option>
+          {% for value, label in status_choices %}
+            <option value="{{ value }}"{% if status_filter == value %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="button button-secondary" type="submit">筛选</button>
+      {% if query or status_filter %}
+        <a class="button button-secondary" href="{% url 'journals_category_admin' %}?journal={{ journal.pk }}">重置</a>
+      {% endif %}
+    {% endif %}
+  </form>
+
+  {% if journal %}
+    <div class="category-summary">
+      <strong>{{ journal }}</strong>
+      <span>共 {{ category_count }} 个栏目</span>
+      <span>当前显示 {{ visible_count }} 个（含命中路径的上级栏目）</span>
+      {% if soft_limit_warning %}<span class="w-text-critical-200">已超过 30 个软限制，请评估栏目结构。</span>{% endif %}
+    </div>
+
+    {% if confirmation %}
+      <section class="category-confirmation" aria-labelledby="confirmation-title">
+        <h2 id="confirmation-title">执行前影响确认</h2>
+        {% if confirmation.kind == "slug" %}
+          <p><strong>修改 slug 会改变当前栏目及其子栏目的静态路径。</strong></p>
+          <p>栏目：{{ confirmation.category.full_path }}；影响 {{ confirmation.impact.subtree_size }} 个栏目、{{ confirmation.impact.affected_article_count }} 篇正式文章、{{ confirmation.impact.affected_placement_count }} 条投放、{{ confirmation.impact.affected_output_count }} 个输出路径；已有有效重定向 {{ confirmation.impact.existing_redirect_count }} 条。</p>
+          <details>
+            <summary>查看路径变化</summary>
+            <table class="listing"><thead><tr><th>旧路径</th><th>新路径</th></tr></thead><tbody>
+              {% for path in confirmation.impact.path_changes %}<tr><td><code>{{ path.old_path }}</code></td><td><code>{{ path.new_path }}</code></td></tr>{% endfor %}
+            </tbody></table>
+          </details>
+          <form method="post" class="category-confirmation__actions">
+            {% csrf_token %}
+            <input type="hidden" name="journal" value="{{ journal.pk }}">
+            <input type="hidden" name="operation" value="save_category">
+            <input type="hidden" name="slug_confirmed" value="1">
+            {% for field_name, field_value in confirmation.post_fields %}<input type="hidden" name="{{ field_name }}" value="{{ field_value }}">{% endfor %}
+            <button class="button button-warning" type="submit">确认修改 slug 和路径</button>
+          </form>
+        {% elif confirmation.kind == "move" %}
+          <p><strong>移动只通过受控栏目服务执行，不会直接改写 parent 或 sort_order。</strong></p>
+          <p>将 {{ confirmation.category.full_path }} 移动到 {% if confirmation.parent %}{{ confirmation.parent.full_path }}{% else %}根级{% endif %}。影响 {{ confirmation.impact.subtree_size }} 个栏目、{{ confirmation.impact.affected_article_count }} 篇正式文章、{{ confirmation.impact.affected_placement_count }} 条投放和 {{ confirmation.impact.affected_output_count }} 个输出路径。</p>
+          <details>
+            <summary>查看移动后的路径</summary>
+            <table class="listing"><thead><tr><th>旧路径</th><th>新路径</th></tr></thead><tbody>
+              {% for path in confirmation.impact.paths %}<tr><td><code>{{ path.old_path }}</code></td><td><code>{{ path.new_path }}</code></td></tr>{% endfor %}
+            </tbody></table>
+          </details>
+          <form method="post" class="category-confirmation__actions">
+            {% csrf_token %}
+            <input type="hidden" name="journal" value="{{ journal.pk }}">
+            <input type="hidden" name="operation" value="move_category">
+            <input type="hidden" name="move-category_id" value="{{ confirmation.category.pk }}">
+            <input type="hidden" name="move-new_parent_id" value="{{ confirmation.parent.pk|default:'' }}">
+            <input type="hidden" name="move-expected_version" value="{{ confirmation.impact.expected_version }}">
+            <input type="hidden" name="move-confirmed" value="1">
+            <button class="button button-warning" type="submit">确认执行移动</button>
+          </form>
+        {% elif confirmation.kind == "batch_status" %}
+          <p><strong>将 {{ confirmation.categories|length }} 个栏目批量设置为“{{ confirmation.new_status_label }}”。</strong></p>
+          <p>合计引用：子栏目 {{ confirmation.references.children }}、正式文章 {{ confirmation.references.article_assignments }}、导入文章 {{ confirmation.references.static_assignments }}、投放 {{ confirmation.references.placements }}、重定向 {{ confirmation.references.redirects }}。</p>
+          <ul>{% for item in confirmation.categories %}<li>{{ item.full_path }}</li>{% endfor %}</ul>
+          <form method="post" class="category-confirmation__actions">
+            {% csrf_token %}
+            <input type="hidden" name="journal" value="{{ journal.pk }}">
+            <input type="hidden" name="operation" value="batch_status">
+            {% for category_id in confirmation.category_ids %}<input type="hidden" name="category_ids" value="{{ category_id }}">{% endfor %}
+            <input type="hidden" name="batch-status-new_status" value="{{ confirmation.new_status }}">
+            <input type="hidden" name="batch-status-reason" value="{{ confirmation.reason }}">
+            <input type="hidden" name="batch-status-confirmed" value="1">
+            <button class="button button-warning" type="submit">确认批量状态变更</button>
+          </form>
+        {% else %}
+          <p><strong>将 {{ confirmation.category.full_path }} 设置为“{{ confirmation.new_status_label }}”。</strong></p>
+          <p>引用：子栏目 {{ confirmation.references.children }}、正式文章 {{ confirmation.references.article_assignments }}、导入文章 {{ confirmation.references.static_assignments }}、投放 {{ confirmation.references.placements }}、重定向 {{ confirmation.references.redirects }}。</p>
+          {% if confirmation.new_status == "archived" %}<p class="w-text-critical-200">归档要求引用已清理或迁移；确认后若仍有引用，服务会拒绝并反馈原因。</p>{% endif %}
+          <form method="post" class="category-confirmation__actions">
+            {% csrf_token %}
+            <input type="hidden" name="journal" value="{{ journal.pk }}">
+            <input type="hidden" name="operation" value="change_status">
+            <input type="hidden" name="status-category_id" value="{{ confirmation.category.pk }}">
+            <input type="hidden" name="status-new_status" value="{{ confirmation.new_status }}">
+            <input type="hidden" name="status-reason" value="{{ confirmation.reason }}">
+            <input type="hidden" name="status-confirmed" value="1">
+            <button class="button button-warning" type="submit">确认状态变更</button>
+          </form>
+        {% endif %}
+        <a href="{% url 'journals_category_admin' %}?journal={{ journal.pk }}{% if selected_category %}&amp;selected={{ selected_category.pk }}{% endif %}">取消并返回工作台</a>
+      </section>
+    {% endif %}
+
+    <div class="category-workbench">
+      <aside class="category-tree-panel" aria-labelledby="category-tree-title">
+        <div class="category-tree-panel__header">
+          <div><h2 id="category-tree-title">栏目树</h2><p>搜索会自动保留并展开命中路径。</p></div>
+          <div class="category-tree-panel__tools">
+            <button class="button button-small button-secondary" type="button" id="expand-category-tree">全部展开</button>
+            <button class="button button-small button-secondary" type="button" id="collapse-category-tree">全部折叠</button>
+            {% if can_add %}<a class="button button-small" href="{% url 'journals_category_admin' %}?journal={{ journal.pk }}&amp;mode=add_root">新增根栏目</a>{% endif %}
+          </div>
+        </div>
+        <div class="category-tree" id="category-tree" role="tree" aria-label="{{ journal }} 栏目树">
+          {% for item in categories %}
+            {% if item.search_visible %}
+              <div class="category-tree__node category-tree__node--{{ item.status }}{% if selected_category.pk == item.pk %} is-selected{% endif %}{% if item.search_match and query %} is-match{% endif %}" role="treeitem" aria-level="{{ item.depth }}" data-tree-node data-depth="{{ item.depth }}" data-parent="{{ item.parent_id|default:'' }}" style="--category-depth: {{ item.depth }}">
+                {% if can_status %}<input type="checkbox" name="category_ids" value="{{ item.pk }}" form="batch-status-form" aria-label="选择栏目 {{ item.name }}">{% endif %}
+                <a class="category-tree__label" href="{% url 'journals_category_admin' %}?journal={{ journal.pk }}&amp;selected={{ item.pk }}{% if query %}&amp;q={{ query|urlencode }}{% endif %}{% if status_filter %}&amp;status={{ status_filter }}{% endif %}">
+                  <span class="category-tree__name">{{ item.name }}</span>
+                  <span class="category-tree__meta"><code>{{ item.slug }}</code> · {{ item.status_label }} · 正式 {{ item.aggregate_article_count }}</span>
+                </a>
+                {% if can_move %}
+                  <div class="category-tree__sort" aria-label="{{ item.name }} 同级受控排序">
+                    <form method="post">{% csrf_token %}<input type="hidden" name="journal" value="{{ journal.pk }}"><input type="hidden" name="operation" value="reorder_category"><input type="hidden" name="category_id" value="{{ item.pk }}"><input type="hidden" name="direction" value="up"><button class="button button-small button-secondary" type="submit" title="在同级栏目中上移">↑</button></form>
+                    <form method="post">{% csrf_token %}<input type="hidden" name="journal" value="{{ journal.pk }}"><input type="hidden" name="operation" value="reorder_category"><input type="hidden" name="category_id" value="{{ item.pk }}"><input type="hidden" name="direction" value="down"><button class="button button-small button-secondary" type="submit" title="在同级栏目中下移">↓</button></form>
+                  </div>
+                {% endif %}
+              </div>
+            {% endif %}
+          {% empty %}
+            <p class="category-tree__empty">该子期刊尚无栏目。</p>
+          {% endfor %}
+          {% if categories and not visible_count %}<p class="category-tree__empty">没有符合条件的栏目。</p>{% endif %}
+        </div>
+        <p class="category-tree-panel__note">不提供自由拖拽；排序仅限同级上移/下移，跨层级移动必须先预览影响并确认。</p>
+      </aside>
+
+      <main class="category-detail-panel">
+        {% if mode == "add_root" %}
+          {% if can_add %}
+            <section class="category-detail-card"><h3>新增根栏目</h3>
+              {% if edit_form.errors %}<div class="help-block help-critical">未创建栏目，请修正下列字段错误后重试。</div>{% endif %}
+              <form method="post">{% csrf_token %}<input type="hidden" name="journal" value="{{ journal.pk }}"><input type="hidden" name="operation" value="save_category"><div class="w-space-y-4">{% for field in edit_form %}{% formattedfield field %}{% endfor %}</div><button class="button button-primary" type="submit">创建栏目</button></form>
+            </section>
+          {% else %}
+            <div class="help-block help-critical"><p>当前账号没有创建栏目的权限。</p></div>
+          {% endif %}
+        {% elif selected_category %}
+          <div class="category-detail-panel__header">
+            <div><p class="category-detail-panel__eyebrow">当前栏目</p><h2>{{ selected_category.name }}</h2><code>{{ selected_category.full_path }}</code></div>
+            <div class="category-detail-panel__actions">
+              {% if can_add %}<a class="button button-secondary" href="{% url 'journals_category_admin' %}?journal={{ journal.pk }}&amp;selected={{ selected_category.pk }}&amp;mode=add_child">新增子栏目</a>{% endif %}
+              {% if can_change %}<a class="button button-secondary" href="{% url 'journals_category_admin' %}?journal={{ journal.pk }}&amp;selected={{ selected_category.pk }}">编辑资料</a>{% endif %}
+              {% if can_audit %}<a class="button button-secondary" href="{% url 'journals_category_audit' %}">查看变更审计</a>{% endif %}
+            </div>
+          </div>
+
+          <section class="category-detail-card" aria-labelledby="category-basic-title">
+            <h3 id="category-basic-title">基本信息与引用</h3>
+            <dl class="category-detail-grid">
+              <div><dt>父级</dt><dd>{% if selected_category.parent %}{{ selected_category.parent.full_path }}{% else %}根栏目{% endif %}</dd></div>
+              <div><dt>slug</dt><dd><code>{{ selected_category.slug }}</code></dd></div>
+              <div><dt>状态</dt><dd><span class="category-status category-status--{{ selected_category.status }}">{{ selected_category.status_label }}</span></dd></div>
+              <div><dt>同级排序值</dt><dd>{{ selected_category.sort_order }}</dd></div>
+              <div><dt>完整路径</dt><dd><code>{{ selected_category.path_cache }}</code></dd></div>
+              <div><dt>静态路径</dt><dd><code>{{ selected_category.get_absolute_url }}</code></dd></div>
+              <div><dt>直接正式文章</dt><dd>{{ selected_category.direct_article_count }}</dd></div>
+              <div><dt>含子栏目正式文章</dt><dd>{{ selected_category.aggregate_article_count }}</dd></div>
+              <div><dt>直接子栏目</dt><dd>{{ selected_references.children|default:0 }}</dd></div>
+              <div><dt>文章关系</dt><dd>{{ selected_references.article_assignments|default:0 }}</dd></div>
+              <div><dt>导入文章关系</dt><dd>{{ selected_references.static_assignments|default:0 }}</dd></div>
+              <div><dt>投放引用</dt><dd>{{ selected_references.placements|default:0 }}</dd></div>
+              <div><dt>重定向</dt><dd>{{ selected_references.redirects|default:0 }}</dd></div>
+              <div><dt>投放同步异常</dt><dd>{{ selected_category.sync_error_count }}</dd></div>
+            </dl>
+          </section>
+
+          <section class="category-detail-card" aria-labelledby="impact-baseline-title">
+            <h3 id="impact-baseline-title">影响预览基线</h3>
+            <p>移动、修改 slug、停用或归档前，系统会再次计算子树、文章、投放、静态路径和重定向影响；首次提交只显示预览，不直接写入。</p>
+            {% if selected_redirects %}
+              <details><summary>最近路径重定向（{{ selected_redirects|length }}）</summary><table class="listing"><thead><tr><th>旧路径</th><th>新路径</th><th>状态</th></tr></thead><tbody>{% for redirect in selected_redirects %}<tr><td><code>{{ redirect.old_path }}</code></td><td><code>{{ redirect.new_path }}</code></td><td>{% if redirect.is_active %}有效{% else %}失效{% endif %}</td></tr>{% endfor %}</tbody></table></details>
+            {% else %}<p>当前没有路径重定向记录。</p>{% endif %}
+          </section>
+
+          {% if mode == "add_child" %}
+            {% if can_add %}
+              <section class="category-detail-card"><h3>{% if mode == "add_child" %}新增子栏目{% else %}新增根栏目{% endif %}</h3>
+                {% if edit_form.errors %}<div class="help-block help-critical">未创建栏目，请修正下列字段错误后重试。</div>{% endif %}
+                <form method="post">{% csrf_token %}<input type="hidden" name="journal" value="{{ journal.pk }}"><input type="hidden" name="operation" value="save_category"><div class="w-space-y-4">{% for field in edit_form %}{% formattedfield field %}{% endfor %}</div><button class="button button-primary" type="submit">创建栏目</button></form>
+              </section>
+            {% endif %}
+          {% elif edit_category and can_change %}
+            <section class="category-detail-card"><h3>编辑栏目资料</h3>
+              {% if edit_form.errors %}<div class="help-block help-critical">未保存栏目，请修正下列字段错误后重试。</div>{% endif %}
+              <form method="post">{% csrf_token %}<input type="hidden" name="journal" value="{{ journal.pk }}"><input type="hidden" name="category_pk" value="{{ edit_category.pk }}"><input type="hidden" name="operation" value="save_category"><div class="w-space-y-4">{% for field in edit_form %}{% formattedfield field %}{% endfor %}</div><button class="button button-primary" type="submit">保存栏目资料</button></form>
+            </section>
+          {% endif %}
+
+          {% if can_move %}
+            <section class="category-detail-card"><h3>移动栏目</h3><p>跨层级移动必须先生成影响预览；服务端限制最大三级且禁止循环、跨期刊移动。</p>
+              {% if move_form.errors %}<div class="help-block help-critical">未执行移动，请修正移动参数。</div>{% endif %}
+              <form method="post">{% csrf_token %}<input type="hidden" name="journal" value="{{ journal.pk }}"><input type="hidden" name="operation" value="move_category">{% for field in move_form %}{% formattedfield field %}{% endfor %}<button class="button button-secondary" type="submit">预览移动影响</button></form>
+            </section>
+          {% endif %}
+
+          {% if can_status %}
+            <section class="category-detail-card"><h3>状态变更</h3><p>停用和归档会影响导航、静态页面和相关投放。归档按钮仅对具备独立归档权限的用户开放。</p>
+              {% if status_form.errors %}<div class="help-block help-critical">未执行状态变更，请修正错误；任何失败都会保留在页面反馈中。</div>{% endif %}
+              <form method="post">{% csrf_token %}<input type="hidden" name="journal" value="{{ journal.pk }}"><input type="hidden" name="operation" value="change_status">{% for field in status_form %}{% formattedfield field %}{% endfor %}<button class="button button-secondary" type="submit">预览状态影响</button></form>
+            </section>
+          {% endif %}
+
+          {% if can_add %}
+            <details class="category-detail-card"><summary><strong>批量创建同级栏目</strong></summary>
+              {% if bulk_create_form.errors %}<div class="help-block help-critical">批量创建未执行，请修正清单格式。</div>{% endif %}
+              <form method="post">{% csrf_token %}<input type="hidden" name="journal" value="{{ journal.pk }}"><input type="hidden" name="operation" value="bulk_create">{% for field in bulk_create_form %}{% formattedfield field %}{% endfor %}<button class="button button-secondary" type="submit">批量创建</button></form>
+            </details>
+          {% endif %}
+
+          {% if can_status %}
+            <section class="category-detail-card"><h3>批量状态操作</h3><p>先在左侧勾选 1–100 个栏目。操作仍通过现有受控服务执行；跨期刊、无权限、仍有引用的归档等失败会明确反馈，不会静默跳过。</p>
+              {% if batch_status_form.errors %}<div class="help-block help-critical">批量状态操作未执行，请修正错误后重试。</div>{% endif %}
+              <form method="post" id="batch-status-form">{% csrf_token %}<input type="hidden" name="journal" value="{{ journal.pk }}"><input type="hidden" name="operation" value="batch_status"><p><strong id="batch-selection-count" aria-live="polite">已选择 0 个栏目</strong></p>{% for field in batch_status_form %}{% formattedfield field %}{% endfor %}<button class="button button-secondary" type="submit">预览批量影响</button></form>
+            </section>
+          {% endif %}
+
+          {% if selected_logs %}
+            <section class="category-detail-card"><h3>最近变更记录</h3><table class="listing"><thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>说明</th></tr></thead><tbody>{% for log in selected_logs %}<tr><td>{{ log.created_at }}</td><td>{{ log.actor|default:"system" }}</td><td>{{ log.action }} / {{ log.status }}</td><td>{{ log.message }}</td></tr>{% endfor %}</tbody></table></section>
+          {% endif %}
+        {% else %}
+          <div class="category-detail-card category-detail-card--empty"><h2>未找到栏目</h2><p>请调整搜索或状态筛选，或者创建第一个根栏目。</p>{% if can_add %}<a class="button" href="{% url 'journals_category_admin' %}?journal={{ journal.pk }}&amp;mode=add_root">新增根栏目</a>{% endif %}</div>
+        {% endif %}
+      </main>
+    </div>
+  {% elif status_filter == "exception" %}
+    <section class="category-exception-summary" aria-labelledby="category-exception-title">
+      <div class="category-exception-summary__header">
+        <div>
+          <h2 id="category-exception-title">异常栏目期刊</h2>
+          <p>汇总所有包含停用或归档栏目的子期刊；进入期刊后仅显示该期刊的异常栏目及其上级路径。</p>
+        </div>
+        <a class="button button-secondary" href="{% url 'journals_category_admin' %}">返回栏目工作台</a>
+      </div>
+      {% if exception_journals %}
+        <table class="listing" data-category-exception-journals>
+          <thead><tr><th>子期刊</th><th>异常栏目数</th><th>操作</th></tr></thead>
+          <tbody>
+            {% for item in exception_journals %}
+              <tr>
+                <td><strong>{{ item }}</strong><br><code>{{ item.slug }}</code></td>
+                <td>{{ item.exception_category_count }} 个异常栏目</td>
+                <td><a href="{% url 'journals_category_admin' %}?journal={{ item.pk }}&amp;status=exception">查看异常栏目</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="help-block help-info"><p>当前没有停用或归档栏目。</p></div>
+      {% endif %}
+    </section>
+  {% else %}
+    <div class="help-block help-info"><p>为避免一次加载 120–200 个子期刊的全部栏目，请先选择一个子期刊。选择后将进入左树右详情工作台。</p></div>
+  {% endif %}
+</div>
+
+<style>
+.category-filter{display:flex;align-items:end;gap:1rem;flex-wrap:wrap;margin-bottom:1rem}.category-filter label{display:block;margin-bottom:.35rem}.category-filter select,.category-filter input{min-width:14rem}.category-filter__search{flex:1}.category-filter__search input{width:100%}.category-summary{display:flex;gap:1rem;flex-wrap:wrap;padding:.75rem 1rem;margin-bottom:1rem;background:var(--w-color-surface-field);border-radius:.25rem}.category-exception-summary__header{display:flex;justify-content:space-between;gap:1rem;align-items:start;margin-bottom:1rem}.category-exception-summary__header h2,.category-exception-summary__header p{margin-top:0}.category-workbench{display:grid;grid-template-columns:minmax(20rem,36%) minmax(0,1fr);gap:1.5rem;align-items:start}.category-tree-panel,.category-detail-panel{border:1px solid var(--w-color-border-furniture);border-radius:.35rem;background:var(--w-color-surface-page)}.category-tree-panel{position:sticky;top:1rem;max-height:calc(100vh - 3rem);display:flex;flex-direction:column}.category-tree-panel__header{display:flex;justify-content:space-between;gap:1rem;padding:1rem;border-bottom:1px solid var(--w-color-border-furniture)}.category-tree-panel__header h2,.category-tree-panel__header p{margin:0}.category-tree-panel__tools{display:flex;gap:.35rem;flex-wrap:wrap;justify-content:flex-end}.category-tree{overflow:auto;padding:.5rem}.category-tree__node{display:flex;align-items:center;gap:.4rem;padding:.5rem .4rem .5rem calc(.4rem + (var(--category-depth) - 1) * 1.25rem);border-left:3px solid transparent;border-bottom:1px solid var(--w-color-border-furniture)}.category-tree__node.is-selected{background:var(--w-color-surface-button-default);border-left-color:var(--w-color-primary)}.category-tree__node.is-match .category-tree__name{text-decoration:underline;text-decoration-thickness:2px}.category-tree__label{flex:1;min-width:0;text-decoration:none}.category-tree__name{display:block;font-weight:600}.category-tree__meta{display:block;font-size:.78rem;color:var(--w-color-text-meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.category-tree__sort{display:flex;gap:.2rem}.category-tree__sort form{margin:0}.category-tree-panel__note,.category-tree__empty{margin:.75rem 1rem;color:var(--w-color-text-meta)}.category-detail-panel{padding:1rem}.category-detail-panel__header{display:flex;justify-content:space-between;gap:1rem;align-items:start;margin-bottom:1rem}.category-detail-panel__header h2,.category-detail-panel__header p{margin:0}.category-detail-panel__eyebrow{color:var(--w-color-text-meta);font-size:.8rem;text-transform:uppercase}.category-detail-panel__actions{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end}.category-detail-card{display:block;padding:1rem;margin:0 0 1rem;border:1px solid var(--w-color-border-furniture);border-radius:.35rem}.category-detail-card h3{margin-top:0}.category-detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;margin:0}.category-detail-grid div{padding:.75rem;background:var(--w-color-surface-field);border-radius:.25rem}.category-detail-grid dt{font-size:.78rem;color:var(--w-color-text-meta)}.category-detail-grid dd{margin:.25rem 0 0;overflow-wrap:anywhere}.category-status{font-weight:600}.category-status--active{color:var(--w-color-positive-100)}.category-status--disabled,.category-status--archived{color:var(--w-color-critical-200)}.category-confirmation{padding:1rem;margin-bottom:1rem;border:2px solid var(--w-color-warning-100);background:var(--w-color-surface-alert-warning)}.category-confirmation h2{margin-top:0}.category-confirmation__actions{display:inline-block;margin:1rem 1rem 1rem 0}.category-detail-card--empty{text-align:center;padding:3rem}.button-small{white-space:nowrap}@media(max-width:1100px){.category-workbench{grid-template-columns:1fr}.category-tree-panel{position:static;max-height:40rem}.category-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.category-detail-grid{grid-template-columns:1fr}.category-detail-panel__header,.category-tree-panel__header{display:block}.category-detail-panel__actions,.category-tree-panel__tools{justify-content:flex-start;margin-top:.75rem}}
+</style>
+<script>
+(() => {
+  const nodes = Array.from(document.querySelectorAll("[data-tree-node]"));
+  const expand = document.getElementById("expand-category-tree");
+  const collapse = document.getElementById("collapse-category-tree");
+  if (expand) expand.addEventListener("click", () => nodes.forEach((node) => { node.hidden = false; }));
+  if (collapse) collapse.addEventListener("click", () => nodes.forEach((node) => { node.hidden = Number(node.dataset.depth) > 1; }));
+  const boxes = Array.from(document.querySelectorAll('input[name="category_ids"][form="batch-status-form"]'));
+  const count = document.getElementById("batch-selection-count");
+  const renderCount = () => { if (count) count.textContent = "已选择 " + boxes.filter((box) => box.checked).length + " 个栏目"; };
+  boxes.forEach((box) => box.addEventListener("change", renderCount));
+  renderCount();
+})();
+</script>
+{% endblock %}

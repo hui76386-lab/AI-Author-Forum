@@ -1,0 +1,106 @@
+# Production application stack.
+# PostgreSQL, Redis, and Celery are intentionally external services. Supply their
+# URLs through .env.production or a secret manager; do not hard-code credentials.
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    environment: &application-environment
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost}
+      WAGTAILADMIN_BASE_URL: ${WAGTAILADMIN_BASE_URL:-http://localhost}
+      MIDDLEWARE_MODE: ${MIDDLEWARE_MODE:-remote}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      CACHE_BACKEND: ${CACHE_BACKEND:?Set CACHE_BACKEND}
+      CACHE_LOCATION: ${CACHE_LOCATION:?Set CACHE_LOCATION}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:?Set CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:?Set CELERY_RESULT_BACKEND}
+      SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-true}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      CSRF_COOKIE_SECURE: ${CSRF_COOKIE_SECURE:-true}
+      SECURE_HSTS_SECONDS: ${SECURE_HSTS_SECONDS:-3600}
+      SECURE_HSTS_INCLUDE_SUBDOMAINS: ${SECURE_HSTS_INCLUDE_SUBDOMAINS:-false}
+      SECURE_HSTS_PRELOAD: ${SECURE_HSTS_PRELOAD:-false}
+      STATIC_ROOT: /data/static
+      MEDIA_ROOT: /data/media
+      STATIC_PUBLISH_ROOT: /data/published
+      STATIC_PUBLISH_HEALTHCHECK_BROKER: ${STATIC_PUBLISH_HEALTHCHECK_BROKER:-true}
+    command: >-
+      sh -c "python manage.py createcachetable &&
+      python manage.py migrate --noinput &&
+      python manage.py collectstatic --noinput &&
+      gunicorn ai_author_forum.wsgi:application"
+    volumes:
+      - static-data:/data/static
+      - media-data:/data/media
+      - published-data:/data/published
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/healthz/', headers={'X-Forwarded-Proto': 'https'}), timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    restart: unless-stopped
+    environment: *application-environment
+    command: celery -A ai_author_forum worker --loglevel=INFO --concurrency=2
+    volumes:
+      - static-data:/data/static
+      - media-data:/data/media
+      - published-data:/data/published
+
+  static-frontend:
+    build: .
+    restart: unless-stopped
+    entrypoint: ["gosu", "wagtail"]
+    environment:
+      STATIC_PUBLISH_ROOT: /data/published
+    command:
+      [
+        "gunicorn",
+        "--bind",
+        "0.0.0.0:8001",
+        "ai_author_forum.static_publish.static_server:application",
+      ]
+    volumes:
+      - published-data:/data/published:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/__static_health__/', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - static-data:/srv/static:ro
+      - media-data:/srv/media:ro
+      - published-data:/srv/published:ro
+    depends_on:
+      web:
+        condition: service_healthy
+      static-frontend:
+        condition: service_healthy
+
+volumes:
+  static-data:
+  media-data:
+  published-data:

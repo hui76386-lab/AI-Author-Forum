@@ -1,0 +1,42 @@
+﻿{% load wagtailcore_tags wagtailsettings_tags i18n_frontend %}
+{% wagtail_site as current_site %}
+<footer class="c-footer">
+  <div class="u-container">
+    <a class="c-footer__brand" href="{% localize_url '/' %}">{{ site_settings.site_name|default:current_site.site_name|default:'AI Author Forum' }}</a>
+    <div class="c-footer__grid">
+      <section>
+        <h2>{% ui_text 'explore_content' 'Explore content' %}</h2>
+        <a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'ai_article' 'AI Article' %}</a>
+        <a href="{{ '/explore-content/news/'|localized_url }}">{% ui_text 'news' 'News' %}</a>
+        <a href="{{ '/explore-content/opinion/'|localized_url }}">{% ui_text 'opinion' 'Opinion' %}</a>
+        <a href="{{ '/explore-content/research-analysis/'|localized_url }}">{% ui_text 'research_analysis' 'Research Analysis' %}</a>
+        <a href="{{ '/explore-content/careers/'|localized_url }}">{% ui_text 'careers' 'Careers' %}</a>
+      </section>
+      <section>
+        <h2>{% ui_text 'about_forum' 'About the forum' %}</h2>
+        <a href="{{ '/about-the-forum/forum-staff/'|localized_url }}">{% ui_text 'forum_staff' 'Forum Staff' %}</a>
+        <a href="{{ '/about-the-forum/forum-information/'|localized_url }}">{% ui_text 'forum_information' 'Forum Information' %}</a>
+        <a href="{{ '/about-the-forum/forum-metrics/'|localized_url }}">{% ui_text 'forum_metrics' 'Forum Metrics' %}</a>
+        <a href="{{ '/about-the-forum/editorial-policies/'|localized_url }}">{% ui_text 'editorial_policies' 'Editorial policies' %}</a>
+        <a href="{{ '/about-the-forum/contact/'|localized_url }}">{% ui_text 'contact' 'Contact' %}</a>
+      </section>
+      <section>
+        <h2>{% ui_text 'co_authoring_with_ai' 'Co authoring with AI' %}</h2>
+        <a href="{{ '/co-authoring-with-ai/definition-of-a-co-author-to-the-ai/'|localized_url }}">{% ui_text 'definition_co_author_ai' 'Definition of a co author to the AI' %}</a>
+        <a href="{{ '/co-authoring-with-ai/responsibility-of-the-co-author/'|localized_url }}">{% ui_text 'responsibility_co_author' 'Responsibility of the Co author' %}</a>
+        <a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'ai_article' 'AI Article' %}</a>
+      </section>
+      <section>
+        <h2>{% ui_text 'for_readers' 'For readers' %}</h2>
+        <a href="{{ '/for-readers/how-ai-authored-articles-produced/'|localized_url }}">{% ui_text 'how_ai_articles_produced' 'How AI authored Articles produced' %}</a>
+        <a href="{{ '/for-readers/readers-responsibility/'|localized_url }}">{% ui_text 'readers_responsibility' 'Readers responsibility' %}</a>
+        <a href="{{ '/journals/'|localized_url }}">{% ui_text 'browse_journals' 'Browse journals' %}</a>
+      </section>
+    </div>
+    <p class="c-footer__sponsorship">
+      <span>Sponsored by</span>
+      <strong>University of Tennessee Health Science Center</strong>
+    </p>
+    <p class="c-footer__copyright">{{ site_settings.site_name|default:'AI Author Forum' }} · {% ui_text 'static_workflow' 'Static HTML publishing workflow' %} · {% now "Y" %}</p>
+  </div>
+</footer>

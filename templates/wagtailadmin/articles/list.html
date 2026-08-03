@@ -1,0 +1,448 @@
+{% extends "wagtailadmin/base.html" %}
+{% load i18n wagtailadmin_tags wagtailimages_tags %}
+
+{% block titletag %}{{ page_title }}{% endblock %}
+
+{% block content %}
+    {% include "wagtailadmin/shared/header.html" with title=page_title icon="doc-full" action_url=create_article_url action_text="新建文章" only %}
+    {% if article_import_url %}
+      <div class="nice-padding" style="display:flex;justify-content:flex-end;margin-top:-1rem;margin-bottom:1rem">
+        <a class="button button-secondary" href="{{ article_import_url }}">{% if journal_context %}导入本刊文章{% else %}一键导入文章{% endif %}</a>
+      </div>
+    {% endif %}
+
+    <div class="nice-padding article-admin-page">
+        <section class="article-admin-guide" aria-label="文章工作流程">
+            <div>
+                <p class="article-admin-guide__eyebrow">当前主对象：文章</p>
+                <h2>先归属，后审核，再投放</h2>
+                <p>文章以主属子期刊归档；相关子期刊只表示跨刊内容关系。审核通过后仍需进入投放管理，最后由静态发布生成前台 HTML。</p>
+            </div>
+            <ol>
+                <li><span>1</span>文章归属</li>
+                <li><span>2</span>内容审核</li>
+                <li><span>3</span>版位投放</li>
+                <li><span>4</span>静态发布</li>
+            </ol>
+        </section>
+
+        {% if journal_context %}
+            <section class="article-journal-context" aria-label="当前子期刊上下文">
+                <div>
+                    <span>正在处理子期刊</span>
+                    <h2>{{ journal_context.name_cn|default:journal_context.name }}</h2>
+                    <p>{{ journal_context.name }} · <code>{{ journal_context.slug }}</code>。下方列表仅显示以本刊为<strong>主属期刊</strong>的文章，不代表这些文章已经投放到本刊前台。</p>
+                </div>
+                <div class="article-journal-context__actions">
+                    <a class="button button-secondary" href="{{ journal_workspace_url }}">返回子期刊工作台</a>
+                    {% if article_import_url %}<a class="button button-secondary" href="{{ article_import_url }}">导入本刊文章</a>{% endif %}
+                    {% if journal_placements_url %}<a class="button button-primary" href="{{ journal_placements_url }}">管理本刊投放</a>{% endif %}
+                </div>
+            </section>
+        {% endif %}
+        <form class="article-admin-filters" method="get" aria-label="文章筛选">
+            <label class="article-admin-filter--wide">
+                <span>关键词</span>
+                <input type="search" name="q" value="{{ filters.q }}" placeholder="标题、摘要、正文、作者或关键词">
+            </label>
+
+            {% if not pending_only %}
+                <label>
+                    <span>审核状态</span>
+                    <select name="review_status">
+                        <option value="">全部审核状态</option>
+                        {% for value, label in status_choices %}
+                            <option value="{{ value }}"{% if filters.review_status == value %} selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            {% endif %}
+
+            <label>
+                <span>交付状态</span>
+                <select name="publication_status">
+                    <option value="">全部交付状态</option>
+                    {% for value, label in publication_status_choices %}
+                        <option value="{{ value }}"{% if filters.publication_status == value %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label>
+                <span>文章类型</span>
+                <select name="article_type">
+                    <option value="">全部类型</option>
+                    {% for value, label in article_type_choices %}
+                        <option value="{{ value }}"{% if filters.article_type == value %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label>
+                <span>主属期刊</span>
+                <select name="primary_journal">
+                    <option value="">全部期刊</option>
+                    {% for journal in journal_choices %}
+                        {% with journal.pk|stringformat:"s" as journal_id %}
+                            <option value="{{ journal.pk }}"{% if filters.primary_journal == journal_id %} selected{% endif %}>{{ journal }}</option>
+                        {% endwith %}
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label>
+                <span>动态栏目</span>
+                <select name="category">
+                    <option value="">全部栏目</option>
+                    {% for category in category_choices %}
+                        {% with category.pk|stringformat:"s" as category_id %}
+                            <option value="{{ category.pk }}"{% if filters.category == category_id %} selected{% endif %}>{{ category.journal }} / {{ category.full_path }}</option>
+                        {% endwith %}
+                    {% endfor %}
+                </select>
+            </label>
+
+            {% if pending_only %}
+                <label>
+                    <span>提交人</span>
+                    <input type="search" name="submitter" value="{{ filters.submitter }}" placeholder="用户名">
+                </label>
+                <label>
+                    <span>等待时长</span>
+                    <select name="waiting">
+                        <option value="">全部</option>
+                        <option value="24h"{% if filters.waiting == "24h" %} selected{% endif %}>超过 24 小时</option>
+                        <option value="3d"{% if filters.waiting == "3d" %} selected{% endif %}>超过 3 天</option>
+                        <option value="7d"{% if filters.waiting == "7d" %} selected{% endif %}>超过 7 天</option>
+                    </select>
+                </label>
+            {% endif %}
+
+            <label>
+                <span>更新日期起</span>
+                <input type="date" name="updated_from" value="{{ filters.updated_from }}">
+            </label>
+            <label>
+                <span>更新日期止</span>
+                <input type="date" name="updated_to" value="{{ filters.updated_to }}">
+            </label>
+            <label>
+                <span>排序</span>
+                <select name="ordering">
+                    {% for value, label in ordering_choices %}
+                        <option value="{{ value }}"{% if filters.ordering == value %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                <span>每页</span>
+                <select name="page_size">
+                    {% for size in page_sizes %}
+                        <option value="{{ size }}"{% if filters.page_size == size %} selected{% endif %}>{{ size }} 条</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <div class="article-admin-filter-actions">
+                <button class="button" type="submit">应用筛选</button>
+                <a class="button button-secondary" href="{{ reset_url }}">清空筛选</a>
+            </div>
+        </form>
+
+        <div class="article-admin-summary">
+            <strong>筛选结果 {{ page_obj.paginator.count }} 篇</strong>
+            <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
+            {% if pending_only %}<span>待审核列表固定审核状态为“待审核”。</span>{% endif %}
+        </div>
+
+        <form id="article-bulk-form" method="post" action="{{ bulk_action_url }}">
+            {% csrf_token %}
+            <div class="table-wrapper">
+                <table class="listing article-admin-table">
+                    <thead>
+                        <tr>
+                            {% if can_bulk_edit or can_bulk_review %}
+                                <th class="article-admin-select-cell"><input type="checkbox" data-select-page aria-label="选择当前页全部文章"></th>
+                            {% endif %}
+                            <th>封面和标题</th>
+                            <th>主属期刊与栏目</th>
+                            <th>类型</th>
+                            <th>审核状态</th>
+                            <th>交付状态</th>
+                            {% if pending_only %}<th>提交信息</th>{% endif %}
+                            <th>最近更新</th>
+                            <th>最近编辑人</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for article in articles %}
+                            <tr>
+                                {% if can_bulk_edit or can_bulk_review %}
+                                    <td class="article-admin-select-cell">
+                                        <input type="checkbox" name="article_ids[]" value="{{ article.pk }}" data-article-select aria-label="选择 {{ article.title }}">
+                                        <input type="hidden" name="expected_revision_{{ article.pk }}" value="{{ article.latest_revision_id|default:'' }}">
+                                    </td>
+                                {% endif %}
+                                <td class="title">
+                                    <div class="article-admin-identity">
+                                        <div class="article-admin-thumbnail">
+                                            {% if article.admin_image.image %}
+                                                {% image article.admin_image.image fill-80x50 as article_thumbnail %}
+                                                <img src="{{ article_thumbnail.url }}" width="80" height="50" alt="{{ article.admin_image.alt }}">
+                                            {% else %}
+                                                <img src="{{ article.admin_image.placeholder_url }}" width="80" height="50" alt="{{ article.admin_image.alt }}">
+                                            {% endif %}
+                                        </div>
+                                        <div>
+                                            {% if article.admin_can_edit and article.admin_urls.edit %}
+                                                <a href="{{ article.admin_urls.edit }}">{{ article.title }}</a>
+                                            {% elif article.admin_can_review and article.admin_urls.review %}
+                                                <a href="{{ article.admin_urls.review }}">{{ article.title }}</a>
+                                            {% else %}
+                                                <strong>{{ article.title }}</strong>
+                                            {% endif %}
+                                            <div class="article-admin-secondary">#{{ article.pk }}{% if article.static_slug %} · {{ article.static_slug }}{% endif %}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <strong>{{ article.primary_journal|default:"-" }}</strong>
+                                    <ul class="article-admin-categories">
+                                        {% for category in article.admin_categories %}
+                                            <li>{{ category.full_path }}</li>
+                                        {% empty %}
+                                            <li class="article-admin-secondary">未分配栏目</li>
+                                        {% endfor %}
+                                    </ul>
+                                </td>
+                                <td>{{ article.get_article_type_display }}</td>
+                                <td>{% include "wagtailadmin/shared/status_tag.html" with label=article.get_review_status_display %}</td>
+                                <td>
+                                    {% if article.publication_status %}
+                                        {% include "wagtailadmin/shared/status_tag.html" with label=article.get_publication_status_display %}
+                                    {% else %}
+                                        <span class="article-admin-secondary">未进入交付</span>
+                                    {% endif %}
+                                </td>
+                                {% if pending_only %}
+                                    <td>
+                                        <div>{{ article.submitted_at|date:"Y-m-d H:i"|default:"-" }}</div>
+                                        <div class="article-admin-secondary">等待 {{ article.submitted_at|timesince|default:"-" }}</div>
+                                        <div class="article-admin-secondary">{{ article.submitted_by_username|default:"未知提交人" }}</div>
+                                        <div class="article-admin-secondary">revision #{{ article.latest_revision_id|default:"-" }}</div>
+                                    </td>
+                                {% endif %}
+                                <td>{{ article.latest_revision_created_at|date:"Y-m-d H:i"|default:"-" }}</td>
+                                <td>{{ article.admin_last_editor|default:"-" }}</td>
+                                <td>
+                                    <ul class="article-row-actions">
+                                                                                {% if article.admin_can_edit and article.admin_urls.edit %}<li><a href="{{ article.admin_urls.edit }}">编辑</a></li>{% endif %}
+                                        {% if article.admin_can_submit_review %}
+                                            {% if article.admin_has_primary_category and article.admin_urls.submit_review %}
+                                                <li>
+                                                    <button class="article-inline-action" type="submit" formmethod="post" formaction="{{ article.admin_urls.submit_review }}" name="next" value="{{ current_url }}">提交审核</button>
+                                                </li>
+                                            {% elif article.admin_can_edit and article.admin_urls.edit %}
+                                                <li><a href="{{ article.admin_urls.edit }}">分配主栏目</a></li>
+                                            {% endif %}
+                                        {% endif %}
+                                        {% if article.admin_can_review and article.admin_urls.review %}<li><a href="{{ article.admin_urls.review }}">{% if article.review_status == "submitted" %}进入审核{% else %}查看审核{% endif %}</a></li>{% endif %}
+                                        {% if article.admin_urls.preview and article.admin_can_edit %}<li><a href="{{ article.admin_urls.preview }}" target="_blank" rel="noreferrer">动态预览</a></li>{% endif %}
+                                        {% if article.admin_static_preview_url %}<li><a href="{{ article.admin_static_preview_url }}" target="_blank" rel="noreferrer">静态页面预览</a></li>{% endif %}
+                                        {% if article.admin_can_manage_placements and article.admin_urls.placements %}<li><a href="{{ article.admin_urls.placements }}">管理投放</a></li>{% endif %}
+                                        {% if article.admin_urls.history and article.admin_can_edit %}<li><a href="{{ article.admin_urls.history }}">版本历史</a></li>{% endif %}
+                                        {% if not article.admin_can_edit and not article.admin_can_review and not article.admin_can_manage_placements and not article.admin_static_preview_url %}<li class="article-admin-secondary">无可用操作</li>{% endif %}
+                                    </ul>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="{% if pending_only %}10{% else %}9{% endif %}"><div class="article-admin-empty"><p>没有符合当前筛选条件的文章。</p><a class="button button-secondary" href="{{ reset_url }}">清空筛选</a></div></td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if can_bulk_edit or can_bulk_review %}
+                <div class="article-bulk-bar" data-bulk-bar hidden>
+                    <div class="article-bulk-selected">已选 <span data-selected-count>0</span> 篇</div>
+                    <p class="article-admin-secondary">导入草稿请先“设置主栏目”，再“提交审核”；批量操作不会自动审核通过、投放或静态发布。</p>
+                    <label>
+                        <span>批量操作</span>
+                        <select name="action" data-bulk-action required>
+                            <option value="">请选择操作</option>
+                            {% if can_bulk_edit %}
+                                <option value="submit_review">提交审核</option>
+                                <option value="set_primary_journal">设置主属期刊</option>
+                                <option value="set_primary_category">设置主栏目</option>
+                                <option value="add_category">增加动态栏目</option>
+                                <option value="set_article_type">设置文章类型</option>
+                            {% endif %}
+                            {% if can_bulk_review %}
+                                <option value="approve">批量批准</option>
+                                <option value="reject">批量驳回</option>
+                            {% endif %}
+                        </select>
+                    </label>
+                    <label data-bulk-param="set_primary_journal" hidden>
+                        <span>目标主属期刊</span>
+                        <select name="primary_journal"><option value="">请选择</option>{% for journal in journal_choices %}<option value="{{ journal.pk }}">{{ journal }}</option>{% endfor %}</select>
+                    </label>
+                    <label data-bulk-param="set_primary_category" hidden>
+                        <span>目标主栏目</span>
+                        <select name="primary_category"><option value="">请选择</option>{% for category in category_choices %}<option value="{{ category.pk }}">{{ category.journal }} / {{ category.full_path }}</option>{% endfor %}</select>
+                    </label>
+                    <label data-bulk-param="add_category" hidden>
+                        <span>新增动态栏目</span>
+                        <select name="additional_category"><option value="">请选择</option>{% for category in category_choices %}<option value="{{ category.pk }}">{{ category.journal }} / {{ category.full_path }}</option>{% endfor %}</select>
+                    </label>
+                    <label data-bulk-param="set_article_type" hidden>
+                        <span>目标文章类型</span>
+                        <select name="article_type"><option value="">请选择</option>{% for value, label in article_type_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+                    </label>
+                    <label data-bulk-comment hidden>
+                        <span>审核意见</span>
+                        <textarea name="comment" rows="2" placeholder="批量批准或驳回时必填"></textarea>
+                    </label>
+                    <button class="button button-primary" type="submit" data-bulk-submit>执行批量操作</button>
+                    <p class="article-bulk-warning">一次最多 100 篇。文章列表不支持批量前台发布；审核通过后仍需投放和静态发布。</p>
+                </div>
+            {% endif %}
+        </form>
+
+        <section class="article-bulk-results" data-bulk-results hidden aria-live="polite">
+            <div class="article-bulk-results__header">
+                <h2>批量处理结果</h2>
+                <div>
+                    <button class="button button-secondary" type="button" data-copy-failures hidden>复制失败原因</button>
+                    <button class="button button-secondary" type="button" data-download-failures hidden>下载失败清单</button>
+                </div>
+            </div>
+            <p data-bulk-summary></p>
+            <div class="table-wrapper"><table class="listing"><thead><tr><th>文章</th><th>结果</th><th>说明</th></tr></thead><tbody data-bulk-items></tbody></table></div>
+        </section>
+
+        {% if page_obj.paginator.num_pages > 1 %}
+            <nav class="pagination" aria-label="文章分页">
+                <p>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</p>
+                <ul>
+                    <li class="prev"><a{% if page_obj.has_previous %} href="{{ paginator_url_prefix }}p={{ page_obj.previous_page_number }}"{% endif %}>上一页</a></li>
+                    {% for page_number in page_obj.paginator.page_range %}
+                        <li class="pagination__page-number{% if page_number == page_obj.number %} pagination__page-number--current{% endif %}"><a href="{{ paginator_url_prefix }}p={{ page_number }}"{% if page_number == page_obj.number %} aria-current="page"{% endif %}>{{ page_number }}</a></li>
+                    {% endfor %}
+                    <li class="next"><a{% if page_obj.has_next %} href="{{ paginator_url_prefix }}p={{ page_obj.next_page_number }}"{% endif %}>下一页</a></li>
+                </ul>
+            </nav>
+        {% endif %}
+    </div>
+
+    <style>
+    .article-admin-guide{display:flex;justify-content:space-between;align-items:center;gap:1.5rem;margin-bottom:1rem;padding:1.25rem;border:1px solid var(--w-color-border-furniture);background:var(--w-color-surface-page)}.article-admin-guide h2{margin:.15rem 0 .35rem}.article-admin-guide p{margin:0;max-width:58rem;color:var(--w-color-text-meta)}.article-admin-guide__eyebrow{font-size:.75rem!important;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.article-admin-guide ol{display:flex;align-items:center;gap:.45rem;margin:0;padding:0;list-style:none;white-space:nowrap}.article-admin-guide li{display:flex;align-items:center;gap:.35rem}.article-admin-guide li:not(:last-child)::after{content:"→";margin-left:.45rem;color:var(--w-color-text-meta)}.article-admin-guide li span{display:grid;place-items:center;width:1.8rem;height:1.8rem;border-radius:50%;background:var(--w-color-primary);color:#fff;font-weight:700}.article-journal-context{display:flex;justify-content:space-between;align-items:center;gap:1.25rem;margin-bottom:1rem;padding:1.15rem;border-inline-start:.35rem solid var(--w-color-primary);background:var(--w-color-surface-header)}.article-journal-context span{color:var(--w-color-text-meta);font-size:.8rem;font-weight:700}.article-journal-context h2{margin:.15rem 0}.article-journal-context p{margin:0;color:var(--w-color-text-meta)}.article-journal-context__actions{display:flex;gap:.65rem;flex-wrap:wrap;flex-shrink:0}@media(max-width:900px){.article-admin-guide,.article-journal-context{align-items:flex-start;flex-direction:column}.article-admin-guide ol{flex-wrap:wrap;white-space:normal}}@media(max-width:600px){.article-admin-guide ol{display:grid;grid-template-columns:1fr 1fr}.article-admin-guide li::after{display:none}}
+    </style>
+
+    <script>
+    (function () {
+        "use strict";
+        var form = document.getElementById("article-bulk-form");
+        if (!form) return;
+        var selections = Array.prototype.slice.call(form.querySelectorAll("[data-article-select]"));
+        var selectPage = form.querySelector("[data-select-page]");
+        var bar = form.querySelector("[data-bulk-bar]");
+        var count = form.querySelector("[data-selected-count]");
+        var actionSelect = form.querySelector("[data-bulk-action]");
+        var submit = form.querySelector("[data-bulk-submit]");
+        var results = document.querySelector("[data-bulk-results]");
+        var summary = document.querySelector("[data-bulk-summary]");
+        var items = document.querySelector("[data-bulk-items]");
+        var copyButton = document.querySelector("[data-copy-failures]");
+        var downloadButton = document.querySelector("[data-download-failures]");
+        var failedRows = [];
+
+        function selectedCount() { return selections.filter(function (box) { return box.checked; }).length; }
+        function refreshSelection() {
+            var selected = selectedCount();
+            if (count) count.textContent = String(selected);
+            if (bar) bar.hidden = selected === 0;
+            if (selectPage) {
+                selectPage.checked = selections.length > 0 && selected === selections.length;
+                selectPage.indeterminate = selected > 0 && selected < selections.length;
+            }
+        }
+        function refreshActionFields() {
+            var value = actionSelect ? actionSelect.value : "";
+            Array.prototype.forEach.call(form.querySelectorAll("[data-bulk-param]"), function (node) {
+                var isActive = node.dataset.bulkParam === value;
+                node.hidden = !isActive;
+                Array.prototype.forEach.call(node.querySelectorAll("select, input, textarea"), function (field) {
+                    field.disabled = !isActive;
+                    field.required = isActive;
+                });
+            });
+            var comment = form.querySelector("[data-bulk-comment]");
+            if (comment) {
+                var reviewAction = value === "approve" || value === "reject";
+                comment.hidden = !reviewAction;
+                var commentField = comment.querySelector("textarea");
+                if (commentField) {
+                    commentField.disabled = !reviewAction;
+                    commentField.required = reviewAction;
+                }
+            }
+        }
+        function addResultRow(item) {
+            var row = document.createElement("tr");
+            [item.title || ("文章 #" + item.article_id), item.success ? "成功" : "失败", item.message].forEach(function (value) {
+                var cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell);
+            });
+            items.appendChild(row);
+        }
+        function failureText() {
+            return failedRows.map(function (item) { return (item.title || ("文章 #" + item.article_id)) + "：" + item.message; }).join("\n");
+        }
+        if (selectPage) selectPage.addEventListener("change", function () { selections.forEach(function (box) { box.checked = selectPage.checked; }); refreshSelection(); });
+        selections.forEach(function (box) { box.addEventListener("change", refreshSelection); });
+        if (actionSelect) actionSelect.addEventListener("change", refreshActionFields);
+        if (copyButton) copyButton.addEventListener("click", function () { navigator.clipboard.writeText(failureText()); });
+        if (downloadButton) downloadButton.addEventListener("click", function () {
+            var blob = new Blob([failureText()], { type: "text/plain;charset=utf-8" });
+            var link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "文章批量处理失败清单.txt"; link.click(); URL.revokeObjectURL(link.href);
+        });
+        form.addEventListener("submit", function (event) {
+            event.preventDefault();
+            var value = actionSelect ? actionSelect.value : "";
+            if (!selectedCount()) return;
+            if (!value) { actionSelect.reportValidity(); return; }
+            var comment = form.querySelector('[name="comment"]');
+            if ((value === "approve" || value === "reject") && (!comment || !comment.value.trim())) { comment.setCustomValidity("批量批准或驳回必须填写审核意见。"); comment.reportValidity(); return; }
+            if (comment) comment.setCustomValidity("");
+            if (["submit_review", "approve", "reject"].indexOf(value) !== -1 && !window.confirm("此操作会逐篇保存业务记录和 revision，确认继续？")) return;
+            submit.disabled = true;
+            var endpoint = form.getAttribute("action");
+            fetch(endpoint, { method: "POST", body: new FormData(form), credentials: "same-origin", headers: { Accept: "application/json" } })
+                .then(function (response) {
+                    return response.text().then(function (body) {
+                        var data = {};
+                        try {
+                            data = body ? JSON.parse(body) : {};
+                        } catch (error) {
+                            throw new Error("批量处理请求失败（HTTP " + response.status + "），请刷新页面后重试。");
+                        }
+                        if (!response.ok) throw new Error(data.error || "批量处理失败。");
+                        return data;
+                    });
+                })
+                .then(function (data) {
+                    items.textContent = ""; failedRows = (data.items || []).filter(function (item) { return !item.success; });
+                    (data.items || []).forEach(addResultRow);
+                    summary.textContent = "共选择 " + data.selected_count + " 篇，成功 " + data.success_count + " 篇，失败 " + data.failure_count + " 篇。";
+                    results.hidden = false; results.classList.toggle("article-bulk-results--error", data.failure_count > 0);
+                    copyButton.hidden = failedRows.length === 0; downloadButton.hidden = failedRows.length === 0;
+                    results.scrollIntoView({ behavior: "smooth", block: "start" });
+                })
+                .catch(function (error) { items.textContent = ""; summary.textContent = error.message; results.hidden = false; results.classList.add("article-bulk-results--error"); })
+                .finally(function () { submit.disabled = false; });
+        });
+        refreshSelection(); refreshActionFields();
+    }());
+    </script>
+{% endblock %}

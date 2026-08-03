@@ -1,0 +1,18 @@
+{% load article_images wagtailimages_tags i18n_frontend %}
+{% article_image placement.article placement=placement as visual %}
+{% with article_url=placement.article.get_absolute_url|localized_url %}
+<article class="c-visual-story-card" data-placement-article="{{ placement.article.static_slug }}">
+  <a class="c-visual-story-card__image" href="{{ article_url }}" aria-label="{{ placement.display_title }}">
+    {% if visual.image %}{% image visual.image fill-1440x840 as story_image %}<img src="{{ story_image.url }}" width="{{ story_image.width }}" height="{{ story_image.height }}" alt="{{ visual.alt }}" loading="lazy">{% else %}<img src="{{ visual.placeholder_url }}" width="1440" height="840" alt="{{ visual.alt }}" loading="lazy">{% endif %}
+  </a>
+  <div class="c-visual-story-card__body">
+    <span class="c-meta">{{ placement.article.article_type|article_type_label }}</span>
+    <h3><a href="{{ article_url }}">{{ placement.display_title }}</a></h3>
+    {% if placement.display_summary %}<p>{{ placement.display_summary }}</p>{% endif %}
+    <p class="c-visual-story-card__meta">
+      <span>{{ placement.article.authors }}</span>
+      {% if placement.article.first_published_at %}<time datetime="{{ placement.article.first_published_at|date:'c' }}">{{ placement.article.first_published_at|date:'Y-m-d' }}</time>{% endif %}
+    </p>
+  </div>
+</article>
+{% endwith %}

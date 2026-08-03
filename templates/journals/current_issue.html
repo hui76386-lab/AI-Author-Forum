@@ -1,0 +1,31 @@
+{% extends "base_page.html" %}
+{% load wagtailimages_tags i18n_frontend %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block content %}
+<div class="u-container c-content-column">
+  <section class="c-content-row">
+    <div class="c-section-heading">
+      <h1>{% ui_text 'current_issue' 'Current issue' %}</h1>
+      <p>{% if journal %}{{ journal|localized_journal_name }} &middot; {% endif %}{{ issue.title }}</p>
+      {% if issue.volume_label or issue.issue_number %}<p>{{ issue.volume_label }}{% if issue.volume_label and issue.issue_number %}, {% endif %}{{ issue.issue_number }}</p>{% endif %}
+      <p><time datetime="{{ issue.publication_date|date:'Y-m-d' }}">{{ issue.publication_date|date:'F j, Y' }}</time></p>
+    </div>
+    {% if issue.summary %}<p>{{ issue.summary }}</p>{% endif %}
+    {% if issue.cover_image %}{% image issue.cover_image width-640 as cover %}<img src="{{ cover.url }}" width="{{ cover.width }}" height="{{ cover.height }}" alt="{{ issue_cover_alt }}">{% endif %}
+    <nav class="c-pagination" aria-label="{% ui_text 'issue_navigation' 'Issue navigation' %}">
+      {% if previous_issue %}<a href="{{ previous_issue.scope_path|localized_url }}">{% ui_text 'previous_issue' 'Previous issue' %}</a>{% endif %}
+      <a href="{{ browse_issues_url|localized_url }}">{% ui_text 'browse_issues' 'Browse issues' %}</a>
+    </nav>
+  </section>
+  <section class="c-content-row" aria-labelledby="toc-heading">
+    <h2 id="toc-heading">{% ui_text 'table_of_contents' 'Table of contents' %}</h2>
+    {% for section_label, assignments in issue_article_groups %}
+      {% if section_label %}<h3>{{ section_label }}</h3>{% endif %}
+      {% for item in assignments %}{% include "components/canonical_article_card.html" with article=item.article %}{% endfor %}
+    {% empty %}
+      <p class="c-empty-state">{% ui_text 'no_issue_articles' 'No articles are available in this issue.' %}</p>
+    {% endfor %}
+  </section>
+  <p><a href="{{ issue.scope_path|localized_url }}">{% ui_text 'issue_detail' 'View issue details' %}</a></p>
+</div>
+{% endblock %}

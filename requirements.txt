@@ -1,0 +1,21 @@
+django>=6.0,<6.1
+wagtail>=7.4,<7.5
+# Treebeard 5.3 warns on Wagtail 7.4 core managers; keep the supported 5.2 line.
+django-treebeard>=5.2,<5.3
+dj-database-url
+psycopg[binary]
+whitenoise
+gunicorn==23.0.0
+django-storages[s3]
+wagtail-storages
+openpyxl
+celery[redis]>=5.4,<6
+filelock>=3.16,<4
+# Document conversion dependencies are intentionally pinned for reproducible previews.
+mammoth==1.11.0
+defusedxml==0.7.1
+markdown-it-py==4.0.0
+mdit-py-plugins==0.5.0
+PyYAML==6.0.3
+Pillow==12.3.0
+beautifulsoup4==4.15.0

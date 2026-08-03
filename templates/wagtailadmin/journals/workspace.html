@@ -1,0 +1,134 @@
+{% extends "wagtailadmin/base.html" %}
+{% load i18n wagtailadmin_tags %}
+{% get_current_language as current_language %}
+
+{% block titletag %}{{ title }} · 子期刊工作台{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title subtitle="子期刊工作台" icon="doc-full" only %}
+
+<div class="nice-padding journal-workspace">
+  <nav class="journal-workspace__breadcrumb" aria-label="当前位置">
+    <a href="{{ back_url }}">子期刊列表</a>
+    <span aria-hidden="true">/</span>
+    <strong>{% if current_language|slice:":2" == "en" %}{{ journal.name }}{% else %}{{ journal.name_cn|default:journal.name }}{% endif %}</strong>
+  </nav>
+
+  <section class="journal-workspace__identity" aria-labelledby="journal-overview-heading">
+    <div>
+      <p class="journal-workspace__eyebrow">当前主对象</p>
+      <h2 id="journal-overview-heading">{% if current_language|slice:":2" == "en" %}{{ journal.name }}{% else %}{{ journal.name_cn|default:journal.name }}{% endif %}</h2>
+      <p>{{ journal.name }} · <code>{{ journal.slug }}</code> · A-Z：{{ journal.az_group }}</p>
+    </div>
+    <div class="journal-workspace__identity-actions">
+      {% include "wagtailadmin/shared/status_tag.html" with label=status_label %}
+      {% if actions.edit %}<a class="button button-secondary" href="{{ actions.edit }}">编辑资料</a>{% endif %}
+    </div>
+  </section>
+
+  <aside class="journal-workspace__rule" aria-label="文章与子期刊关系说明">
+    <strong>先分清两种关系：</strong>
+    <span><b>主属/相关期刊</b>是文章的内容关系；<b>ArticlePlacement</b> 是前台展示关系。文章审核通过后不会自动出现在本刊前台，仍需投放并执行静态发布。</span>
+  </aside>
+
+  <ol class="journal-workspace__flow" aria-label="子期刊内容发布流程">
+    <li><span>1</span><b>期刊资料</b><small>名称、素材、SEO</small></li>
+    <li><span>2</span><b>文章归属</b><small>主属与相关期刊</small></li>
+    <li><span>3</span><b>文章审核</b><small>通过后待投放</small></li>
+    <li><span>4</span><b>版位投放</b><small>排序、置顶、时效</small></li>
+    <li><span>5</span><b>静态发布</b><small>HTML 与 manifest</small></li>
+  </ol>
+
+  <section class="journal-workspace__metrics" aria-label="子期刊指标">
+    <article>
+      <span>主属文章</span>
+      <strong>{{ primary_article_count }}</strong>
+      <small>其中 {{ approved_primary_article_count }} 篇已审核通过</small>
+    </article>
+    <article>
+      <span>相关文章</span>
+      <strong>{{ related_article_count }}</strong>
+      <small>主属在其他期刊，但与本刊相关</small>
+    </article>
+    <article>
+      <span>栏目</span>
+      <strong>{{ category_count }}</strong>
+      <small>本刊受控栏目结构</small>
+    </article>
+    <article>
+      <span>当前有效投放</span>
+      <strong>{{ current_placement_count }}</strong>
+      <small>已生效且符合审核、期刊关系约束</small>
+    </article>
+  </section>
+
+  <div class="journal-workspace__grid">
+    <section class="journal-workspace__card">
+      <div class="journal-workspace__card-number">01</div>
+      <div>
+        <h2>资料与栏目</h2>
+        <p>维护当前子期刊自身资料和栏目树。这里管理“期刊是什么”，不决定文章是否展示。</p>
+      </div>
+      <div class="journal-workspace__actions">
+        {% if actions.edit %}<a class="button button-primary" href="{{ actions.edit }}">编辑期刊资料</a>{% endif %}
+        {% if actions.categories %}<a class="button button-secondary" href="{{ actions.categories }}">管理本刊栏目</a>{% endif %}
+        {% if not actions.edit and not actions.categories %}<span class="w-text-meta">当前角色仅可查看工作台。</span>{% endif %}
+      </div>
+    </section>
+
+    <section class="journal-workspace__card">
+      <div class="journal-workspace__card-number">02</div>
+      <div>
+        <h2>文章与审核</h2>
+        <p>查看以本刊为主属期刊的文章。文章审核通过只代表内容可投放，不代表已经上线。</p>
+      </div>
+      <dl class="journal-workspace__definition">
+        <div><dt>主属文章</dt><dd>正式归档在本刊，可使用本刊栏目。</dd></div>
+        <div><dt>相关文章</dt><dd>主属在其他期刊，可作为跨刊投放候选。</dd></div>
+      </dl>
+      <div class="journal-workspace__actions">
+        {% if actions.articles %}<a class="button button-primary" href="{{ actions.articles }}">查看本刊文章</a>{% else %}<span class="w-text-meta">当前角色无文章列表权限。</span>{% endif %}
+        {% if actions.import_articles %}<a class="button button-secondary" href="{{ actions.import_articles }}">导入本刊文章</a>{% endif %}
+      </div>
+    </section>
+
+    <section class="journal-workspace__card">
+      <div class="journal-workspace__card-number">03</div>
+      <div>
+        <h2>投放与版位</h2>
+        <p>把审核通过的文章投放到本刊具体版位，并维护排序、置顶和生效时间。只有主属或相关于本刊的文章才能投放到这里。</p>
+      </div>
+      <div class="journal-workspace__actions">
+        {% if actions.placements %}<a class="button button-primary" href="{{ actions.placements }}">{{ placement_action_label }}</a>{% else %}<span class="w-text-meta">当前角色无投放管理权限。</span>{% endif %}
+      </div>
+    </section>
+
+    <section class="journal-workspace__card journal-workspace__card--release">
+      <div class="journal-workspace__card-number">04</div>
+      <div>
+        <h2>静态主页</h2>
+        <p><code>/{{ static_state.path }}</code></p>
+        {% if static_state.is_published %}
+          <p class="journal-workspace__published"><strong>已在活动 manifest 中</strong>{% if active_manifest_version %} · 版本 {{ active_manifest_version }}{% endif %}</p>
+        {% else %}
+          <p class="journal-workspace__unpublished"><strong>尚未进入活动 manifest</strong>，后台内容或投放改动不会自动更新前台。</p>
+        {% endif %}
+      </div>
+      <div class="journal-workspace__actions">
+        {% if static_state.is_published %}<a class="button button-secondary" href="{{ static_state.frontend_url }}" target="_blank" rel="noopener">打开静态主页</a>{% endif %}
+        {% if actions.static_publish %}<a class="button button-primary" href="{{ actions.static_publish }}">前往静态发布</a>{% endif %}
+        {% if not static_state.is_published and not actions.static_publish %}<span class="w-text-meta">当前角色无静态发布权限。</span>{% endif %}
+      </div>
+    </section>
+  </div>
+</div>
+
+<style>
+.journal-workspace{max-width:112rem}.journal-workspace__breadcrumb{display:flex;gap:.55rem;align-items:center;margin-bottom:1rem;color:var(--w-color-text-meta)}.journal-workspace__identity{display:flex;justify-content:space-between;align-items:flex-start;gap:1.5rem;padding:1.5rem;border:1px solid var(--w-color-border-furniture);background:var(--w-color-surface-page)}.journal-workspace__identity h2{margin:.15rem 0 .35rem;font-size:2rem}.journal-workspace__identity p{margin:0;color:var(--w-color-text-meta)}.journal-workspace__eyebrow{font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.journal-workspace__identity-actions,.journal-workspace__actions{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}.journal-workspace__rule{display:flex;gap:.55rem;margin:1rem 0;padding:1rem 1.15rem;border-inline-start:.35rem solid var(--w-color-primary);background:var(--w-color-surface-header)}.journal-workspace__flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.75rem;margin:1.5rem 0;padding:0;list-style:none}.journal-workspace__flow li{position:relative;display:grid;grid-template-columns:auto 1fr;column-gap:.65rem;align-items:center;padding:1rem;border:1px solid var(--w-color-border-furniture)}.journal-workspace__flow li:not(:last-child)::after{content:"→";position:absolute;right:-.72rem;z-index:2;color:var(--w-color-text-meta);background:var(--w-color-surface-page)}.journal-workspace__flow span{grid-row:1/3;display:grid;place-items:center;width:2rem;height:2rem;border-radius:50%;background:var(--w-color-primary);color:#fff;font-weight:700}.journal-workspace__flow b,.journal-workspace__flow small{display:block}.journal-workspace__flow small{color:var(--w-color-text-meta)}.journal-workspace__metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-bottom:1.5rem}.journal-workspace__metrics article{padding:1.15rem;border:1px solid var(--w-color-border-furniture)}.journal-workspace__metrics span,.journal-workspace__metrics small{display:block;color:var(--w-color-text-meta)}.journal-workspace__metrics strong{display:block;margin:.25rem 0;font-size:2rem}.journal-workspace__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.journal-workspace__card{display:grid;grid-template-columns:auto 1fr;gap:1rem;padding:1.35rem;border:1px solid var(--w-color-border-furniture);background:var(--w-color-surface-page)}.journal-workspace__card-number{font-size:.8rem;font-weight:700;color:var(--w-color-text-meta)}.journal-workspace__card h2{margin:0 0 .5rem}.journal-workspace__card p{margin:.35rem 0;color:var(--w-color-text-meta)}.journal-workspace__card .journal-workspace__actions{grid-column:2;margin-top:.4rem}.journal-workspace__definition{grid-column:2;margin:.25rem 0}.journal-workspace__definition div{display:grid;grid-template-columns:6rem 1fr;gap:.75rem;padding:.45rem 0;border-top:1px solid var(--w-color-border-furniture)}.journal-workspace__definition dt{font-weight:700}.journal-workspace__definition dd{margin:0;color:var(--w-color-text-meta)}.journal-workspace__published{color:var(--w-color-positive-100)!important}.journal-workspace__unpublished{color:var(--w-color-warning-100)!important}@media(max-width:1000px){.journal-workspace__flow,.journal-workspace__metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.journal-workspace__flow li::after{display:none}.journal-workspace__grid{grid-template-columns:1fr}}@media(max-width:600px){.journal-workspace__identity,.journal-workspace__rule{flex-direction:column}.journal-workspace__flow,.journal-workspace__metrics{grid-template-columns:1fr}.journal-workspace__card{grid-template-columns:1fr}.journal-workspace__card .journal-workspace__actions,.journal-workspace__definition{grid-column:1}.journal-workspace__definition div{grid-template-columns:1fr}}
+@media(max-width:600px){
+  .w-header__title{font-size:1.5rem;line-height:1.25;overflow-wrap:anywhere;word-break:break-word}
+  .w-header__subtitle{display:block;margin-top:.3rem;font-size:1.05rem;line-height:1.3}
+  .journal-workspace__breadcrumb{flex-wrap:wrap;align-items:flex-start}
+  .journal-workspace__identity h2{font-size:1.5rem;line-height:1.25;overflow-wrap:anywhere;word-break:break-word}
+  .journal-workspace__identity p{overflow-wrap:anywhere;word-break:break-word}
+}</style>
+{% endblock %}

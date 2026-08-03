@@ -1,0 +1,4 @@
+{% load i18n_frontend %}<nav class="c-breadcrumbs u-container" aria-label="{% ui_text 'breadcrumb' 'Breadcrumb' %}"><ol>
+<li><a href="{% localize_url '/' %}">{% ui_text 'home' 'Home' %}</a></li>
+{% if journal %}<li><a href="{{ '/journals/'|localized_url }}">{% ui_text 'journals' 'Journals' %}</a></li><li><a href="{{ '/journals/'|add:journal.slug|add:'/'|localized_url }}">{{ journal|localized_journal_name }}</a></li>{% endif %}
+<li>{{ navigation_item.label }}</li></ol></nav>

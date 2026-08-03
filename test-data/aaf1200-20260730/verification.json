@@ -1,0 +1,22 @@
+{
+  "batch": "aaf1200-20260730",
+  "target_active_journals": 120,
+  "articles": 1200,
+  "articles_with_images": 1200,
+  "approved_articles": 1200,
+  "placed_articles": 1200,
+  "active_placements": 1200,
+  "submit_review_records": 1200,
+  "approval_review_records": 1200,
+  "completed_import_jobs": 12,
+  "failed_import_rows": 0,
+  "unique_images": 20,
+  "missing_image_files": [],
+  "article_count_violations": {},
+  "placement_count_violations": {},
+  "wrong_target_placements": 0,
+  "audit_import_events": 73,
+  "audit_article_approval_events": 1200,
+  "audit_placement_events": 120,
+  "errors": []
+}
