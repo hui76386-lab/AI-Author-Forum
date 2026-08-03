@@ -1,6 +1,6 @@
 {% load wagtailcore_tags wagtailimages_tags i18n_frontend %}
 <section class="c-content-row c-content-column__hero">
-  <div class="c-section-heading"><h1>{{ navigation_item.label }}</h1></div>
+  <div class="c-section-heading"><h1>{{ navigation_item_label|default:navigation_item.label }}</h1></div>
   {% if column_config.intro %}<div class="c-rich-text">{{ column_config.intro|richtext }}</div>{% endif %}
   {% if column_config.cover_image %}{% image column_config.cover_image width-960 as cover %}<figure class="c-image-slot"><img src="{{ cover.url }}" width="{{ cover.width }}" height="{{ cover.height }}" alt="{{ column_config.cover_image.description|default:column_config.cover_image.title }}"></figure>{% endif %}
 </section>

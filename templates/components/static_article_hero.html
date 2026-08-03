@@ -7,7 +7,7 @@
     <h1 id="home-heading"><a href="{{ article_url }}">{{ placement.display_title }}</a></h1>
     {% if placement.display_summary %}<p class="c-static-article-hero__summary">{{ placement.display_summary }}</p>{% endif %}
     <p class="c-static-article-hero__meta">
-      <span>{{ placement.article.authors }}</span>
+      <span>{{ placement.display_authors }}</span>
       {% if placement.article.first_published_at %}<time datetime="{{ placement.article.first_published_at|date:'c' }}">{{ placement.article.first_published_at|date:'Y-m-d' }}</time>{% endif %}
     </p>
   </div>

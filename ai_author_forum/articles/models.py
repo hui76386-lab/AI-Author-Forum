@@ -18,6 +18,14 @@ from wagtail.models import AbstractGroupApprovalTask, Orderable, Page, TaskState
 from wagtail.search import index
 
 from ai_author_forum.utils.i18n import article_type_label
+from ai_author_forum.utils.public_i18n import (
+    localized_article_abstract,
+    localized_article_authors,
+    localized_article_body,
+    localized_article_ai_coauthors,
+    localized_article_keywords,
+    localized_article_title,
+)
 
 from .blocks import ArticleBodyBlock
 from .forms import ArticleCategoryAssignmentInlinePanel, ArticlePageForm
@@ -380,6 +388,11 @@ class ArticlePage(Page):
         context["article"] = self
         context["static_url"] = self.get_absolute_url()
         context["article_type_label"] = article_type_label(self.article_type)
+        context["article_display_title"] = localized_article_title(self)
+        context["article_display_abstract"] = localized_article_abstract(self)
+        context["article_display_authors"] = localized_article_authors(self)
+        context["article_display_keywords"] = localized_article_keywords(self)
+        context["article_display_body"] = localized_article_body(self)
         context["review_status_label"] = self.get_review_status_display()
         context["related_journals"] = self._get_related_journals_for_preview()
         context.update(get_article_fallback_context(self, request=request))

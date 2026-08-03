@@ -7,6 +7,14 @@ from django.db.models.functions import Cast, Coalesce
 from wagtail.models import Page, Revision
 
 from ai_author_forum.utils.i18n import article_type_label
+from ai_author_forum.utils.public_i18n import (
+    localized_article_abstract,
+    localized_article_authors,
+    localized_article_body,
+    localized_article_ai_coauthors,
+    localized_article_keywords,
+    localized_article_title,
+)
 
 from .integrations import get_article_fallback_context
 from .models import ArticlePage
@@ -168,8 +176,13 @@ def get_approved_articles(at=None):
 def get_article_context(slug, at=None):
     article = get_approved_articles(at=at).get(static_slug=slug)
     related_journals = list(article.related_journals.all())
-    keywords = _split_csv(article.keywords)
-    ai_co_authors = _split_csv(article.ai_co_authors)
+    article_title = localized_article_title(article)
+    article_abstract = localized_article_abstract(article)
+    article_authors = localized_article_authors(article)
+    article_keywords = localized_article_keywords(article)
+    article_ai_coauthors = localized_article_ai_coauthors(article)
+    keywords = _split_csv(article_keywords)
+    ai_co_authors = _split_csv(article_ai_coauthors)
 
     from .category_services import get_live_article_categories
 
@@ -187,17 +200,20 @@ def get_article_context(slug, at=None):
         "related_categories": live_categories.related,
         "related_journals": related_journals,
         "journals": [article.primary_journal, *related_journals],
-        "authors": _split_csv(article.authors),
-        "authors_text": article.authors,
+        "authors": _split_csv(article_authors),
+        "authors_text": article_authors,
         "keywords": keywords,
-        "keywords_text": article.keywords,
+        "keywords_text": article_keywords,
+        "article_display_title": article_title,
+        "article_display_abstract": article_abstract,
+        "article_display_body": localized_article_body(article),
         "article_type": article.article_type,
         "article_type_label": article_type_label(article.article_type),
         "review_status": article.review_status,
         "review_status_label": article.get_review_status_display(),
         "ai": {
             "co_authors": ai_co_authors,
-            "co_authors_text": article.ai_co_authors,
+            "co_authors_text": article_ai_coauthors,
             "contribution_statement": article.ai_contribution_statement,
             "responsibility_statement": article.responsibility_statement,
             "has_contribution": bool(

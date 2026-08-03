@@ -13,6 +13,7 @@ from ai_author_forum.journals.models import (
     PublicationIssueStatus,
 )
 from ai_author_forum.placements.models import ArticlePlacement
+from ai_author_forum.utils.public_i18n import localized_navigation_label
 from ai_author_forum.site_settings.models import (
     AuditAction,
     AuditLog,
@@ -750,7 +751,10 @@ def get_navigation_context(*, journal=None, site=None, current_path="", strict=F
             url = item.target_url
             items.append(
                 {
-                    "label": item.label,
+                    "label": localized_navigation_label(
+                        item.managed_code,
+                        fallback=item.label,
+                    ),
                     "code": item.managed_code,
                     "target_type": item.target_type,
                     "url": url,
@@ -770,7 +774,11 @@ def get_navigation_context(*, journal=None, site=None, current_path="", strict=F
             continue
         result_groups.append(
             {
-                "label": group.label,
+                "label": localized_navigation_label(
+                    group.code,
+                    group=True,
+                    fallback=group.label,
+                ),
                 "code": group.code,
                 "items": tuple(items),
                 "is_active": any(item["is_active"] for item in items),

@@ -1,4 +1,4 @@
-{% load wagtailcore_tags %}
+{% load wagtailcore_tags i18n_frontend %}
 
 
 {% if page.get_ancestors|length > 1 %}
@@ -17,7 +17,7 @@
                         decoration-mackerel-200
                         hover:decoration-mackerel-300
                         ">
-                            {% firstof ancestor_page.listing_title ancestor_page.title %}
+                            {{ ancestor_page|localized_page_title }}
                         </a>
 
                         {% include "icons/slash.html" with class="w-3 h-3 fill-grey-700 dark:fill-grey-200" %}

@@ -34,6 +34,20 @@ from ai_author_forum.site_settings.navigation import (
     get_navigation_context,
 )
 from ai_author_forum.utils.i18n import article_type_label, localized_journal_name
+from ai_author_forum.utils.public_i18n import (
+    localized_article_abstract,
+    localized_article_authors,
+    localized_article_ai_coauthors,
+    localized_article_keywords,
+    localized_article_title,
+    localized_journal_description,
+    localized_journal_intro,
+    localized_journal_seo_title,
+    localized_navigation_label,
+    is_english,
+    localized_static_page,
+    localized_static_section,
+)
 
 DEFAULT_STATIC_SECTIONS = (
     {
@@ -418,7 +432,7 @@ def get_static_sections():
         section["slug"] = slug
         section.setdefault("title", slug.replace("-", " ").title())
         section.setdefault("description", "")
-        sections.append(section)
+        sections.append(localized_static_section(section))
         seen.add(slug)
     return tuple(sections)
 
@@ -454,7 +468,7 @@ def get_static_info_pages():
             page["group"] = group.get("group", group_slug.replace("-", " ").title())
             page["group_slug"] = group_slug
             page["path"] = f"/{group_slug}/{slug}/"
-            pages.append(page)
+            pages.append(localized_static_page(page))
             seen.add(key)
     return tuple(pages)
 
@@ -591,7 +605,10 @@ def get_managed_navigation_info_context(*, internal_path, journal_slug=None):
     if item is None or (not item.is_visible and not item.allow_direct_access):
         raise Http404("Managed navigation page not found")
 
-    page_title = item.label
+    item_label = localized_navigation_label(
+        item.managed_code, fallback=item.label
+    )
+    page_title = item_label
     scope_label = "AI Author Forum"
     summary = "Controlled information for this navigation destination."
     body = (
@@ -601,7 +618,7 @@ def get_managed_navigation_info_context(*, internal_path, journal_slug=None):
     sections = ("Editorially approved information", "Static publishing and audit trail")
     if journal:
         journal_name = localized_journal_name(journal)
-        page_title = f"{journal_name}: {item.label}"
+        page_title = f"{journal_name}：{item_label}" if not is_english() else f"{journal_name}: {item_label}"
         scope_label = journal_name
         summary = journal.seo_description or (
             f"Information and resources for {journal_name}."
@@ -634,8 +651,19 @@ def get_managed_navigation_info_context(*, internal_path, journal_slug=None):
             "Corrections, image, and citation integrity",
         )
 
+    if not is_english():
+        summary = f"{scope_label}的{item_label}及相关编辑与出版信息。"
+        body = "本页面由受控导航配置生成，展示经过审核的编辑范围、出版资源和当前内容。"
+        sections = (
+            "编辑范围与责任",
+            "出版资源与当前内容",
+            "编辑联系与静态发布流程",
+        )
+
     info_page = {
-        "group": item.group.label,
+        "group": localized_navigation_label(
+            item.group.code, group=True, fallback=item.group.label
+        ),
         "group_slug": f"managed-navigation-{item.group_id}",
         "slug": item.managed_code,
         "path": path,
@@ -812,7 +840,11 @@ def get_content_column_context(
         "journal": journal,
         "navigation_item": item,
         "column_config": config,
-        "page_title": config.seo_title or item.label,
+        "navigation_item_label": localized_navigation_label(
+            item.managed_code, fallback=item.label
+        ),
+        "page_title": config.seo_title
+        or localized_navigation_label(item.managed_code, fallback=item.label),
         "featured_placements": featured[:1],
         "secondary_placements": secondary[:3],
         "article_placements": paged_articles,
@@ -1001,15 +1033,15 @@ def get_issue_detail_context(*, issue_slug, journal_slug=None, at=None):
 
 def _static_search_entry(article):
     return {
-        "title": article.title,
-        "summary": article.abstract,
+        "title": localized_article_title(article),
+        "summary": localized_article_abstract(article),
         "url": article.get_absolute_url(),
         "article_type": article_type_label(article.article_type),
         "journal": localized_journal_name(article.primary_journal),
         "journal_slug": article.primary_journal.slug,
-        "authors": article.authors,
-        "ai_authors": article.ai_co_authors,
-        "keywords": article.keywords,
+        "authors": localized_article_authors(article),
+        "ai_authors": localized_article_ai_coauthors(article),
+        "keywords": localized_article_keywords(article),
     }
 
 

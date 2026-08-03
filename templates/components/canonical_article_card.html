@@ -12,8 +12,8 @@
     </a>
     <div class="c-news-listing-card__body md:h-full md:justify-center md:flex md:flex-col md:max-w-[767px]">
         <p class="text-sm md:text-base text-grey-700 dark:text-grey-200 font-codepro pt-7 md:pt-0 pb-2.5"><span class="text-mackerel-300 font-medium uppercase mr-1">{{ article.article_type|article_type_label }}</span>{% if article.primary_journal_id %}<span class="text-grey-700 dark:text-grey-200 ml-1"> / {{ article.primary_journal }}</span>{% endif %}</p>
-        <a href="{{ article.get_absolute_url|localized_url }}" class="text-xl md:text-2xl font-bold leading-8 md:leading-10 underline underline-offset-8 decoration-[1.5px] decoration-mackerel-200 hover:decoration-mackerel-300">{{ article.title }}</a>
-        {% if article.abstract %}<p class="text-grey-700 dark:text-grey-200 pt-2.5 leading-6">{{ article.abstract }}</p>{% endif %}
-        {% if article.authors %}<div class="text-sm md:text-base text-grey-700 dark:text-grey-200 font-codepro pt-7">{{ article.authors }}</div>{% endif %}
+        <a href="{{ article.get_absolute_url|localized_url }}" class="text-xl md:text-2xl font-bold leading-8 md:leading-10 underline underline-offset-8 decoration-[1.5px] decoration-mackerel-200 hover:decoration-mackerel-300">{{ article|localized_article_title }}</a>
+        {% if article.abstract %}<p class="text-grey-700 dark:text-grey-200 pt-2.5 leading-6">{{ article|localized_article_abstract }}</p>{% endif %}
+        {% if article.authors %}<div class="text-sm md:text-base text-grey-700 dark:text-grey-200 font-codepro pt-7">{{ article|localized_article_authors }}</div>{% endif %}
     </div>
 </article>

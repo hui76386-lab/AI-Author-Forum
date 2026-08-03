@@ -42,6 +42,11 @@ from ai_author_forum.journals.models import (
 from ai_author_forum.site_settings.models import AuditAction, AuditStatus
 from ai_author_forum.site_settings.services import record_audit_event
 from ai_author_forum.utils.i18n import localized_journal_name
+from ai_author_forum.utils.public_i18n import (
+    localized_journal_description,
+    localized_journal_intro,
+    localized_journal_seo_title,
+)
 
 from .validators import scan_mapping_for_suspicious_text, truncate_text
 
@@ -71,13 +76,16 @@ def get_journal_context(slug: str, at=None):
     return {
         "journal": journal,
         "journal_display_name": localized_journal_name(journal),
+        "journal_display_seo_title": localized_journal_seo_title(journal),
+        "journal_display_description": localized_journal_description(journal),
+        "journal_display_intro": localized_journal_intro(journal),
         "articles": article_pages,
         "article_pages": article_pages,
         "legacy_articles": legacy_articles,
         "category_navigation": get_category_navigation(journal=journal),
         "seo": {
-            "title": journal.seo_title or localized_journal_name(journal),
-            "description": journal.seo_description,
+            "title": localized_journal_seo_title(journal),
+            "description": localized_journal_description(journal),
         },
     }
 

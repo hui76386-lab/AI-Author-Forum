@@ -1,7 +1,7 @@
 {% extends "base_page.html" %}
 {% load static wagtailcore_tags wagtailimages_tags i18n_frontend %}
-{% block title %}{{ journal.seo_title|default:journal_display_name }}{% endblock %}
-{% block meta_tags %}{{ block.super }}{% if journal.seo_description %}<meta name="description" content="{{ journal.seo_description }}">{% endif %}{% endblock %}
+{% block title %}{{ journal_display_seo_title|default:journal.seo_title|default:journal_display_name }}{% endblock %}
+{% block meta_tags %}{{ block.super }}{% if journal_display_description %}<meta name="description" content="{{ journal_display_description }}">{% endif %}{% endblock %}
 {% block breadcrumbs %}
 <nav class="c-breadcrumbs u-container" aria-label="{% ui_text 'breadcrumb' 'Breadcrumb' %}"><ol><li><a href="{% localize_url '/' %}">{% ui_text 'home' 'Home' %}</a></li><li><a href="{{ '/journals/'|localized_url }}">{% ui_text 'journals' 'Journals' %}</a></li><li>{{ journal_display_name }}</li></ol></nav>
 {% endblock %}
@@ -11,8 +11,8 @@
     <div class="c-hero__panel">
       <span class="c-kicker">{{ journal.hero_kicker|default:'' }}{% if not journal.hero_kicker %}{% ui_text 'journal_home' 'Journal home' %}{% endif %}</span>
       <h1>{{ journal_display_name }}</h1>
-      {% if journal.homepage_intro %}
-      <div class="c-journal-hero__intro">{{ journal.homepage_intro|richtext }}</div>
+      {% if journal_display_intro %}
+      <div class="c-journal-hero__intro">{{ journal_display_intro|richtext }}</div>
       {% else %}
       <p class="c-journal-hero__intro">{% ui_text 'journal_intro_default' 'A static sub-journal page sharing the global AI Author Forum navigation, content modules and article templates.' %}</p>
       {% endif %}
@@ -48,10 +48,10 @@
     <ul class="c-topic-navigation__list">
       {% for item in category_navigation %}
       <li class="c-topic-navigation__item">
-        <a class="c-topic-navigation__link" href="{{ item.category.get_absolute_url|localized_url }}">{{ item.category.name }}</a>
+        <a class="c-topic-navigation__link" href="{{ item.category.get_absolute_url|localized_url }}">{{ item.category|localized_category_name }}</a>
         {% if item.children %}
-        <ul class="c-topic-navigation__children" aria-label="{{ item.category.name }} {% ui_text 'subtopics' 'subtopics' %}">
-          {% for child in item.children %}<li><a href="{{ child.get_absolute_url|localized_url }}">{{ child.name }}</a></li>{% endfor %}
+        <ul class="c-topic-navigation__children" aria-label="{{ item.category|localized_category_name }} {% ui_text 'subtopics' 'subtopics' %}">
+          {% for child in item.children %}<li><a href="{{ child.get_absolute_url|localized_url }}">{{ child|localized_category_name }}</a></li>{% endfor %}
         </ul>
         {% endif %}
       </li>

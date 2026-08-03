@@ -8,6 +8,16 @@ from ai_author_forum.utils.i18n import (
     normalize_language,
     ui_label,
 )
+from ai_author_forum.utils.public_i18n import (
+    localized_article_abstract as get_localized_article_abstract,
+    localized_article_authors as get_localized_article_authors,
+    localized_article_keywords as get_localized_article_keywords,
+    localized_article_title as get_localized_article_title,
+    localized_category_name as get_localized_category_name,
+    localized_category_description as get_localized_category_description,
+    localized_discipline_name as get_localized_discipline_name,
+    localized_page_title as get_localized_page_title,
+)
 
 register = template.Library()
 
@@ -31,6 +41,46 @@ def article_type_label(value):
 @register.filter
 def localized_journal_name(value):
     return get_localized_journal_name(value)
+
+
+@register.filter
+def localized_article_title(value):
+    return get_localized_article_title(value)
+
+
+@register.filter
+def localized_article_abstract(value):
+    return get_localized_article_abstract(value)
+
+
+@register.filter
+def localized_article_authors(value):
+    return get_localized_article_authors(value)
+
+
+@register.filter
+def localized_article_keywords(value):
+    return get_localized_article_keywords(value)
+
+
+@register.filter
+def localized_category_name(value):
+    return get_localized_category_name(value)
+
+
+@register.filter
+def localized_category_description(value):
+    return get_localized_category_description(value)
+
+
+@register.filter
+def localized_discipline_name(value):
+    return get_localized_discipline_name(value)
+
+
+@register.filter
+def localized_page_title(value):
+    return get_localized_page_title(value)
 
 
 @register.filter

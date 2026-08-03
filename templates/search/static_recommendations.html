@@ -52,7 +52,7 @@
       <span>{{ placement.article.article_type|article_type_label }}</span>
       <h2><a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a></h2>
       <p>{{ placement.display_summary }}</p>
-      <p>{% ui_text 'author_label' 'Author' %}: {{ placement.article.authors }}{% if placement.article.ai_co_authors %} - {% ui_text 'ai_coauthor_label' 'AI co-author' %}: {{ placement.article.ai_co_authors }}{% endif %}</p>
+      <p>{% ui_text 'author_label' 'Author' %}: {{ placement.display_authors }}{% if placement.article.ai_co_authors %} - {% ui_text 'ai_coauthor_label' 'AI co-author' %}: {{ placement.display_ai_coauthors }}{% endif %}</p>
     </article>
     {% empty %}<p class="c-empty-state">{{ search_config.empty_message }}</p>{% endfor %}
   </section>

@@ -25,7 +25,7 @@
         <li data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0">
           <span>{{ placement.article.article_type|article_type_label }}</span>
           <a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>
-          <small>{{ placement.article.authors }} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
+          <small>{{ placement.display_authors }} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
         </li>
         {% empty %}<li><span>{% ui_text 'editorial' 'Editorial' %}</span><a href="{{ '/explore-content/news/'|localized_url }}">{% ui_text 'content_prepared' 'Content is being prepared' %}</a><small>AI Author Forum ? {% ui_text 'news_comment' 'News &amp; Comment' %}</small></li>{% endfor %}
       </ul>
@@ -34,7 +34,7 @@
         <li data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0">
           <span>{{ placement.article.article_type|article_type_label }}</span>
           <a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>
-          <small>{{ placement.article.authors }} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
+          <small>{{ placement.display_authors }} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
         </li>
         {% empty %}<li><span>{% ui_text 'ai_article' 'AI Article' %}</span><a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'explore_latest_ai' 'Explore the latest AI articles' %}</a><small>{% ui_text 'static_editorial_collection' 'Static editorial collection' %}</small></li>{% endfor %}
       </ul>
@@ -54,7 +54,7 @@
       <li data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0">
         <span>{{ placement.article.article_type|article_type_label }}</span>
         <a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>
-        <small>{{ placement.article.authors }} ? {% ui_text 'article' 'Article' %} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
+        <small>{{ placement.display_authors }} ? {% ui_text 'article' 'Article' %} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
       </li>
       {% endfor %}
     </ul>
@@ -77,7 +77,7 @@
 
   {% if visual_story_placements %}
   <section class="c-content-row c-content-row--visual-stories" data-home-slot="home_visual_stories">
-    <div class="c-section-heading"><h2>Research Highlights</h2><a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'view_all' 'View all' %}</a></div>
+    <div class="c-section-heading"><h2>{% ui_text 'research_highlights' 'Research Highlights' %}</h2><a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'view_all' 'View all' %}</a></div>
     <div class="c-visual-story-grid">
       {% for placement in visual_story_placements %}{% include "components/static_visual_story_card.html" with placement=placement %}{% endfor %}
     </div>

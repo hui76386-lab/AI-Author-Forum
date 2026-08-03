@@ -40,6 +40,10 @@ def get_active_journal_queryset(journal_model=None):
 
 def get_article_fallback_context(article, request=None):
     from .display import resolve_article_image
+    from ai_author_forum.utils.public_i18n import (
+        localized_article_abstract,
+        localized_article_title,
+    )
 
     site_settings = get_site_settings(request)
     article_image = resolve_article_image(
@@ -71,7 +75,9 @@ def get_article_fallback_context(article, request=None):
             "title_suffix",
         ),
     )
-    seo_title = article.seo_title or article.title
+    seo_title = article.seo_title or localized_article_title(article)
+    if not article.seo_title and not seo_description:
+        seo_description = localized_article_abstract(article)
     if title_suffix and title_suffix not in seo_title:
         seo_title = f"{seo_title} {title_suffix}"
 

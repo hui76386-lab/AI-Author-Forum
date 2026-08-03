@@ -7,5 +7,5 @@
   <span class="c-meta">{{ placement.article.article_type|article_type_label }}</span>
   <h3><a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a></h3>
   {% if placement.display_summary %}<p>{{ placement.display_summary }}</p>{% endif %}
-  <div class="c-card__meta-footer"><span>{{ placement.article.authors }}</span><span><strong>{% ui_text 'article' 'Article' %}</strong>{% if placement.article.first_published_at %} {{ placement.article.first_published_at|date:'Y-m-d' }}{% endif %}</span></div>
+  <div class="c-card__meta-footer"><span>{{ placement.display_authors }}</span><span><strong>{% ui_text 'article' 'Article' %}</strong>{% if placement.article.first_published_at %} {{ placement.article.first_published_at|date:'Y-m-d' }}{% endif %}</span></div>
 </article>

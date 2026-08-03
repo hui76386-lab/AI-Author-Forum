@@ -465,11 +465,27 @@ class ArticlePlacement(models.Model):
 
     @property
     def display_title(self):
-        return self.override_title or self.article.title
+        from ai_author_forum.utils.public_i18n import localized_article_title
+
+        return self.override_title or localized_article_title(self.article)
 
     @property
     def display_summary(self):
-        return self.override_summary or self.article.abstract
+        from ai_author_forum.utils.public_i18n import localized_article_abstract
+
+        return self.override_summary or localized_article_abstract(self.article)
+
+    @property
+    def display_authors(self):
+        from ai_author_forum.utils.public_i18n import localized_article_authors
+
+        return localized_article_authors(self.article)
+
+    @property
+    def display_ai_coauthors(self):
+        from ai_author_forum.utils.public_i18n import localized_article_ai_coauthors
+
+        return localized_article_ai_coauthors(self.article)
 
     @property
     def display_image(self):

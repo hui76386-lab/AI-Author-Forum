@@ -1,5 +1,6 @@
 {% extends "base_page.html" %}
-{% load wagtailcore_tags wagtailimages_tags static %}
+{% load wagtailcore_tags wagtailimages_tags static i18n_frontend %}
+{% block title %}{{ page|localized_page_title }}{% endblock %}
 
 {% block content %}
     {% block breadcrumbs %}
@@ -18,7 +19,7 @@
                 border-grey-200
             {% endif %}
             ">
-                {{ page.title }}
+                {{ page|localized_page_title }}
             </h1>
             {% if page.introduction %}
                 <div class="
