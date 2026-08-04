@@ -27,6 +27,7 @@ from ..models import (
     ARTICLE_PAGE_TEMPLATE,
     ARTICLE_REVIEW_PERMISSION,
     ArticleCategoryAssignment,
+    ArticleContributor,
     ArticlePage,
     ArticleReviewRecord,
     ArticleReviewTask,
@@ -128,6 +129,8 @@ class ArticlePageWorkflowTests(TestCase):
                 field_values[field.name] = title
             elif field.name == "slug":
                 field_values[field.name] = slug
+            elif field.name == "az_group":
+                field_values[field.name] = slug[:1].upper()
             elif not field.blank and not field.null and not field.has_default():
                 field_values[field.name] = cls.default_field_value(field, slug)
 
@@ -349,6 +352,26 @@ class ArticlePageWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(article.review_status, ArticlePage.ReviewStatus.DRAFT)
         self.assertFalse(article.review_records.exists())
+
+    def test_approved_review_detail_exposes_one_click_placement_url(self):
+        superuser = get_user_model().objects.create_superuser(
+            username="approved-placement-superuser",
+            email="approved-placement-superuser@example.com",
+            password="test-password",
+        )
+        article = self.create_article("Approved placement shortcut")
+        article.submit_for_review(self.editor, "Ready for approval.")
+        article.approve(self.reviewer, "Approved.")
+
+        self.client.force_login(superuser)
+        response = self.client.get(
+            reverse("article_admin:review_detail", args=[article.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "投放文章")
+        self.assertContains(response, f"article={article.pk}")
+        self.assertContains(response, f"journal={self.journal.slug}")
 
     def test_business_review_permission_can_moderate_wagtail_workflow_task(self):
         task_group = Group.objects.create(name="Narrow Wagtail Task Reviewers")
@@ -1014,6 +1037,50 @@ class ArticlePageWorkflowTests(TestCase):
         self.assertEqual(len(initial_body), 1)
         self.assertEqual(initial_body[0].block_type, "paragraph")
         self.assertEqual(str(initial_body[0].value), "")
+
+    def test_article_contributors_sync_authors_and_support_custom_identity(self):
+        article = self.create_article("Structured Contributors")
+        author = ArticleContributor.objects.create(
+            article=article,
+            identity=ArticleContributor.Identity.AUTHOR,
+            name="李明",
+            affiliation="人工智能研究院",
+            is_corresponding=True,
+            sort_order=0,
+        )
+        executive_editor = ArticleContributor.objects.create(
+            article=article,
+            identity=ArticleContributor.Identity.EXECUTIVE_EDITOR,
+            name="王晓峰",
+            affiliation="编辑部",
+            sort_order=1,
+        )
+        custom_editor = ArticleContributor.objects.create(
+            article=article,
+            identity=ArticleContributor.Identity.CUSTOM,
+            custom_identity="统计编辑",
+            name="陈晨",
+            sort_order=2,
+        )
+
+        article.refresh_from_db()
+
+        self.assertEqual(article.authors, "李明")
+        self.assertEqual(author.display_identity(), "作者")
+        self.assertEqual(executive_editor.display_identity("en"), "Executive Editor")
+        self.assertEqual(custom_editor.display_identity(), "统计编辑")
+        self.assertEqual(
+            list(article.contributors.values_list("name", flat=True)),
+            ["李明", "王晓峰", "陈晨"],
+        )
+
+        form_class = ArticlePage.get_edit_handler().get_form_class()
+        form = form_class(
+            instance=ArticlePage(),
+            parent_page=self.root_page,
+            for_user=self.editor,
+        )
+        self.assertNotIn("authors", form.fields)
 
     def test_raw_html_permission_is_enforced_by_service_and_page_form(self):
         body = [{"type": "html", "value": "<p>受控 HTML</p>"}]

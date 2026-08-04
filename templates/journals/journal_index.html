@@ -16,7 +16,7 @@
     <section id="{{ group.anchor }}" class="c-letter-group">
       <h2><span aria-hidden="true">{{ group.code }}. </span>{{ group|localized_discipline_name }}</h2>
       <ul>
-        {% for journal in group.journals %}<li><a href="{{ '/journals/'|add:journal.slug|add:'/'|localized_url }}">{{ journal|localized_journal_name }}</a></li>{% endfor %}
+        {% for journal in group.journals %}<li><a href="{{ '/journals/'|add:journal.slug|add:'/'|localized_url }}">{{ journal.name }}</a></li>{% endfor %}
       </ul>
     </section>
     {% empty %}<p class="c-empty-state">{% ui_text 'no_active_journals' 'No active journals are currently available.' %}</p>{% endfor %}

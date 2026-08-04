@@ -181,6 +181,7 @@ def get_article_context(slug, at=None):
     article_authors = localized_article_authors(article)
     article_keywords = localized_article_keywords(article)
     article_ai_coauthors = localized_article_ai_coauthors(article)
+    contributors = tuple(article.contributors.all())
     keywords = _split_csv(article_keywords)
     ai_co_authors = _split_csv(article_ai_coauthors)
 
@@ -202,6 +203,7 @@ def get_article_context(slug, at=None):
         "journals": [article.primary_journal, *related_journals],
         "authors": _split_csv(article_authors),
         "authors_text": article_authors,
+        "contributors": contributors,
         "keywords": keywords,
         "keywords_text": article_keywords,
         "article_display_title": article_title,
@@ -262,7 +264,7 @@ def _approved_article_queryset():
             "approved_version",
             "rejected_version",
         )
-        .prefetch_related("related_journals")
+        .prefetch_related("related_journals", "contributors")
         .annotate(first_revision_created_at=_first_revision_created_at_subquery())
         .annotate(
             article_created_at=Coalesce(

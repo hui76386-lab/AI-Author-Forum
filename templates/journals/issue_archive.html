@@ -4,7 +4,7 @@
 {% block content %}
 <div class="u-container c-content-column">
   <section class="c-content-row">
-    <div class="c-section-heading"><h1>{% ui_text 'browse_issues' 'Browse issues' %}</h1>{% if journal %}<p>{{ journal|localized_journal_name }}</p>{% endif %}</div>
+    <div class="c-section-heading"><h1>{% ui_text 'browse_issues' 'Browse issues' %}</h1>{% if journal %}<p>{{ journal.name_cn|default:journal.name }}</p>{% endif %}</div>
   </section>
   {% for year, issues in archive_groups %}
     <section class="c-content-row" aria-labelledby="issues-{{ year }}">

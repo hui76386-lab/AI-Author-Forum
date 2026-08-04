@@ -1,7 +1,7 @@
 # AI Author Forum CMS 开发文档总览
 
-> 文档版本：v1.1
-> 基线日期：2026-07-23
+> 文档版本：v1.2
+> 基线日期：2026-08-04
 > 适用工程：`E:\AI Author Forum\news-template`
 > 文档性质：开发、联调、评审和发布的统一约定
 
@@ -33,6 +33,7 @@
 | [05-静态发布开发与运维](./05-static-publishing-development-and-operations.zh-CN.md) | 说明构建、manifest、切换、失败、重试、回滚和生产边界 |
 | [06-当前冲突与整改路线](./06-current-conflicts-and-remediation-roadmap.zh-CN.md) | 记录本次扫描发现的问题、优先级、影响和整改顺序 |
 | [07-待确认需求与验收标准](./07-open-decisions-and-acceptance-criteria.zh-CN.md) | 记录尚未明确的业务决策和模块验收标准 |
+| [08-账号、子期刊编辑角色与审核开发任务书](./08-account-and-editorial-access-development-spec.zh-CN.md) | 定义超级管理员、主编辑、常务副编辑、副编辑、账号创建、两级审核、编辑团队和作者声明 |
 | [远程中间件接入与生产部署](../remote-middleware.zh-CN.md) | 说明远程 PostgreSQL、Redis、Celery 的配置、隔离、本地 overlay 和验收 |
 
 ## 3. 权威来源与优先级

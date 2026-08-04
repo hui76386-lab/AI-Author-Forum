@@ -5,3 +5,6 @@ class PlacementsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "ai_author_forum.placements"
     verbose_name = "Article placements"
+
+    def ready(self):
+        from . import signals  # noqa: F401

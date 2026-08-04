@@ -3,7 +3,6 @@ __pycache__
 .DS_Store
 *.swp
 .env
-/.env.preproduction
 *.sqlite3
 /db.sqlite3.*
 /venv/

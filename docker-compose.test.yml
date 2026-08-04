@@ -1,0 +1,17 @@
+services:
+  web:
+    environment:
+      SEO_NOINDEX: "true"
+      TIME_ZONE: "Asia/Shanghai"
+      CELERY_TASK_DEFAULT_QUEUE: "ai-author-forum-test"
+      STATIC_PUBLISH_ENFORCE_CONTENT_READINESS: "true"
+      STATIC_PUBLISH_AUTO_ON_PLACEMENT_CHANGE: "false"
+      ARTICLE_DOCUMENT_IMPORT_ENABLED: "true"
+  worker:
+    environment:
+      SEO_NOINDEX: "true"
+      TIME_ZONE: "Asia/Shanghai"
+      CELERY_TASK_DEFAULT_QUEUE: "ai-author-forum-test"
+      STATIC_PUBLISH_ENFORCE_CONTENT_READINESS: "true"
+      STATIC_PUBLISH_AUTO_ON_PLACEMENT_CHANGE: "false"
+      ARTICLE_DOCUMENT_IMPORT_ENABLED: "true"

@@ -177,7 +177,6 @@ class JournalHomepageManagedContentTemplateTests(TestCase):
         self.assertContains(response, "AI \u6587\u7ae0")
         self.assertContains(response, "\u6d4f\u89c8\u5168\u90e8\u671f\u520a")
 
-
 class JournalHomepageManagedContentStaticPublishTests(TestCase):
     def setUp(self):
         readiness_patcher = patch(

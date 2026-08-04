@@ -3,7 +3,6 @@
 {% with article_url=placement.article.get_absolute_url|localized_url %}
 <article class="c-static-article-hero" data-placement-article="{{ placement.article.static_slug }}">
   <div class="c-static-article-hero__copy">
-    <span class="c-static-article-hero__kicker">{{ placement.article.article_type|article_type_label }}</span>
     <h1 id="home-heading"><a href="{{ article_url }}">{{ placement.display_title }}</a></h1>
     {% if placement.display_summary %}<p class="c-static-article-hero__summary">{{ placement.display_summary }}</p>{% endif %}
     <p class="c-static-article-hero__meta">

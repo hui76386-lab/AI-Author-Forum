@@ -248,6 +248,7 @@
                                             {% endif %}
                                         {% endif %}
                                         {% if article.admin_can_review and article.admin_urls.review %}<li><a href="{{ article.admin_urls.review }}">{% if article.review_status == "submitted" %}进入审核{% else %}查看审核{% endif %}</a></li>{% endif %}
+                                        {% if article.admin_can_manage_placements and article.admin_urls.place %}{% if article.review_status == "approved" or article.review_status == "published" %}<li><a class="article-row-action--primary" href="{{ article.admin_urls.place }}">投放文章</a></li>{% endif %}{% endif %}
                                         {% if article.admin_urls.preview and article.admin_can_edit %}<li><a href="{{ article.admin_urls.preview }}" target="_blank" rel="noreferrer">动态预览</a></li>{% endif %}
                                         {% if article.admin_static_preview_url %}<li><a href="{{ article.admin_static_preview_url }}" target="_blank" rel="noreferrer">静态页面预览</a></li>{% endif %}
                                         {% if article.admin_can_manage_placements and article.admin_urls.placements %}<li><a href="{{ article.admin_urls.placements }}">管理投放</a></li>{% endif %}
@@ -408,6 +409,7 @@
             var link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "文章批量处理失败清单.txt"; link.click(); URL.revokeObjectURL(link.href);
         });
         form.addEventListener("submit", function (event) {
+            if (event.submitter && !event.submitter.hasAttribute("data-bulk-submit")) return;
             event.preventDefault();
             var value = actionSelect ? actionSelect.value : "";
             if (!selectedCount()) return;

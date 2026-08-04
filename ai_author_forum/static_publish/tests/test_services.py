@@ -451,6 +451,29 @@ class StaticPublisherTests(TestCase):
         self.assertEqual(retry.requested_paths, ["index.html"])
         self.assertEqual(retry.status, StaticPublishJob.Status.SUCCEEDED)
 
+    def test_retry_reuses_requested_paths_after_an_asset_copy_failure(self):
+        job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.SELECTIVE,
+            requested_paths=["/articles/one/"],
+        )
+
+        with (
+            patch.object(
+                self.publisher,
+                "_copy_assets",
+                side_effect=PermissionError("static asset is unreadable"),
+            ),
+            self.assertRaises(PermissionError),
+        ):
+            self.publisher.build(job)
+
+        self.assertFalse(job.targets.exists())
+        retry = self.publisher.retry(job)
+
+        self.assertEqual(retry.retry_of, job)
+        self.assertEqual(retry.requested_paths, ["/articles/one/"])
+        self.assertEqual(retry.status, StaticPublishJob.Status.SUCCEEDED)
+
 
 @override_settings(
     STATIC_PUBLISH_TARGET_PROVIDER=PROVIDER, STATIC_PUBLISH_KEEP_RELEASES=5

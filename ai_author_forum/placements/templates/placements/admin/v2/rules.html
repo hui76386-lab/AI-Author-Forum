@@ -1,0 +1,381 @@
+{% extends "placements/admin/v2/base.html" %}
+{% block workflow_content %}
+{% include "placements/admin/v2/stepper.html" %}
+<div class="page-heading">
+  <div>
+    <h2>设置展示与时间 <span class="muted">/ Set display and schedule</span></h2>
+    <p>默认使用文章原有的标题、摘要和封面。只在这次投放需要不同展示时填写覆盖内容；这些修改不会改动原文章。</p>
+  </div>
+</div>
+
+<form method="post" action="{{ post_url }}" class="rules-form">
+  {% csrf_token %}
+  {% if single %}
+    <section class="rules-section" aria-labelledby="display-content-title">
+      <div class="rules-section__heading">
+        <div>
+          <h3 id="display-content-title">展示内容</h3>
+          <p>可选。留空即沿用文章内容。</p>
+        </div>
+        <span class="status-badge">仅本次投放</span>
+      </div>
+      <div class="rules-grid">
+        <label class="rules-field" for="override-title">
+          <span>展示标题 <small>可选</small></span>
+          <input id="override-title" type="text" name="override_title" value="{{ batch.options.override_title }}" maxlength="255" placeholder="留空则使用文章标题">
+          <em>投放页面显示的标题，不会修改文章标题。</em>
+        </label>
+        <label class="rules-field rules-field--wide" for="override-summary">
+          <span>展示摘要 <small>可选</small></span>
+          <textarea id="override-summary" name="override_summary" rows="5" placeholder="留空则使用文章摘要">{{ batch.options.override_summary }}</textarea>
+          <em>适用于卡片、列表等展示区域，不会修改文章摘要。</em>
+        </label>
+      </div>
+    </section>
+
+    <section class="rules-section" id="display-image" aria-labelledby="display-image-title">
+      <div class="rules-section__heading">
+        <div>
+          <h3 id="display-image-title">展示图片</h3>
+          <p>可选。不选择覆盖图片时，系统使用文章封面。</p>
+        </div>
+      </div>
+
+      <div id="image-selection-summary" class="image-selection-summary" aria-live="polite">
+        {% if selected_override_image %}
+          {% if selected_override_image.is_available %}
+            <div class="image-selection-summary__content">
+              {% if selected_override_image.url %}<img src="{{ selected_override_image.url }}" alt="">{% endif %}
+              <div><strong>当前使用覆盖图片</strong><span>{{ selected_override_image.title }}</span>{% if selected_override_image.description %}<small>{{ selected_override_image.description }}</small>{% endif %}</div>
+            </div>
+          {% else %}
+            <div class="image-selection-summary__content image-selection-summary__content--warning">
+              <div><strong>当前覆盖图片不可用</strong><span>原始图片文件已丢失，严格投放会被阻止。</span><small>请在下方重新选择可用图片，或点击“使用文章封面”。</small></div>
+            </div>
+          {% endif %}
+        {% elif article_cover_image and article_cover_image.is_available %}
+          <div class="image-selection-summary__content">
+            {% if article_cover_image.url %}<img src="{{ article_cover_image.url }}" alt="">{% endif %}
+            <div>
+              <strong>当前使用文章封面</strong><span>{{ article_cover_image.title }}</span>
+              {% if article_cover_image.has_alt %}<small>将沿用文章封面的图片说明；不需要填写下方的覆盖图片说明。</small>{% else %}<small>封面缺少图片说明。这不是覆盖图片错误；请在文章编辑中补充封面说明，或选择/上传覆盖图片并填写说明。</small>{% endif %}
+            </div>
+          </div>
+        {% else %}
+          <div class="image-selection-summary__content image-selection-summary__content--neutral">
+            <div><strong>文章没有可用封面</strong><span>封面文件不可用或缺少图片说明；请在下方选择一张可用图片。</span></div>
+          </div>
+        {% endif %}
+      </div>
+
+      <input id="override-image-id" type="hidden" name="override_image_id" value="{{ batch.options.override_image_id }}">
+      <div class="image-picker" aria-label="选择覆盖图片">
+        <div class="image-picker__search">
+          <label class="rules-field" for="image-search">
+            <span>选择覆盖图片 <small>可选</small></span>
+            <input id="image-search" type="search" placeholder="搜索全部图库图片" autocomplete="off">
+          </label>
+          <button class="button button-secondary" id="image-search-button" type="button">搜索图片</button>
+          <button class="button button-secondary" id="image-show-all" type="button">显示全部</button>
+          <button class="button button-secondary" id="clear-override-image" type="button">使用文章封面</button>
+        </div>
+        <div class="image-picker__upload">
+          <label class="image-upload-field" for="image-upload">
+            <span>本地上传图片</span>
+            <input id="image-upload" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
+            <small id="image-upload-name">支持 JPG、PNG、WebP、GIF，最大 10 MB</small>
+          </label>
+          <button class="button button-secondary" id="image-upload-button" type="button" disabled>上传并选用</button>
+          <p id="image-upload-status" class="image-upload-status" aria-live="polite"></p>
+        </div>
+        <div class="image-picker__meta">
+          <p class="image-picker__help">默认显示全部可用图片。只有选择或上传覆盖图片后，才需要填写其图片说明。</p>
+          <span id="image-gallery-status" class="image-gallery-status" aria-live="polite"></span>
+        </div>
+        <div id="image-results" class="image-results" aria-live="polite">正在加载可用图片...</div>
+        <button class="button button-secondary image-load-more" id="image-load-more" type="button" hidden>加载更多图片</button>
+      </div>
+
+      <label class="rules-field rules-field--alt" for="override-image-alt">
+        <span>本次覆盖图片说明（Alt） <small id="image-alt-required-note">选择覆盖图片后必填</small></span>
+        <input id="override-image-alt" type="text" name="override_image_alt" value="{{ batch.options.override_image_alt }}" maxlength="255" placeholder="选择或上传覆盖图片后，用简短文字说明图片内容">
+        <em>仅用于本次投放的覆盖图片；不修改文章封面的图片说明。</em>
+      </label>
+    </section>
+  {% endif %}
+
+  <section class="rules-section" aria-labelledby="schedule-title">
+    <div class="rules-section__heading">
+      <div>
+        <h3 id="schedule-title">投放时间与排序</h3>
+        <p>不设置结束时间时，投放会持续生效，直到后续调整或撤下。</p>
+      </div>
+    </div>
+    <div class="rules-grid rules-grid--schedule">
+      <label class="pin-control" for="is-pinned"><input id="is-pinned" type="checkbox" name="is_pinned" {% if batch.is_pinned %}checked{% endif %}><span><strong>置顶显示</strong><small>置顶文章会优先出现在同一版位。</small></span></label>
+      <label class="rules-field" for="starts-at"><span>开始展示时间 <small>可选</small></span><input id="starts-at" type="datetime-local" name="starts_at" value="{{ batch.starts_at|date:'Y-m-d\TH:i' }}"><em>留空则在投放完成后立即生效。</em></label>
+      <label class="rules-field" for="ends-at"><span>停止展示时间 <small>可选</small></span><input id="ends-at" type="datetime-local" name="ends_at" value="{{ batch.ends_at|date:'Y-m-d\TH:i' }}"><em>留空则持续展示。</em></label>
+    </div>
+  </section>
+
+  {% if not single %}<p class="notice">批量投放固定为严格模式：任一失败都会阻止整批执行。 / Bulk placement is always strict: any failure blocks the entire batch.</p>{% endif %}
+  <div class="sticky-actions"><a class="button button-secondary" href="{{ back_url }}">返回目标设置</a><button class="button button-primary" type="submit">保存并进入复核</button></div>
+</form>
+
+<script>
+(() => {
+  const endpoint = '{{ image_search_url|escapejs }}';
+  const uploadEndpoint = '{{ image_upload_url|escapejs }}';
+  const imageId = document.getElementById('override-image-id');
+  const search = document.getElementById('image-search');
+  const searchButton = document.getElementById('image-search-button');
+  const showAllButton = document.getElementById('image-show-all');
+  const clearButton = document.getElementById('clear-override-image');
+  const results = document.getElementById('image-results');
+  const loadMoreButton = document.getElementById('image-load-more');
+  const galleryStatus = document.getElementById('image-gallery-status');
+  const upload = document.getElementById('image-upload');
+  const uploadButton = document.getElementById('image-upload-button');
+  const uploadName = document.getElementById('image-upload-name');
+  const uploadStatus = document.getElementById('image-upload-status');
+  const summary = document.getElementById('image-selection-summary');
+  const alt = document.getElementById('override-image-alt');
+  const altNote = document.getElementById('image-alt-required-note');
+  const defaultCover = {% if article_cover_image %}{
+    id: {{ article_cover_image.id|default:'null' }},
+    title: '{{ article_cover_image.title|escapejs }}',
+    description: '{{ article_cover_image.description|escapejs }}',
+    url: '{{ article_cover_image.url|escapejs }}',
+    is_available: {% if article_cover_image.is_available %}true{% else %}false{% endif %},
+    has_alt: {% if article_cover_image.has_alt %}true{% else %}false{% endif %},
+  }{% else %}null{% endif %};
+  let currentPage = 0;
+  let hasMore = false;
+  let isLoading = false;
+
+  function syncAltRequirement() {
+    const selected = Boolean(imageId.value);
+    alt.required = selected;
+    alt.disabled = !selected;
+    clearButton.disabled = !selected;
+    clearButton.textContent = selected ? '改用文章封面' : '当前使用文章封面';
+    if (selected) {
+      altNote.textContent = '必填';
+    } else if (defaultCover && defaultCover.is_available && !defaultCover.has_alt) {
+      altNote.textContent = '当前使用文章封面；该封面仍需在文章编辑中补充说明';
+    } else {
+      altNote.textContent = '当前使用文章封面，不需要填写此项';
+    }
+  }
+
+  function makeSummary(image, headingText, detailText, tone = '') {
+    summary.replaceChildren();
+    const content = document.createElement('div');
+    content.className = `image-selection-summary__content ${tone}`.trim();
+    if (image.url) {
+      const thumbnail = document.createElement('img');
+      thumbnail.src = image.url;
+      thumbnail.alt = '';
+      content.append(thumbnail);
+    }
+    const copy = document.createElement('div');
+    const heading = document.createElement('strong'); heading.textContent = headingText;
+    const title = document.createElement('span'); title.textContent = image.title || '未命名图片';
+    const detail = document.createElement('small'); detail.textContent = detailText || image.description || '';
+    copy.append(heading, title);
+    if (detail.textContent) copy.append(detail);
+    content.append(copy); summary.append(content);
+  }
+
+  function showArticleCover() {
+    if (defaultCover && defaultCover.is_available) {
+      makeSummary(
+        defaultCover,
+        '当前使用文章封面',
+        defaultCover.has_alt
+          ? '将沿用文章封面的图片说明；不需要填写本次覆盖图片说明。'
+          : '封面缺少图片说明。这不是覆盖图片错误；请在文章编辑中补充说明，或选择/上传覆盖图片并填写说明。',
+        defaultCover.has_alt ? '' : 'image-selection-summary__content--warning',
+      );
+      return;
+    }
+    makeSummary(
+      { title: '未设置可用文章封面', description: '', url: '' },
+      '文章没有可用封面',
+      '请在下方选择图库图片，或上传本地图片作为本次投放的覆盖图片。',
+      'image-selection-summary__content--neutral',
+    );
+  }
+
+  function refreshChoiceState() {
+    results.querySelectorAll('.image-choice').forEach((choice) => {
+      choice.classList.toggle('is-selected', choice.dataset.imageId === String(imageId.value));
+    });
+  }
+
+  function selectImage(image) {
+    const changed = imageId.value !== String(image.id);
+    imageId.value = image.id;
+    if (changed) alt.value = '';
+    makeSummary(
+      image,
+      '当前使用本次覆盖图片',
+      '请填写下方的本次覆盖图片说明后进入复核。',
+    );
+    syncAltRequirement();
+    refreshChoiceState();
+    alt.focus();
+  }
+
+  function makeChoice(image) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'image-choice';
+    button.dataset.imageId = image.id;
+    if (image.url) { const thumbnail = document.createElement('img'); thumbnail.src = image.url; thumbnail.alt = ''; button.append(thumbnail); }
+    const copy = document.createElement('span');
+    const title = document.createElement('strong'); title.textContent = image.title || '未命名图片'; copy.append(title);
+    if (image.description) { const description = document.createElement('small'); description.textContent = image.description; copy.append(description); }
+    button.append(copy);
+    button.addEventListener('click', () => selectImage(image));
+    return button;
+  }
+
+  async function loadImages({ append = false } = {}) {
+    if (isLoading) return;
+    isLoading = true;
+    const nextPage = append ? currentPage + 1 : 1;
+    if (!append) results.textContent = '正在加载可用图片...';
+    loadMoreButton.disabled = true;
+    try {
+      const params = new URLSearchParams({ q: search.value.trim(), page: nextPage });
+      const response = await fetch(`${endpoint}?${params.toString()}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('Image search failed');
+      const data = await response.json();
+      if (!append) results.replaceChildren();
+      if (!data.results.length && !append) {
+        results.textContent = '没有找到可用图片。可调整关键词、显示全部，或上传本地图片。';
+      }
+      data.results.forEach((image) => results.append(makeChoice(image)));
+      currentPage = data.page;
+      hasMore = Boolean(data.has_more);
+      loadMoreButton.hidden = !hasMore;
+      loadMoreButton.disabled = !hasMore;
+      galleryStatus.textContent = data.results.length
+        ? `已显示第 ${currentPage} 页可用图片${hasMore ? '，可继续加载更多' : ''}`
+        : '';
+      refreshChoiceState();
+    } catch (error) {
+      if (!append) results.textContent = '图片列表加载失败，请稍后重试；也可以使用文章封面或上传本地图片。';
+      galleryStatus.textContent = '';
+    } finally {
+      isLoading = false;
+      loadMoreButton.disabled = !hasMore;
+    }
+  }
+
+  function csrfToken() {
+    return document.cookie.split('; ').find((row) => row.startsWith('csrftoken='))?.split('=').slice(1).join('=') || '';
+  }
+
+  async function uploadImage() {
+    const file = upload.files[0];
+    if (!file) return;
+    uploadButton.disabled = true;
+    uploadStatus.textContent = '正在上传图片...';
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const response = await fetch(uploadEndpoint, {
+        method: 'POST',
+        body: formData,
+        credentials: 'same-origin',
+        headers: { 'X-CSRFToken': csrfToken() },
+      });
+      const data = await response.json();
+      if (!response.ok || !data.image) throw new Error(data.message || '图片上传失败，请稍后重试。');
+      selectImage(data.image);
+      results.prepend(makeChoice(data.image));
+      refreshChoiceState();
+      uploadStatus.textContent = '图片已上传并选为本次覆盖图片。请填写图片说明。';
+      upload.value = '';
+      uploadName.textContent = '支持 JPG、PNG、WebP、GIF，最大 10 MB';
+    } catch (error) {
+      uploadStatus.textContent = error.message || '图片上传失败，请稍后重试。';
+    } finally {
+      uploadButton.disabled = !upload.files.length;
+    }
+  }
+
+  searchButton.addEventListener('click', () => loadImages());
+  showAllButton.addEventListener('click', () => { search.value = ''; loadImages(); });
+  loadMoreButton.addEventListener('click', () => loadImages({ append: true }));
+  search.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); loadImages(); } });
+  clearButton.addEventListener('click', () => {
+    imageId.value = ''; alt.value = '';
+    showArticleCover();
+    syncAltRequirement();
+    refreshChoiceState();
+  });
+  upload.addEventListener('change', () => {
+    const file = upload.files[0];
+    uploadButton.disabled = !file;
+    uploadStatus.textContent = '';
+    uploadName.textContent = file ? file.name : '支持 JPG、PNG、WebP、GIF，最大 10 MB';
+  });
+  uploadButton.addEventListener('click', uploadImage);
+  syncAltRequirement();
+  loadImages();
+})();
+</script>
+<style>
+.placement-v2 .rules-form { max-width: 76rem; }
+.placement-v2 .rules-section { margin: 0; padding: 1.5rem 0; border-top: 1px solid var(--placement-line); }
+.placement-v2 .rules-section:first-of-type { padding-top: 0; border-top: 0; }
+.placement-v2 .rules-section__heading { display: flex; gap: 1rem; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
+.placement-v2 .rules-section__heading h3 { margin: 0; font-size: 1.05rem; }
+.placement-v2 .rules-section__heading p { margin: .35rem 0 0; color: var(--placement-muted); line-height: 1.5; }
+.placement-v2 .rules-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.25rem; }
+.placement-v2 .rules-grid--schedule { grid-template-columns: minmax(13rem, .75fr) repeat(2, minmax(0, 1fr)); align-items: end; }
+.placement-v2 .rules-field { display: grid; gap: .42rem; min-width: 0; color: #344054; font-size: .85rem; font-weight: 750; }
+.placement-v2 .rules-field > span { display: flex; gap: .45rem; align-items: baseline; }
+.placement-v2 .rules-field small { color: var(--placement-muted); font-size: .75rem; font-weight: 500; }
+.placement-v2 .rules-field em { color: var(--placement-muted); font-size: .76rem; font-style: normal; font-weight: 500; line-height: 1.45; }
+.placement-v2 .rules-field--wide { grid-column: 1 / -1; }
+.placement-v2 .rules-field--alt { max-width: 46rem; margin-top: 1rem; }
+.placement-v2 .rules-field textarea { min-height: 8rem; resize: vertical; }
+.placement-v2 .image-selection-summary { margin-bottom: 1rem; }
+.placement-v2 .image-selection-summary__content { display: flex; gap: .85rem; align-items: center; min-height: 5.25rem; padding: .8rem; border: 1px solid #b8ddd9; border-radius: .55rem; background: #f0fbfa; }
+.placement-v2 .image-selection-summary__content--warning { border-color: #f5b6ad; background: #fff4f2; }
+.placement-v2 .image-selection-summary__content--neutral { border-color: var(--placement-line); background: var(--placement-surface-soft); }
+.placement-v2 .image-selection-summary__content img { width: 4.4rem; height: 4.4rem; flex: 0 0 auto; border-radius: .35rem; object-fit: cover; }
+.placement-v2 .image-selection-summary__content div { display: grid; gap: .18rem; }
+.placement-v2 .image-selection-summary__content strong { color: var(--placement-ink); }
+.placement-v2 .image-selection-summary__content span, .placement-v2 .image-selection-summary__content small { color: var(--placement-muted); line-height: 1.4; }
+.placement-v2 .image-selection-summary__content--warning span { color: #b42318; }
+.placement-v2 .image-picker { padding-top: .2rem; }
+.placement-v2 .image-picker__search { display: grid; grid-template-columns: minmax(16rem, 1fr) repeat(3, auto); gap: .65rem; align-items: end; max-width: 72rem; }
+.placement-v2 .image-picker__upload { display: grid; grid-template-columns: minmax(16rem, 1fr) auto minmax(14rem, .7fr); gap: .65rem; align-items: end; margin-top: .8rem; padding: .8rem; border: 1px solid #cfddf4; border-radius: .5rem; background: #f8faff; }
+.placement-v2 .image-upload-field { display: grid; gap: .35rem; min-width: 0; color: #344054; font-size: .8rem; font-weight: 750; }
+.placement-v2 .image-upload-field input { width: 100%; min-width: 0; padding: .48rem; border: 1px dashed #8da4c8; border-radius: .4rem; background: #fff; color: var(--placement-ink); }
+.placement-v2 .image-upload-field small, .placement-v2 .image-upload-status { color: var(--placement-muted); font-size: .76rem; line-height: 1.4; }
+.placement-v2 .image-upload-status { min-height: 1.1rem; margin: 0; align-self: center; }
+.placement-v2 .image-picker__meta { display: flex; gap: 1rem; align-items: baseline; justify-content: space-between; margin: .65rem 0; }
+.placement-v2 .image-picker__help { margin: 0; color: var(--placement-muted); font-size: .8rem; }
+.placement-v2 .image-gallery-status { color: var(--placement-accent-dark); font-size: .76rem; font-weight: 700; text-align: right; }
+.placement-v2 .image-results { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; min-height: 2.5rem; color: var(--placement-muted); }
+.placement-v2 .image-choice { display: flex; gap: .65rem; min-width: 0; padding: .55rem; border: 1px solid var(--placement-line); border-radius: .5rem; background: #fff; color: var(--placement-ink); cursor: pointer; text-align: left; }
+.placement-v2 .image-choice:hover, .placement-v2 .image-choice:focus-visible { border-color: var(--placement-accent); background: #f0fbfa; outline: 0; }
+.placement-v2 .image-choice.is-selected { border-color: var(--placement-accent); box-shadow: inset 0 0 0 1px var(--placement-accent); background: #f0fbfa; }
+.placement-v2 .image-choice img { width: 3.25rem; height: 3.25rem; flex: 0 0 auto; border-radius: .3rem; object-fit: cover; }
+.placement-v2 .image-choice span { display: grid; gap: .18rem; min-width: 0; }
+.placement-v2 .image-choice strong, .placement-v2 .image-choice small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.placement-v2 .image-choice small { color: var(--placement-muted); }
+.placement-v2 .image-load-more { display: block; width: 100%; max-width: 15rem; margin: .85rem auto 0; }
+.placement-v2 .pin-control { display: inline-flex; gap: .65rem; align-items: flex-start; min-height: 2.75rem; padding: .7rem; border: 1px solid var(--placement-line-strong); border-radius: .5rem; background: #fff; cursor: pointer; }
+.placement-v2 .pin-control input { width: 1rem; height: 1rem; margin: .1rem 0 0; }
+.placement-v2 .pin-control span { display: grid; gap: .15rem; }
+.placement-v2 .pin-control small { color: var(--placement-muted); font-size: .75rem; line-height: 1.35; }
+@media (max-width: 60rem) { .placement-v2 .rules-grid, .placement-v2 .rules-grid--schedule, .placement-v2 .image-results { grid-template-columns: repeat(2, minmax(0, 1fr)); } .placement-v2 .image-picker__search { grid-template-columns: minmax(14rem, 1fr) repeat(2, auto); } .placement-v2 .image-picker__search #clear-override-image { grid-column: 1 / -1; justify-self: start; } .placement-v2 .image-picker__upload { grid-template-columns: minmax(14rem, 1fr) auto; } .placement-v2 .image-upload-status { grid-column: 1 / -1; } .placement-v2 .pin-control { grid-column: 1 / -1; } }
+@media (max-width: 48rem) { .placement-v2 .rules-section { padding: 1.1rem 0; } .placement-v2 .rules-section__heading, .placement-v2 .image-picker__search { align-items: stretch; flex-direction: column; grid-template-columns: 1fr; } .placement-v2 .rules-grid, .placement-v2 .rules-grid--schedule, .placement-v2 .image-results, .placement-v2 .image-picker__upload { grid-template-columns: 1fr; } .placement-v2 .rules-field--wide, .placement-v2 .pin-control { grid-column: auto; } .placement-v2 .image-picker__search .button, .placement-v2 .image-picker__upload .button { width: 100%; } .placement-v2 .image-picker__meta { align-items: stretch; flex-direction: column; } .placement-v2 .image-gallery-status { text-align: left; } }
+</style>
+{% endblock %}

@@ -59,6 +59,13 @@ def localized_article_authors(value):
 
 
 @register.filter
+def localized_article_contributor_identity(value):
+    if not value:
+        return ""
+    return value.display_identity(translation.get_language())
+
+
+@register.filter
 def localized_article_keywords(value):
     return get_localized_article_keywords(value)
 
@@ -91,3 +98,39 @@ def localized_url(url, language_code=None):
 @register.simple_tag(takes_context=True)
 def localize_url(context, url, language_code=None):
     return localize_path(url, normalize_language(language_code))
+
+
+@register.simple_tag
+def article_type_text(value, default=""):
+    """Render article types from persisted data in the active public language."""
+    normalized = str(value or "").strip().lower()
+    key = {
+        "ai article": "ai_article",
+        "ai_article": "ai_article",
+        "news": "news",
+        "opinion": "opinion",
+        "research analysis": "research_analysis",
+        "research_analysis": "research_analysis",
+    }.get(normalized)
+    return ui_label(key, translation.get_language(), default or value) if key else (default or value)
+
+
+@register.simple_tag
+def journal_display_name(journal):
+    """Use the journal's English name for /en/ without changing stored content."""
+    if normalize_language(translation.get_language()) == "en":
+        return journal.name or journal.name_cn or journal.slug
+    return journal.name_cn or journal.name or journal.slug
+
+
+@register.filter
+def localize_journal_rich_text(value, journal):
+    """Replace the Chinese journal name inside imported rich text on English pages."""
+    source = str(value or "")
+    if (
+        normalize_language(translation.get_language()) == "en"
+        and journal.name_cn
+        and journal.name
+    ):
+        return source.replace(journal.name_cn, journal.name)
+    return source

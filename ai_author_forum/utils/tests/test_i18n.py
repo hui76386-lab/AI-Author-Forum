@@ -5,7 +5,6 @@ from pathlib import Path
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
-from django.template import Context, Template
 from django.test import RequestFactory, SimpleTestCase
 from django.utils import translation
 
@@ -16,10 +15,8 @@ from ai_author_forum.utils.i18n import (
     DEFAULT_LANGUAGE,
     ENGLISH_LANGUAGE,
     UI_TRANSLATIONS,
-    article_type_label,
     language_switch_options,
     localize_path,
-    localized_journal_name,
     localized_output_path,
     strip_public_language_prefix,
     ui_label,
@@ -80,39 +77,6 @@ class FrontendI18nUtilityTests(SimpleTestCase):
         with translation.override(ENGLISH_LANGUAGE):
             self.assertEqual(ui_label("search"), "Search")
             self.assertEqual(ui_label("missing-key", default="Fallback"), "Fallback")
-
-    def test_article_type_label_uses_active_language(self):
-        with translation.override(DEFAULT_LANGUAGE):
-            self.assertEqual(article_type_label("AI Article"), "AI 文章")
-            self.assertEqual(article_type_label("News"), "新闻")
-        with translation.override(ENGLISH_LANGUAGE):
-            self.assertEqual(article_type_label("AI Article"), "AI Article")
-            self.assertEqual(article_type_label("AI 文章"), "AI Article")
-            self.assertEqual(article_type_label("News"), "News")
-
-    def test_article_type_template_filter_uses_active_language(self):
-        template = Template(
-            "{% load i18n_frontend %}{{ value|article_type_label }}"
-        )
-        with translation.override(DEFAULT_LANGUAGE):
-            self.assertEqual(
-                template.render(Context({"value": "AI Article"})), "AI 文章"
-            )
-        with translation.override(ENGLISH_LANGUAGE):
-            self.assertEqual(
-                template.render(Context({"value": "AI Article"})), "AI Article"
-            )
-
-    def test_journal_name_uses_the_public_language(self):
-        journal = type(
-            "Journal",
-            (),
-            {"name": "English Journal", "name_cn": "\u4e2d\u6587\u671f\u520a"},
-        )()
-        with translation.override(DEFAULT_LANGUAGE):
-            self.assertEqual(localized_journal_name(journal), "\u4e2d\u6587\u671f\u520a")
-        with translation.override(ENGLISH_LANGUAGE):
-            self.assertEqual(localized_journal_name(journal), "English Journal")
 
 
 class AdminI18nUtilityTests(SimpleTestCase):

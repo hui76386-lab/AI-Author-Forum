@@ -40,6 +40,13 @@ def prepare_article_admin_row(article, *, user, request=None):
         "preview": _reverse("wagtailadmin_pages:preview_on_edit", article.pk),
         "history": _reverse("wagtailadmin_pages:history", article.pk),
         "placements": _reverse("placements:index") + f"?article={article.pk}",
+        "place": (
+            _reverse("placements:new_single")
+            + f"?article={article.pk}&journal={article.primary_journal.slug}"
+            if article.primary_journal_id
+            and article.primary_journal.status == "active"
+            else ""
+        ),
     }
     return article
 

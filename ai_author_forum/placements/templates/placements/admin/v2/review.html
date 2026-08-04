@@ -1,0 +1,97 @@
+{% extends "placements/admin/v2/base.html" %}
+{% block workflow_content %}
+{% include "placements/admin/v2/stepper.html" %}
+<div class="page-heading">
+  <div>
+    <h2>预检查与确认 <span class="muted">/ Preflight review</span></h2>
+    <p>确认投放前，系统会验证文章、目标版位和展示设置。严格投放中，任何问题都会阻止整批创建。</p>
+  </div>
+</div>
+
+<section class="review-context" aria-label="本次投放摘要">
+  <span>目标子期刊 <strong>{{ batch.target_slug }}</strong></span>
+  <span>展示版位 <strong>{{ batch.slot }}</strong></span>
+  <span>已选文章 <strong>{{ batch.items.count }} 篇</strong></span>
+</section>
+
+{% if result.ok %}
+  <div class="notice review-notice"><strong>可以投放。</strong><span>所有预检查均已通过。执行时系统还会再次核验，避免并发操作造成错误。</span></div>
+{% else %}
+  <section class="review-failure" aria-labelledby="review-failure-title">
+    <div>
+      <h3 id="review-failure-title">暂时无法投放</h3>
+      <p>严格投放尚未执行，未创建任何正式投放记录。请按下面提示修改后重新复核。</p>
+    </div>
+    <div class="review-issues">
+      {% for error in result.errors %}
+        <article class="review-issue">
+          <div>
+            {% if error.code == "override_image" %}
+              <strong>覆盖图片不可用</strong>
+              <p>{{ error.message }}</p>
+              <small>这张图片在素材库中仍有记录，但原始文件无法读取，因此不能发布。</small>
+            {% elif error.code == "image_alt" %}
+              <strong>图片说明未完成</strong>
+              <p>{{ error.message }}</p>
+              <small>请为展示图片填写简短、准确的替代文字，方便读屏软件理解图片内容。</small>
+            {% elif error.code == "article_image" %}
+              <strong>文章封面不可用</strong>
+              <p>{{ error.message }}</p>
+              <small>文章默认封面不能发布。请返回选择一张可用的覆盖图片，并填写图片说明。</small>
+            {% else %}
+              <strong>需要处理的投放条件</strong>
+              <p>{{ error.message }}</p>
+            {% endif %}
+          </div>
+          {% if error.code == "override_image" or error.code == "image_alt" or error.code == "article_image" %}
+            <a class="button button-primary" href="{{ back_url }}#display-image">返回处理图片</a>
+          {% else %}
+            <a class="button button-secondary" href="{{ back_url }}">返回修改设置</a>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+
+<section class="review-items" aria-labelledby="review-items-title">
+  <div class="rules-section__heading">
+    <div><h3 id="review-items-title">文章检查结果</h3><p>{% if result.ok %}每篇文章均符合当前投放条件。{% else %}即使文章检查通过，公共展示设置存在问题时也不能执行投放。{% endif %}</p></div>
+  </div>
+  <div class="table-shell">
+    <table>
+      <thead><tr><th>文章</th><th>检查结果</th><th>需要处理</th></tr></thead>
+      <tbody>{% for item in batch.items.all %}<tr><td class="article-title">{{ item.article }}</td><td>{% if item.validation_status == "passed" %}<span class="status-badge status-badge--ready">通过</span>{% else %}<span class="status-badge">{{ item.get_validation_status_display }}</span>{% endif %}</td><td>{{ item.error_message|default:"无需处理"|linebreaksbr }}</td></tr>{% empty %}<tr><td colspan="3">尚未选择文章。</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</section>
+
+<form method="post" action="{{ execute_url }}">
+  {% csrf_token %}
+  <div class="sticky-actions">
+    <a class="button button-secondary" href="{{ back_url }}{% if not result.ok %}#display-image{% endif %}">{% if result.ok %}返回修改设置{% else %}返回处理问题{% endif %}</a>
+    <a class="button button-secondary" href="{% url 'placements:batches' %}?status=draft">保存并退出</a>
+    <button class="button button-primary" type="submit" {% if not result.ok %}disabled aria-disabled="true"{% endif %}>确认严格投放</button>
+  </div>
+</form>
+
+<style>
+.placement-v2 .review-context { display: flex; flex-wrap: wrap; gap: .55rem 1.1rem; margin: 0 0 1.1rem; color: var(--placement-muted); font-size: .85rem; }
+.placement-v2 .review-context strong { margin-left: .25rem; color: var(--placement-ink); font-weight: 750; }
+.placement-v2 .review-notice { display: grid; gap: .2rem; }
+.placement-v2 .review-failure { margin: 0 0 1.25rem; padding: 1.15rem; border: 1px solid #f5b6ad; border-radius: .7rem; background: #fffafa; }
+.placement-v2 .review-failure h3 { margin: 0; color: #9b241b; font-size: 1.05rem; }
+.placement-v2 .review-failure > div > p { margin: .35rem 0 0; color: #6e332d; line-height: 1.5; }
+.placement-v2 .review-issues { display: grid; gap: .65rem; margin-top: 1rem; }
+.placement-v2 .review-issue { display: flex; gap: 1rem; align-items: center; justify-content: space-between; padding: .85rem; border: 1px solid #f5d0ca; border-radius: .5rem; background: #fff; }
+.placement-v2 .review-issue strong { color: #9b241b; }
+.placement-v2 .review-issue p { margin: .25rem 0; color: #344054; line-height: 1.5; }
+.placement-v2 .review-issue small { color: var(--placement-muted); line-height: 1.45; }
+.placement-v2 .review-issue .button { flex: 0 0 auto; white-space: nowrap; }
+.placement-v2 .review-items { margin: 1.25rem 0; }
+.placement-v2 .review-items .rules-section__heading { margin-bottom: .7rem; }
+.placement-v2 .review-items .rules-section__heading h3 { margin: 0; font-size: 1.05rem; }
+.placement-v2 .review-items .rules-section__heading p { margin: .35rem 0 0; color: var(--placement-muted); line-height: 1.5; }
+@media (max-width: 48rem) { .placement-v2 .review-issue { align-items: stretch; flex-direction: column; } .placement-v2 .review-issue .button { width: 100%; text-align: center; } }
+</style>
+{% endblock %}

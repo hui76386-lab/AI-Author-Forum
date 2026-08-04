@@ -1,0 +1,94 @@
+{% extends "placements/admin/v2/base.html" %}
+{% block workflow_content %}
+{% include "placements/admin/v2/stepper.html" %}
+<div class="page-heading">
+  <div>
+    <h2>选择投放目标 <span class="muted">/ Select placement target</span></h2>
+    <p>目标类型、目标对象和版位必须属于同一受控范围。子期刊目标支持名称或 slug 搜索。</p>
+  </div>
+</div>
+<form method="post" action="{{ post_url }}" class="surface">
+  {% csrf_token %}
+  <label class="field-label" for="target-type">目标类型 / Target type</label>
+  <select name="target_type" id="target-type">
+    {% for value,label in target_types %}<option value="{{ value }}" {% if batch.target_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+  <div id="journal-target" class="target-picker">
+    <label class="field-label" for="journal-search">子期刊 / Journal</label>
+    {% if selected_journal %}<div class="selected-target"><strong>已预填</strong><span>{{ selected_journal.name_cn|default:selected_journal.name }}</span><span class="muted">{{ selected_journal.slug }}</span></div>{% endif %}
+    <input id="journal-search" type="search" placeholder="名称或 slug / Name or slug" autocomplete="off">
+    <input type="hidden" name="target_slug" id="target-slug" value="{{ batch.target_slug }}">
+    <div id="journal-results" class="picker-results muted">搜索子期刊以替换目标。</div>
+  </div>
+  <div id="other-target" class="target-picker">
+    <label class="field-label" for="other-target-slug">目标 slug / Target slug</label>
+    <input id="other-target-slug" type="text" value="{{ batch.target_slug }}" placeholder="受控栏目、文章或搜索 slug">
+  </div>
+  <div class="field-section">
+    <h3>选择版位 / Choose slot</h3>
+    <div id="slot-options" class="radio-list">
+      {% for slot in slot_options %}
+        <label class="radio-row"><input required type="radio" name="slot" value="{{ slot.id }}" {% if batch.slot_id == slot.id %}checked{% endif %}> <span><strong>{{ slot.title }}</strong><small>{{ slot.code }} · 可投放 <b>{{ slot.remaining }}</b> 篇 <span class="slot-capacity-note">已占用 {{ slot.current }} / 容量 {{ slot.max_items }}</span></small></span></label>
+      {% empty %}<p class="muted">当前目标类型没有可用版位。</p>{% endfor %}
+    </div>
+  </div>
+  <div class="sticky-actions"><a class="button button-secondary" href="{{ back_url }}">返回</a><button class="button button-primary" type="submit">保存并继续</button></div>
+</form>
+<script>
+(() => {
+  const type = document.getElementById('target-type');
+  const journalBox = document.getElementById('journal-target');
+  const otherBox = document.getElementById('other-target');
+  const search = document.getElementById('journal-search');
+  const slug = document.getElementById('target-slug');
+  const other = document.getElementById('other-target-slug');
+  const results = document.getElementById('journal-results');
+  const slots = document.getElementById('slot-options');
+  const selected = '{{ selected_journal.slug|default:""|escapejs }}';
+  function slotOption(slot, selectedSlot) {
+    const label = document.createElement('label'); label.className = 'radio-row';
+    const input = document.createElement('input'); input.required = true; input.type = 'radio'; input.name = 'slot'; input.value = slot.id;
+    input.checked = String(slot.id) === String(selectedSlot || '');
+    const text = document.createElement('span'); const title = document.createElement('strong'); title.textContent = slot.title;
+    const note = document.createElement('small'); note.append(document.createTextNode(slot.code + ' · 可投放 '));
+    const remaining = document.createElement('b'); remaining.textContent = slot.remaining; note.append(remaining, document.createTextNode(' 篇 '));
+    const detail = document.createElement('span'); detail.className = 'slot-capacity-note'; detail.textContent = '已占用 ' + slot.current + ' / 容量 ' + slot.max_items;
+    note.append(detail); text.append(title, note); label.append(input, text); return label;
+  }
+  function renderSlots(data) {
+    const selectedSlot = slots.querySelector('input[name="slot"]:checked')?.value;
+    slots.replaceChildren();
+    if (!data.results.length) { slots.innerHTML = '<p class="muted">当前目标类型没有可用版位。</p>'; return; }
+    data.results.forEach((slot) => slots.append(slotOption(slot, selectedSlot)));
+  }
+  function syncTarget() {
+    const isJournal = type.value === 'journal'; journalBox.hidden = !isJournal; otherBox.hidden = isJournal;
+    if (!isJournal) slug.value = other.value;
+    fetch('{% url "placements:slots_api" %}?target_type=' + encodeURIComponent(type.value) + '&target_slug=' + encodeURIComponent(slug.value), {cache: 'no-store'}).then((response) => response.json()).then(renderSlots).catch(() => { slots.innerHTML = '<p class="muted">版位加载失败，请刷新重试。</p>'; });
+  }
+  function renderJournalResults(data) {
+    results.replaceChildren();
+    if (!data.results.length) { results.textContent = '没有找到匹配的子期刊。'; return; }
+    data.results.forEach((journal) => { const button = document.createElement('button'); button.type = 'button'; button.className = 'button button-secondary journal-choice'; button.textContent = (journal.name_cn || journal.name) + ' · ' + journal.slug; button.addEventListener('click', () => { slug.value = journal.slug; search.value = journal.name_cn || journal.name; results.textContent = '已选择：' + button.textContent; syncTarget(); }); results.append(button); });
+  }
+  type.addEventListener('change', syncTarget); other.addEventListener('input', () => { slug.value = other.value; syncTarget(); });
+  let timer;
+  search.addEventListener('input', () => { clearTimeout(timer); if (!search.value.trim()) { results.textContent = selected ? '已预填目标，可搜索其他子期刊替换。' : '搜索子期刊。'; return; } timer = setTimeout(() => fetch('{% url "placements:journals_api" %}?q=' + encodeURIComponent(search.value.trim()), {cache: 'no-store'}).then((response) => response.json()).then(renderJournalResults).catch(() => { results.textContent = '子期刊搜索失败，请重试。'; }), 180); });
+  if (selected && !search.value) search.value = selected;
+  syncTarget();
+})();
+</script>
+<style>
+.placement-v2 .field-label { display: block; margin: 0 0 .4rem; color: #344054; font-size: .8rem; font-weight: 750; }
+.placement-v2 .target-picker { max-width: 48rem; margin-top: 1rem; }
+.placement-v2 .picker-results { display: flex; gap: .45rem; flex-wrap: wrap; min-height: 2rem; margin-top: .55rem; }
+.placement-v2 .journal-choice { min-height: 2.25rem; }
+.placement-v2 .field-section { max-width: 58rem; margin-top: 1.5rem; }
+.placement-v2 .field-section h3 { margin: 0 0 .65rem; font-size: 1rem; }
+.placement-v2 .radio-list { border: 1px solid var(--placement-line); border-radius: .6rem; overflow: hidden; }
+.placement-v2 .radio-row span { display: grid; gap: .2rem; }
+.placement-v2 .radio-row small { color: var(--placement-muted); font-size: .78rem; }
+.placement-v2 .radio-row small b { color: var(--placement-accent-dark); font-size: .92rem; }
+.placement-v2 .slot-capacity-note { margin-left: .35rem; color: var(--placement-muted); }
+</style>
+{% endblock %}

@@ -1,0 +1,227 @@
+{% extends "placements/admin/v2/base.html" %}
+
+{% block workflow_content %}
+<div class="result-page">
+  <section class="result-hero {% if batch.status == 'succeeded' %}result-hero--success{% elif batch.status == 'failed' %}result-hero--failure{% else %}result-hero--progress{% endif %}" aria-labelledby="result-title">
+    <div class="result-hero__signal" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="result-hero__content">
+      <p class="result-hero__eyebrow">投放批次 / Placement batch</p>
+      {% if batch.status == 'succeeded' %}
+        <h2 id="result-title">投放已完成</h2>
+        <p>已完成 {{ batch.success_count }} 篇文章的投放。静态发布状态将在下方持续更新。</p>
+      {% elif batch.status == 'failed' %}
+        <h2 id="result-title">投放未能完成</h2>
+        <p>部分文章或后续发布未成功，请查看执行明细和处理建议后再继续操作。</p>
+      {% else %}
+        <h2 id="result-title">投放正在处理</h2>
+        <p>批次已提交，执行和静态发布状态会在此页面同步更新。</p>
+      {% endif %}
+      <div class="result-hero__meta">
+        <span class="result-status result-status--{{ batch.status }}">{{ batch.get_status_display }}</span>
+        <span>批次号 <strong>{{ batch.batch_number }}</strong></span>
+        {% if batch.executed_at %}<span>执行于 <strong>{{ batch.executed_at|date:"Y/m/d H:i" }}</strong></span>{% endif %}
+      </div>
+    </div>
+    <div class="result-hero__summary" aria-label="投放范围">
+      <span>投放范围</span>
+      <strong>{{ batch.items.all|length }} 篇文章</strong>
+      <small>{{ batch.get_operation_display }} · {{ batch.get_target_type_display }}{% if batch.target_slug %} / {{ batch.target_slug }}{% endif %}</small>
+    </div>
+  </section>
+
+  <section class="result-metrics" aria-label="执行统计">
+    <article class="result-metric result-metric--success">
+      <span>成功投放</span>
+      <strong>{{ batch.success_count }}</strong>
+      <small>已写入目标版位</small>
+    </article>
+    <article class="result-metric {% if batch.failure_count %}result-metric--failure{% endif %}">
+      <span>投放失败</span>
+      <strong>{{ batch.failure_count }}</strong>
+      <small>{% if batch.failure_count %}需要处理{% else %}无需处理{% endif %}</small>
+    </article>
+    <article class="result-metric">
+      <span>已跳过</span>
+      <strong>{{ batch.skipped_count }}</strong>
+      <small>{% if batch.skipped_count %}查看明细了解原因{% else %}没有跳过的文章{% endif %}</small>
+    </article>
+    <article class="result-metric result-metric--publish {% if batch.publish_status == 'failed' %}result-metric--failure{% elif batch.publish_status == 'succeeded' %}result-metric--success{% endif %}">
+      <span>静态发布</span>
+      <strong>{{ batch.get_publish_status_display }}</strong>
+      <small>{% if batch.publish_job %}任务 #{{ batch.publish_job.pk }}{% else %}尚未创建发布任务{% endif %}</small>
+    </article>
+  </section>
+
+  <div class="result-layout">
+    <div class="result-layout__main">
+      <section class="result-panel" aria-labelledby="result-summary-title">
+        <div class="result-panel__heading">
+          <div>
+            <p class="result-panel__eyebrow">摘要 / Summary</p>
+            <h3 id="result-summary-title">本次投放</h3>
+          </div>
+          {% if batch.slot %}<span class="result-slot">{{ batch.slot.title }}</span>{% endif %}
+        </div>
+        <dl class="result-details">
+          <div><dt>操作</dt><dd>{{ batch.get_operation_display }}</dd></div>
+          <div><dt>目标</dt><dd>{{ batch.get_target_type_display }}{% if batch.target_slug %} / {{ batch.target_slug }}{% endif %}</dd></div>
+          <div><dt>版位</dt><dd>{{ batch.slot|default:'尚未选择' }}</dd></div>
+          <div><dt>投放方式</dt><dd>{% if batch.strict_mode %}严格投放{% else %}常规投放{% endif %}</dd></div>
+        </dl>
+      </section>
+
+      <section class="result-panel result-panel--items" aria-labelledby="result-items-title">
+        <div class="result-panel__heading">
+          <div>
+            <p class="result-panel__eyebrow">Records</p>
+            <h3 id="result-items-title">逐篇执行记录</h3>
+          </div>
+          <span class="muted">共 {{ batch.items.all|length }} 篇</span>
+        </div>
+        <div class="table-shell result-table-shell">
+          <table>
+            <thead>
+              <tr><th>文章</th><th>所属子期刊</th><th>执行结果</th><th>处理说明</th></tr>
+            </thead>
+            <tbody>
+              {% for item in batch.items.all %}
+                <tr>
+                  <td class="result-article">
+                    {% if item.article %}<strong>{{ item.article.title }}</strong><span>{{ item.article.static_slug|default:item.article.pk }}</span>{% else %}—{% endif %}
+                  </td>
+                  <td>{% if item.article and item.article.primary_journal %}{{ item.article.primary_journal }}{% else %}—{% endif %}</td>
+                  <td>
+                    <span class="result-item-status {% if item.execution_status == 'created' or item.execution_status == 'updated' %}result-item-status--success{% elif item.execution_status == 'skipped' %}result-item-status--skipped{% elif item.execution_status == 'failed' %}result-item-status--failure{% endif %}">{{ item.get_execution_status_display }}</span>
+                  </td>
+                  <td class="result-message">{% if item.error_message %}{{ item.error_message }}{% else %}<span class="muted">投放完成，无需处理</span>{% endif %}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="4"><div class="empty-state"><strong>本次批次没有文章记录</strong></div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <aside class="result-layout__aside" aria-label="发布状态与后续操作">
+      <section class="result-panel result-publish-panel {% if batch.publish_status == 'failed' %}result-publish-panel--failure{% endif %}" aria-labelledby="publish-title">
+        <p class="result-panel__eyebrow">Static publish</p>
+        <h3 id="publish-title">静态发布</h3>
+        <div class="result-publish-panel__status">
+          <span class="result-status result-status--publish-{{ batch.publish_status }}">{{ batch.get_publish_status_display }}</span>
+          {% if batch.publish_job %}<span>任务 #{{ batch.publish_job.pk }}</span>{% endif %}
+        </div>
+        {% if batch.publish_status == 'publishing' or batch.publish_status == 'queued' %}
+          <p>正在生成并校验前台页面。完成后会原子切换到新的静态版本。</p>
+        {% elif batch.publish_status == 'pending_approval' %}
+          <p>静态发布正在等待具备发布权限的人员确认。</p>
+        {% elif batch.publish_status == 'succeeded' %}
+          <p>静态版本已生成并激活，投放内容已可由前台静态站点读取。</p>
+        {% elif batch.publish_status == 'failed' %}
+          <p>静态发布没有完成，投放记录已保留。请查看任务错误后再发起重试。</p>
+        {% else %}
+          <p>本次批次暂未创建静态发布任务。</p>
+        {% endif %}
+        {% if batch.publish_job %}
+          <dl class="result-publish-panel__details">
+            <div><dt>发布范围</dt><dd>{{ batch.publish_job.get_scope_display }}</dd></div>
+            {% if batch.publish_job.version %}<div><dt>版本</dt><dd>{{ batch.publish_job.version }}</dd></div>{% endif %}
+          </dl>
+          {% if batch.publish_job.error %}<div class="result-publish-panel__error"><strong>任务错误</strong><p>{{ batch.publish_job.error }}</p></div>{% endif %}
+        {% endif %}
+      </section>
+
+      <section class="result-next-steps" aria-labelledby="next-steps-title">
+        <div>
+          <p class="result-panel__eyebrow">Next</p>
+          <h3 id="next-steps-title">后续操作</h3>
+        </div>
+        <a class="button button-primary" href="{% url 'placements:list' %}">查看投放清单</a>
+        <a class="button button-secondary" href="{% url 'placements:batch_detail' batch_id=batch.pk %}">查看批次详情</a>
+        <a class="result-link" href="{% url 'placements:index' %}">返回投放总览</a>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<style>
+.placement-v2 .result-page { display: grid; gap: 1.25rem; }
+.placement-v2 .result-hero { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(14rem, .65fr); gap: 1.25rem; align-items: center; overflow: hidden; padding: 1.5rem; border: 1px solid #b8ddd9; border-radius: .5rem; background: #f4fbfa; }
+.placement-v2 .result-hero--failure { border-color: #f0c1ba; background: #fff8f7; }
+.placement-v2 .result-hero--progress { border-color: #cfddf4; background: #f6f9ff; }
+.placement-v2 .result-hero__signal { display: grid; gap: .32rem; width: 2.6rem; }
+.placement-v2 .result-hero__signal span { display: block; height: .34rem; border-radius: 999px; background: var(--placement-accent); }
+.placement-v2 .result-hero__signal span:nth-child(2) { width: 1.75rem; background: #52a59f; }
+.placement-v2 .result-hero__signal span:nth-child(3) { width: .9rem; background: #a4d2ce; }
+.placement-v2 .result-hero--failure .result-hero__signal span { background: #c24a3d; }
+.placement-v2 .result-hero--failure .result-hero__signal span:nth-child(2) { background: #df9289; }
+.placement-v2 .result-hero--failure .result-hero__signal span:nth-child(3) { background: #f0c9c4; }
+.placement-v2 .result-hero--progress .result-hero__signal span { background: #315d9b; }
+.placement-v2 .result-hero--progress .result-hero__signal span:nth-child(2) { background: #7f9cc6; }
+.placement-v2 .result-hero--progress .result-hero__signal span:nth-child(3) { background: #c8d7ed; }
+.placement-v2 .result-hero__content { min-width: 0; }
+.placement-v2 .result-hero__eyebrow, .placement-v2 .result-panel__eyebrow { margin: 0 0 .35rem; color: var(--placement-muted); font-size: .72rem; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.placement-v2 .result-hero h2 { margin: 0; font-size: 1.55rem; }
+.placement-v2 .result-hero__content > p:not(.result-hero__eyebrow) { max-width: 45rem; margin: .45rem 0 0; color: #475467; line-height: 1.55; }
+.placement-v2 .result-hero__meta { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin-top: .9rem; color: #526075; font-size: .8rem; }
+.placement-v2 .result-hero__meta strong { color: var(--placement-ink); font-weight: 750; }
+.placement-v2 .result-status { display: inline-flex; align-items: center; min-height: 1.8rem; padding: .18rem .6rem; border-radius: 999px; background: #e8f6ef; color: #146c43; font-size: .75rem; font-weight: 750; white-space: nowrap; }
+.placement-v2 .result-status--failed, .placement-v2 .result-status--publish-failed { background: #fff0ee; color: #a83226; }
+.placement-v2 .result-status--executing, .placement-v2 .result-status--validating, .placement-v2 .result-status--publish-publishing, .placement-v2 .result-status--publish-queued, .placement-v2 .result-status--publish-pending_approval { background: #edf3ff; color: #315d9b; }
+.placement-v2 .result-status--draft, .placement-v2 .result-status--ready, .placement-v2 .result-status--publish-not_started { background: #eff2f4; color: #475467; }
+.placement-v2 .result-hero__summary { display: grid; gap: .25rem; padding: 1rem 1.1rem; border-left: 1px solid #b8ddd9; }
+.placement-v2 .result-hero--failure .result-hero__summary { border-color: #f0c1ba; }
+.placement-v2 .result-hero--progress .result-hero__summary { border-color: #cfddf4; }
+.placement-v2 .result-hero__summary > span { color: var(--placement-muted); font-size: .78rem; font-weight: 700; }
+.placement-v2 .result-hero__summary strong { color: var(--placement-ink); font-size: 1.45rem; line-height: 1.2; }
+.placement-v2 .result-hero__summary small { color: #526075; line-height: 1.45; }
+.placement-v2 .result-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
+.placement-v2 .result-metric { min-height: 7.2rem; padding: 1rem; border: 1px solid var(--placement-line); border-top: .2rem solid #9aa7b7; border-radius: .5rem; background: #fff; }
+.placement-v2 .result-metric--success { border-top-color: #218a61; }
+.placement-v2 .result-metric--failure { border-top-color: #c24a3d; }
+.placement-v2 .result-metric--publish { border-top-color: #315d9b; }
+.placement-v2 .result-metric > span, .placement-v2 .result-metric small { display: block; color: var(--placement-muted); font-size: .78rem; }
+.placement-v2 .result-metric > span { font-weight: 700; }
+.placement-v2 .result-metric strong { display: block; margin: .55rem 0 .45rem; color: var(--placement-ink); font-size: 1.65rem; line-height: 1; overflow-wrap: anywhere; }
+.placement-v2 .result-metric--publish strong { font-size: 1.12rem; line-height: 1.25; }
+.placement-v2 .result-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(17rem, .38fr); gap: 1.25rem; align-items: start; }
+.placement-v2 .result-layout__main, .placement-v2 .result-layout__aside { display: grid; gap: 1.25rem; min-width: 0; }
+.placement-v2 .result-panel { padding: 1.25rem; border: 1px solid var(--placement-line); border-radius: .5rem; background: #fff; box-shadow: 0 .45rem 1.4rem rgb(23 35 61 / 5%); }
+.placement-v2 .result-panel__heading { display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; margin-bottom: 1rem; }
+.placement-v2 .result-panel h3 { margin: 0; font-size: 1.05rem; }
+.placement-v2 .result-slot { max-width: 18rem; padding: .35rem .55rem; border: 1px solid #b8ddd9; border-radius: 999px; color: var(--placement-accent-dark); font-size: .76rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.placement-v2 .result-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin: 0; }
+.placement-v2 .result-details > div { min-width: 0; padding: .75rem; border: 1px solid #e6eaed; border-radius: .4rem; background: #fafcfc; }
+.placement-v2 .result-details dt, .placement-v2 .result-publish-panel__details dt { margin: 0 0 .3rem; color: var(--placement-muted); font-size: .74rem; font-weight: 700; }
+.placement-v2 .result-details dd, .placement-v2 .result-publish-panel__details dd { margin: 0; color: var(--placement-ink); font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; }
+.placement-v2 .result-panel--items { padding-bottom: .8rem; }
+.placement-v2 .result-table-shell { margin: 0 -.05rem; box-shadow: none; }
+.placement-v2 .result-article { min-width: 17rem; }
+.placement-v2 .result-article strong, .placement-v2 .result-article span { display: block; }
+.placement-v2 .result-article strong { color: var(--placement-ink); line-height: 1.45; }
+.placement-v2 .result-article span { margin-top: .18rem; color: var(--placement-muted); font-size: .76rem; }
+.placement-v2 .result-item-status { display: inline-flex; padding: .18rem .5rem; border-radius: 999px; background: #eff2f4; color: #475467; font-size: .74rem; font-weight: 750; white-space: nowrap; }
+.placement-v2 .result-item-status--success { background: #e8f6ef; color: #146c43; }
+.placement-v2 .result-item-status--failure { background: #fff0ee; color: #a83226; }
+.placement-v2 .result-item-status--skipped { background: #fff4e5; color: #9a5b00; }
+.placement-v2 .result-message { min-width: 12rem; color: #475467; line-height: 1.45; overflow-wrap: anywhere; }
+.placement-v2 .result-publish-panel { border-top: .2rem solid #315d9b; }
+.placement-v2 .result-publish-panel--failure { border-top-color: #c24a3d; }
+.placement-v2 .result-publish-panel > p:not(.result-panel__eyebrow) { margin: .9rem 0 0; color: #475467; line-height: 1.55; }
+.placement-v2 .result-publish-panel__status { display: flex; flex-wrap: wrap; gap: .45rem .65rem; align-items: center; margin-top: .9rem; color: var(--placement-muted); font-size: .8rem; }
+.placement-v2 .result-publish-panel__details { display: grid; gap: .6rem; margin: 1rem 0 0; padding: .85rem 0 0; border-top: 1px solid var(--placement-line); }
+.placement-v2 .result-publish-panel__details > div { display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: .5rem; }
+.placement-v2 .result-publish-panel__details dt { margin: 0; }
+.placement-v2 .result-publish-panel__error { margin-top: 1rem; padding: .75rem; border-left: .2rem solid #c24a3d; background: #fff5f3; color: #6f302a; }
+.placement-v2 .result-publish-panel__error strong { font-size: .8rem; }
+.placement-v2 .result-publish-panel__error p { margin: .3rem 0 0; line-height: 1.45; overflow-wrap: anywhere; }
+.placement-v2 .result-next-steps { display: grid; gap: .65rem; padding: 1.25rem; border: 1px solid #cfd8e7; border-radius: .5rem; background: #f8faff; }
+.placement-v2 .result-next-steps .button { width: 100%; box-sizing: border-box; text-align: center; }
+.placement-v2 .result-link { padding: .35rem; color: var(--placement-accent-dark); font-size: .82rem; font-weight: 700; text-align: center; text-decoration: none; }
+.placement-v2 .result-link:hover, .placement-v2 .result-link:focus-visible { color: var(--placement-indigo); text-decoration: underline; }
+@media (max-width: 72rem) { .placement-v2 .result-hero { grid-template-columns: auto minmax(0, 1fr); } .placement-v2 .result-hero__summary { grid-column: 2; border-top: 1px solid #b8ddd9; border-left: 0; padding: .85rem 0 0; } .placement-v2 .result-hero--failure .result-hero__summary { border-color: #f0c1ba; } .placement-v2 .result-hero--progress .result-hero__summary { border-color: #cfddf4; } .placement-v2 .result-layout { grid-template-columns: 1fr; } .placement-v2 .result-layout__aside { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 52rem) { .placement-v2 .result-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .placement-v2 .result-layout__aside { grid-template-columns: 1fr; } }
+@media (max-width: 40rem) { .placement-v2 .result-hero { grid-template-columns: 1fr; gap: .85rem; padding: 1.1rem; } .placement-v2 .result-hero__signal { width: 2.2rem; } .placement-v2 .result-hero__summary { grid-column: auto; } .placement-v2 .result-metrics, .placement-v2 .result-details { grid-template-columns: 1fr; } .placement-v2 .result-panel { padding: 1rem; } .placement-v2 .result-panel__heading { align-items: stretch; flex-direction: column; } .placement-v2 .result-slot { max-width: 100%; align-self: flex-start; } }
+</style>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "placements/admin/v2/base.html" %}
+{% block workflow_content %}
+<h2>投放清单 / Placement list</h2>
+<form class="filters" method="get">
+  <input type="search" name="q" value="{{ request.GET.q }}" placeholder="文章标题或 Slug / Article title or slug">
+  <input type="text" name="journal" value="{{ request.GET.journal }}" placeholder="子期刊 Slug / Journal slug">
+  <label>目标类型 / Target type <select name="target_type"><option value="">全部 / All</option>{% for value,label in target_types %}<option value="{{ value }}" {% if request.GET.target_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <input type="text" name="target_slug" value="{{ request.GET.target_slug }}" placeholder="目标 Slug / Target slug">
+  <label>版位 / Slot <select name="slot"><option value="">全部 / All</option>{% for slot in slots %}<option value="{{ slot.code }}" {% if request.GET.slot == slot.code %}selected{% endif %}>{{ slot.code }}</option>{% endfor %}</select></label>
+  <label>状态 / Status <select name="active"><option value="">全部 / All</option><option value="1" {% if request.GET.active == '1' %}selected{% endif %}>启用 / Active</option><option value="0" {% if request.GET.active == '0' %}selected{% endif %}>停用 / Inactive</option></select></label>
+  <button class="button">筛选 / Filter</button>
+  <a class="button" href="{% url 'placements:placement_export' %}?{{ request.GET.urlencode }}">导出 CSV / Export CSV</a>
+</form>
+<details {% if request.GET.starts_after or request.GET.starts_before or request.GET.ends_after or request.GET.ends_before or request.GET.expires_within or request.GET.expired or request.GET.pinned or request.GET.publish_status or request.GET.batch_number or request.GET.operator %}open{% endif %}>
+  <summary>高级筛选 / Advanced filters</summary>
+  <form class="filters" method="get">
+    {% for key,value in request.GET.items %}{% if key not in 'starts_after starts_before ends_after ends_before expires_within expired pinned publish_status batch_number operator page' %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}{% endfor %}
+    <label>生效不早于 / Starts after <input type="datetime-local" name="starts_after" value="{{ request.GET.starts_after }}"></label>
+    <label>生效不晚于 / Starts before <input type="datetime-local" name="starts_before" value="{{ request.GET.starts_before }}"></label>
+    <label>失效不早于 / Ends after <input type="datetime-local" name="ends_after" value="{{ request.GET.ends_after }}"></label>
+    <label>失效不晚于 / Ends before <input type="datetime-local" name="ends_before" value="{{ request.GET.ends_before }}"></label>
+    <label>即将失效天数 / Expires within days <input type="number" name="expires_within" min="1" value="{{ request.GET.expires_within }}"></label>
+    <label><input type="checkbox" name="expired" value="1" {% if request.GET.expired == '1' %}checked{% endif %}> 已失效 / Expired</label>
+    <label>置顶 / Pinned <select name="pinned"><option value="">全部 / All</option><option value="1" {% if request.GET.pinned == '1' %}selected{% endif %}>是 / Yes</option><option value="0" {% if request.GET.pinned == '0' %}selected{% endif %}>否 / No</option></select></label>
+    <label>发布状态 / Publish status <select name="publish_status"><option value="">全部 / All</option>{% for value,label in publish_statuses %}<option value="{{ value }}" {% if request.GET.publish_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <input type="text" name="batch_number" value="{{ request.GET.batch_number }}" placeholder="批次编号 / Batch number">
+    <input type="text" name="operator" value="{{ request.GET.operator }}" placeholder="操作者 / Operator">
+    <button class="button">应用高级筛选 / Apply advanced filters</button>
+  </form>
+</details>
+<form method="post" action="{% url 'placements:bulk_action' %}">{% csrf_token %}
+  <table><thead><tr><th>选择 / Select</th><th>文章 / Article</th><th>子期刊 / Journal</th><th>目标 / Target</th><th>版位 / Slot</th><th>状态 / Status</th><th>生效区间 / Schedule</th><th>发布状态 / Publish</th></tr></thead>
+  <tbody>{% for placement in page_obj.object_list %}<tr>
+    <td><input type="checkbox" name="placement_ids" value="{{ placement.pk }}" aria-label="选择 {{ placement.article }}"></td>
+    <td>{{ placement.article }}</td><td>{{ placement.article.primary_journal }}</td>
+    <td>{{ placement.get_target_type_display }}{% if placement.target_slug %} / {{ placement.target_slug }}{% endif %}</td><td>{{ placement.slot.code }}</td>
+    <td>{% if placement.is_active %}启用 / Active{% else %}停用 / Inactive{% endif %}{% if placement.is_pinned %}<br>置顶 / Pinned{% endif %}</td>
+    <td>{{ placement.starts_at|default:'立即 / Now' }} — {{ placement.ends_at|default:'长期 / Open ended' }}</td>
+    <td>{{ placement.latest_publish_status|default:'未创建 / Not started' }}</td>
+  </tr>{% empty %}<tr><td colspan="8">没有符合条件的投放 / No placements found.</td></tr>{% endfor %}</tbody></table>
+  <div class="sticky-actions"><label>批量操作 / Batch action <select name="operation"><option value="deactivate">停用 / Deactivate</option><option value="reactivate">重新启用 / Reactivate</option><option value="update_schedule">修改时间 / Update schedule</option><option value="pin">置顶 / Pin</option><option value="unpin">取消置顶 / Unpin</option><option value="move">移动版位 / Move</option><option value="copy">复制到子期刊 / Copy</option><option value="cancel_future">取消未来投放 / Cancel future</option><option value="republish">重新发布 / Republish</option></select></label><label>原因 / Reason <input name="reason"></label><button class="button button-primary">复核操作 / Review action</button></div>
+</form>
+{% include "placements/admin/v2/pagination.html" %}
+{% endblock %}

@@ -112,7 +112,7 @@ def create_retry_job(
 ):
     require_static_permission(actor, "static_publish.retry_category_publish")
     selected_paths = list(paths or [])
-    if not selected_paths:
+    if not selected_paths and scope != StaticPublishJob.Scope.FULL:
         raise PublishError("No failed targets were selected for retry")
     target_ids = list(target_ids or [])
     with transaction.atomic():
@@ -122,6 +122,15 @@ def create_retry_job(
             retry_of=failed_job,
             triggered_by=actor,
             summary={"retry_target_ids": target_ids},
+        )
+        # A retry supersedes the failed publish attempt for any placement batch
+        # that initiated it, while the original job remains in the audit trail.
+        from ai_author_forum.placements.models import PlacementBatch
+
+        PlacementBatch.objects.filter(publish_job=failed_job).update(
+            publish_job=job,
+            publish_status=PlacementBatch.PublishStatus.QUEUED,
+            updated_at=timezone.now(),
         )
         record_audit_event(
             action=AuditAction.RETRY,
@@ -447,7 +456,7 @@ class StaticPublisher:
                 StaticPublishJob.Scope.FULL,
             }:
                 raise PublishError("Retry job is missing its source job")
-            if not selected_paths:
+            if not selected_paths and job.scope != StaticPublishJob.Scope.FULL:
                 raise PublishError("No failed targets were selected for retry")
         except Exception as exc:
             self.mark_worker_preflight_failure(
@@ -456,12 +465,16 @@ class StaticPublisher:
                 error=exc,
                 metadata=audit_context,
             )
+            self._sync_retrying_placement_batches(job)
             raise
-        self.build(
-            job,
-            audit_action=AuditAction.RETRY,
-            audit_context={**audit_context, "stage": "worker"},
-        )
+        try:
+            self.build(
+                job,
+                audit_action=AuditAction.RETRY,
+                audit_context={**audit_context, "stage": "worker"},
+            )
+        finally:
+            self._sync_retrying_placement_batches(job)
         return job
 
     def retry(self, failed_job, user=None, *, paths=None, target_ids=None):
@@ -470,7 +483,12 @@ class StaticPublisher:
         )
         if target_ids:
             failed_targets = failed_targets.filter(pk__in=target_ids)
-        selected_paths = list(paths or failed_targets.values_list("path", flat=True))
+        selected_paths = list(
+            paths
+            or failed_targets.values_list("path", flat=True)
+            or failed_job.requested_paths
+            or []
+        )
         job = create_retry_job(
             failed_job=failed_job,
             actor=user,
@@ -478,11 +496,18 @@ class StaticPublisher:
             target_ids=target_ids,
             scope=(
                 StaticPublishJob.Scope.RETRY
-                if self.current.exists()
+                if selected_paths and self.current.exists()
                 else StaticPublishJob.Scope.FULL
             ),
         )
         return self.run_retry(job, user)
+
+    @staticmethod
+    def _sync_retrying_placement_batches(job):
+        from ai_author_forum.placements.publishing import sync_batch_publish_status
+
+        for batch in job.placement_batches.select_related("publish_job"):
+            sync_batch_publish_status(batch)
 
     def run_rollback(self, job, user=None):
         version = str(job.rollback_version or job.version)

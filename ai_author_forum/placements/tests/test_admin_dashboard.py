@@ -1,6 +1,6 @@
 from datetime import timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -16,8 +16,10 @@ from ai_author_forum.news.models import NewsListingPage
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 from ai_author_forum.static_publish.models import StaticPublishJob
 
+from ..batch_services import execute_create_batch, precheck_batch
 from ..forms import make_target_value
-from ..models import ArticlePlacement, LayoutSlot
+from ..models import ArticlePlacement, LayoutSlot, PlacementBatch, PlacementBatchItem
+from ..selectors import select_articles
 
 
 class PlacementDashboardTests(TestCase):
@@ -88,6 +90,10 @@ class PlacementDashboardTests(TestCase):
     def setUp(self):
         self.client.force_login(self.superuser)
 
+    @staticmethod
+    def legacy_url(name, **kwargs):
+        return reverse("placements_legacy:" + name, kwargs=kwargs or None)
+
     def placement_payload(self, **overrides):
         payload = {
             "article": self.approved_article.pk,
@@ -107,7 +113,7 @@ class PlacementDashboardTests(TestCase):
 
     def test_dashboard_filters_article_choices_to_approved_articles(self):
         response = self.client.get(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data={"article_query": "placement article"},
         )
 
@@ -116,11 +122,388 @@ class PlacementDashboardTests(TestCase):
         self.assertNotContains(response, self.draft_article.title)
         self.assertContains(response, "共有 1 篇可投放文章")
 
+    def test_target_slot_options_show_current_and_remaining_capacity(self):
+        slot = LayoutSlot.objects.get(code="journal_featured")
+        ArticlePlacement.objects.create(
+            article=self.approved_article,
+            slot=slot,
+            target_type=ArticlePlacement.TargetType.JOURNAL,
+            target_slug=self.journal.slug,
+        )
+        batch = PlacementBatch.objects.create(
+            mode=PlacementBatch.Mode.SINGLE,
+            operation=PlacementBatch.Operation.CREATE,
+            created_by=self.superuser,
+            updated_by=self.superuser,
+            current_step="target",
+            target_type=ArticlePlacement.TargetType.JOURNAL,
+            target_slug=self.journal.slug,
+        )
+        PlacementBatchItem.objects.create(batch=batch, article=self.approved_article)
+
+        api_response = self.client.get(
+            reverse("placements:slots_api"),
+            {
+                "target_type": ArticlePlacement.TargetType.JOURNAL,
+                "target_slug": self.journal.slug,
+            },
+        )
+        page_response = self.client.get(
+            reverse("placements:single_target", kwargs={"batch_id": batch.pk})
+        )
+
+        self.assertEqual(api_response.status_code, 200)
+        payload = next(
+            item
+            for item in api_response.json()["results"]
+            if item["id"] == slot.pk
+        )
+        self.assertEqual(payload["current"], 1)
+        self.assertEqual(payload["remaining"], slot.max_items - 1)
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, "可投放")
+        self.assertContains(
+            page_response,
+            f"已占用 1 / 容量 {slot.max_items}",
+        )
+
+    def test_article_selector_matches_journal_name_and_prioritizes_unplaced(self):
+        placed_article = self.create_article(
+            "Placed placement article",
+            "placed-placement-article",
+            ArticlePage.ReviewStatus.APPROVED,
+        )
+        ArticlePlacement.objects.create(
+            article=placed_article,
+            slot=LayoutSlot.objects.get(code="home_featured"),
+        )
+
+        page_obj, _ = select_articles(
+            journal_slug=self.journal.name_cn or self.journal.name,
+            page_size=100,
+        )
+
+        article_ids = [article.pk for article in page_obj.object_list]
+        self.assertIn(self.approved_article.pk, article_ids)
+        self.assertLess(article_ids.index(self.approved_article.pk), article_ids.index(placed_article.pk))
+
+    def test_one_click_single_placement_prefills_article_and_journal(self):
+        response = self.client.get(
+            reverse("placements:new_single"),
+            {"article": self.approved_article.pk, "journal": self.journal.slug},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        batch = PlacementBatch.objects.latest("created_at")
+        self.assertEqual(batch.target_slug, self.journal.slug)
+        self.assertEqual(
+            list(batch.items.values_list("article_id", flat=True)),
+            [self.approved_article.pk],
+        )
+        self.assertEqual(
+            response["Location"],
+            reverse("placements:single_target", kwargs={"batch_id": batch.pk}),
+        )
+
+    def test_approved_unpublished_article_can_be_searched_and_strictly_placed(self):
+        page_obj, _ = select_articles(query="review-only", page_size=100)
+        self.assertIn(
+            self.approved_unpublished_article.pk,
+            [article.pk for article in page_obj.object_list],
+        )
+
+        response = self.client.get(
+            reverse("placements:new_single"),
+            {
+                "article": self.approved_unpublished_article.pk,
+                "journal": self.journal.slug,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        batch = PlacementBatch.objects.latest("created_at")
+        self.assertEqual(
+            list(batch.items.values_list("article_id", flat=True)),
+            [self.approved_unpublished_article.pk],
+        )
+        batch.slot = LayoutSlot.objects.get(code="journal_featured")
+        batch.save(update_fields=("slot", "updated_at"))
+
+        result = precheck_batch(batch, actor=self.superuser)
+        self.assertTrue(result["ok"], result["errors"])
+        execute_create_batch(batch, actor=self.superuser)
+
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, PlacementBatch.Status.SUCCEEDED)
+        self.assertTrue(
+            ArticlePlacement.objects.filter(
+                article=self.approved_unpublished_article,
+                slot=batch.slot,
+                target_type=ArticlePlacement.TargetType.JOURNAL,
+                target_slug=self.journal.slug,
+            ).exists()
+        )
+
+    def test_precheck_does_not_reopen_a_failed_executed_batch(self):
+        batch = PlacementBatch.objects.create(
+            mode=PlacementBatch.Mode.SINGLE,
+            operation=PlacementBatch.Operation.CREATE,
+            status=PlacementBatch.Status.FAILED,
+            executed_at=timezone.now(),
+            created_by=self.superuser,
+            updated_by=self.superuser,
+        )
+
+        result = precheck_batch(batch, actor=self.superuser)
+
+        batch.refresh_from_db()
+        self.assertFalse(result["ok"])
+        self.assertEqual(batch.status, PlacementBatch.Status.FAILED)
+        self.assertEqual(result["errors"][0]["code"], "batch_executed")
+
+    def test_precheck_rejects_an_override_image_with_a_missing_file(self):
+        batch = PlacementBatch.objects.create(
+            mode=PlacementBatch.Mode.SINGLE,
+            operation=PlacementBatch.Operation.CREATE,
+            created_by=self.superuser,
+            updated_by=self.superuser,
+            target_type=ArticlePlacement.TargetType.JOURNAL,
+            target_slug=self.journal.slug,
+            slot=LayoutSlot.objects.get(code="journal_featured"),
+            options={
+                "override_image_id": "123",
+                "override_image_alt": "Accessible override image",
+            },
+        )
+        batch.items.create(article=self.approved_article, sort_order=1)
+        image = Mock()
+        image.file.name = "original_images/missing.png"
+        image.file.storage.exists.return_value = False
+
+        with patch(
+            "ai_author_forum.placements.batch_services.CustomImage.objects.filter"
+        ) as image_filter:
+            image_filter.return_value.only.return_value.first.return_value = image
+            result = precheck_batch(batch, actor=self.superuser)
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "override_image", [error["code"] for error in result["errors"]]
+        )
+        self.assertIn("重新选择可用图片", result["errors"][0]["message"])
+
+    def test_single_rules_uses_an_image_picker_instead_of_an_internal_image_id(self):
+        batch = PlacementBatch.objects.create(
+            mode=PlacementBatch.Mode.SINGLE,
+            operation=PlacementBatch.Operation.CREATE,
+            created_by=self.superuser,
+            updated_by=self.superuser,
+            target_type=ArticlePlacement.TargetType.JOURNAL,
+            target_slug=self.journal.slug,
+            slot=LayoutSlot.objects.get(code="journal_featured"),
+        )
+        batch.items.create(article=self.approved_article, sort_order=1)
+
+        response = self.client.get(
+            reverse("placements:single_rules", kwargs={"batch_id": batch.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "选择覆盖图片")
+        self.assertContains(response, 'id="override-image-id"', html=False)
+        self.assertContains(response, "使用文章封面")
+        self.assertContains(response, 'id="image-upload"', html=False)
+        self.assertContains(response, "本地上传图片")
+        self.assertNotContains(response, "覆盖图片 ID")
+
+    def test_images_api_returns_only_presentation_metadata(self):
+        image = Mock()
+        image.pk = 7
+        image.title = "Placement cover"
+        image.description = "A useful image description"
+        image.file.name = "original_images/placement-cover.png"
+        image.file.storage.exists.return_value = True
+        image.file.url = "/media/original_images/placement-cover.png"
+
+        with patch(
+            "ai_author_forum.placements.workflow_viewset.CustomImage.objects.all"
+        ) as image_queryset:
+            image_queryset.return_value.count.return_value = 1
+            image_queryset.return_value.order_by.return_value.__getitem__.return_value = [
+                image
+            ]
+            response = self.client.get(reverse("placements:images_api"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "results": [
+                    {
+                        "id": 7,
+                        "title": "Placement cover",
+                        "description": "A useful image description",
+                        "url": "/media/original_images/placement-cover.png",
+                        "is_available": True,
+                    }
+                ],
+                "page": 1,
+                "page_size": 24,
+                "has_more": False,
+            },
+        )
+
+    def test_image_upload_api_requires_a_posted_file(self):
+        response = self.client.get(reverse("placements:image_upload_api"))
+
+        self.assertEqual(response.status_code, 405)
+        self.assertContains(response, "请使用上传操作提交图片。")
+
+    def test_review_explains_how_to_recover_from_a_missing_override_image(self):
+        batch = PlacementBatch.objects.create(
+            mode=PlacementBatch.Mode.SINGLE,
+            operation=PlacementBatch.Operation.CREATE,
+            created_by=self.superuser,
+            updated_by=self.superuser,
+            target_type=ArticlePlacement.TargetType.JOURNAL,
+            target_slug=self.journal.slug,
+            slot=LayoutSlot.objects.get(code="journal_featured"),
+        )
+        batch.items.create(article=self.approved_article, sort_order=1)
+        result = {
+            "ok": False,
+            "errors": [
+                {
+                    "item_id": None,
+                    "code": "override_image",
+                    "message": "覆盖图片的原始文件已丢失，无法投放。",
+                }
+            ],
+        }
+
+        with patch(
+            "ai_author_forum.placements.workflow_viewset.precheck_batch",
+            return_value=result,
+        ):
+            response = self.client.get(
+                reverse("placements:single_review", kwargs={"batch_id": batch.pk})
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "覆盖图片不可用")
+        self.assertContains(response, "返回处理图片")
+        self.assertContains(response, "原始文件无法读取")
+
+    def test_single_review_renders_the_current_persisted_validation_status(self):
+        batch = PlacementBatch.objects.create(
+            mode=PlacementBatch.Mode.SINGLE,
+            operation=PlacementBatch.Operation.CREATE,
+            created_by=self.superuser,
+            updated_by=self.superuser,
+            target_type=ArticlePlacement.TargetType.JOURNAL,
+            target_slug=self.journal.slug,
+            slot=LayoutSlot.objects.get(code="journal_featured"),
+        )
+        batch.items.create(article=self.approved_article, sort_order=1)
+
+        response = self.client.get(
+            reverse("placements:single_review", kwargs={"batch_id": batch.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "可以投放。")
+        self.assertContains(response, "通过")
+
+    def test_new_single_placement_without_journal_renders_article_selector(self):
+        response = self.client.get(reverse("placements:new_single"))
+
+        self.assertEqual(response.status_code, 302)
+        selector_response = self.client.get(response["Location"], {"q": "placement"})
+
+        self.assertEqual(selector_response.status_code, 200)
+        self.assertContains(selector_response, self.approved_article.title)
+        self.assertContains(selector_response, 'name="journal"')
+
+    def test_result_page_renders_a_complete_execution_summary(self):
+        batch = PlacementBatch.objects.create(
+            mode=PlacementBatch.Mode.SINGLE,
+            operation=PlacementBatch.Operation.CREATE,
+            status=PlacementBatch.Status.SUCCEEDED,
+            current_step="review",
+            created_by=self.superuser,
+            updated_by=self.superuser,
+            target_type=ArticlePlacement.TargetType.JOURNAL,
+            target_slug=self.journal.slug,
+            slot=LayoutSlot.objects.get(code="journal_featured"),
+            strict_mode=True,
+            executed_at=timezone.now(),
+            success_count=1,
+            publish_status=PlacementBatch.PublishStatus.SUCCEEDED,
+        )
+        batch.items.create(
+            article=self.approved_article,
+            sort_order=1,
+            validation_status="passed",
+            execution_status="created",
+        )
+
+        response = self.client.get(
+            reverse("placements:batch_result", kwargs={"batch_id": batch.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "投放已完成")
+        self.assertContains(response, "逐篇执行记录")
+        self.assertContains(response, self.approved_article.title)
+        self.assertContains(response, "查看投放清单")
+        self.assertContains(response, reverse("placements:list"))
+
+    def test_target_journal_defaults_article_selector_to_target_journal(self):
+        other_article = self.create_article(
+            "Other target selector article",
+            "other-target-selector-article",
+            ArticlePage.ReviewStatus.APPROVED,
+            journal=self.other_journal,
+        )
+        cases = (
+            (
+                PlacementBatch.Mode.JOURNAL_CURATION,
+                "journal_add_articles",
+                {"current_step": "articles"},
+            ),
+            (
+                PlacementBatch.Mode.BULK_CREATE,
+                "bulk_articles",
+                {"current_step": "articles"},
+            ),
+        )
+
+        for mode, route_name, extra in cases:
+            with self.subTest(mode=mode):
+                batch = PlacementBatch.objects.create(
+                    mode=mode,
+                    operation=PlacementBatch.Operation.CREATE,
+                    created_by=self.superuser,
+                    updated_by=self.superuser,
+                    target_type=ArticlePlacement.TargetType.JOURNAL,
+                    target_slug=self.journal.slug,
+                    slot=LayoutSlot.objects.get(code="journal_featured"),
+                    **extra,
+                )
+
+                response = self.client.get(
+                    reverse("placements:" + route_name, kwargs={"batch_id": batch.pk})
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, self.approved_article.title)
+                self.assertNotContains(response, other_article.title)
+
     def test_dashboard_includes_approved_article_not_published_in_wagtail(self):
         self.assertFalse(self.approved_unpublished_article.live)
 
         response = self.client.get(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data={"article_query": "review-only"},
         )
 
@@ -128,7 +511,7 @@ class PlacementDashboardTests(TestCase):
         self.assertContains(response, self.approved_unpublished_article.title)
 
     def test_dashboard_exposes_all_controlled_targets_and_slots(self):
-        response = self.client.get(reverse("placements:index"))
+        response = self.client.get(self.legacy_url("index"))
 
         self.assertContains(response, 'value="main_site:"')
         self.assertContains(response, 'value="section:news"')
@@ -138,7 +521,7 @@ class PlacementDashboardTests(TestCase):
         self.assertContains(response, "search_recommended")
 
     def test_dashboard_renders_placement_image_alt_control_and_guidance(self):
-        response = self.client.get(reverse("placements:index"))
+        response = self.client.get(self.legacy_url("index"))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="override_image_alt"', html=False)
@@ -153,7 +536,7 @@ class PlacementDashboardTests(TestCase):
         )
 
     def test_bulk_dashboard_bootstraps_article_refresh(self):
-        response = self.client.get(reverse("placements:index"))
+        response = self.client.get(self.legacy_url("index"))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "data-bulk-articles-message")
@@ -173,7 +556,7 @@ class PlacementDashboardTests(TestCase):
 
     def test_preview_validates_and_renders_without_saving(self):
         response = self.client.post(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data=self.placement_payload(action="preview"),
         )
 
@@ -191,7 +574,7 @@ class PlacementDashboardTests(TestCase):
         starts_at = timezone.localtime().replace(second=0, microsecond=0)
         ends_at = starts_at + timedelta(days=7)
         response = self.client.post(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data=self.placement_payload(
                 starts_at=starts_at.strftime("%Y-%m-%dT%H:%M"),
                 ends_at=ends_at.strftime("%Y-%m-%dT%H:%M"),
@@ -245,7 +628,7 @@ class PlacementDashboardTests(TestCase):
         for index, (expected_type, target, slot_code) in enumerate(cases, start=1):
             with self.subTest(target=expected_type):
                 response = self.client.post(
-                    reverse("placements:index"),
+                    self.legacy_url("index"),
                     data=self.placement_payload(
                         target=target,
                         slot=LayoutSlot.objects.get(code=slot_code).pk,
@@ -262,7 +645,7 @@ class PlacementDashboardTests(TestCase):
 
     def test_target_scope_mismatch_is_rejected(self):
         response = self.client.post(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data=self.placement_payload(
                 target=make_target_value(ArticlePlacement.TargetType.SECTION, "news"),
                 slot=LayoutSlot.objects.get(code="home_featured").pk,
@@ -275,7 +658,7 @@ class PlacementDashboardTests(TestCase):
 
     def test_cross_journal_placement_is_rejected(self):
         response = self.client.post(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data=self.placement_payload(
                 target=make_target_value(
                     ArticlePlacement.TargetType.JOURNAL, self.other_journal.slug
@@ -306,7 +689,7 @@ class PlacementDashboardTests(TestCase):
         )
 
         response = self.client.get(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data={
                 "target": make_target_value(
                     ArticlePlacement.TargetType.SECTION, "news"
@@ -336,7 +719,7 @@ class PlacementDashboardTests(TestCase):
         for value, expected in (("1", active), ("0", inactive)):
             with self.subTest(active=value):
                 response = self.client.get(
-                    reverse("placements:index"), data={"active": value}
+                    self.legacy_url("index"), data={"active": value}
                 )
 
                 self.assertEqual(response.status_code, 200)
@@ -372,7 +755,7 @@ class PlacementDashboardTests(TestCase):
         )
 
         response = self.client.get(
-            reverse("placements:index"), data={"expired": "1", "active": "1"}
+            self.legacy_url("index"), data={"expired": "1", "active": "1"}
         )
 
         self.assertEqual(response.status_code, 200)
@@ -417,7 +800,7 @@ class PlacementDashboardTests(TestCase):
         )
 
         response = self.client.get(
-            reverse("placements:index"), data={"expires_within": "7"}
+            self.legacy_url("index"), data={"expires_within": "7"}
         )
 
         self.assertEqual(response.status_code, 200)
@@ -464,7 +847,7 @@ class PlacementDashboardTests(TestCase):
         )
 
         response = self.client.get(
-            reverse("placements:index"), data={"capacity": "over"}
+            self.legacy_url("index"), data={"capacity": "over"}
         )
 
         self.assertEqual(response.status_code, 200)
@@ -479,7 +862,7 @@ class PlacementDashboardTests(TestCase):
             slot=LayoutSlot.objects.get(code="home_featured"),
         )
         response = self.client.post(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data=self.placement_payload(
                 placement_id=placement.pk,
                 override_title="Updated placement title",
@@ -510,12 +893,11 @@ class PlacementDashboardTests(TestCase):
         )
         self.client.force_login(user)
 
-        self.assertEqual(self.client.get(reverse("placements:index")).status_code, 200)
+        self.assertIn(self.client.get(self.legacy_url("index")).status_code, (302, 403))
         response = self.client.post(
-            reverse("placements:index"), data=self.placement_payload()
+            self.legacy_url("index"), data=self.placement_payload()
         )
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], "/admin/")
+        self.assertIn(response.status_code, (302, 403))
         self.assertFalse(ArticlePlacement.objects.exists())
 
     def test_bulk_journal_placement_creates_selected_articles_and_one_audit(self):
@@ -527,7 +909,7 @@ class PlacementDashboardTests(TestCase):
         slot = LayoutSlot.objects.get(code="journal_featured")
 
         response = self.client.post(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data={
                 "mode": "bulk_journal",
                 "journal": self.journal.slug,
@@ -568,7 +950,7 @@ class PlacementDashboardTests(TestCase):
         with self.assertLogs("django.test", level="ERROR"):
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(
-                    reverse("placements:index"),
+                    self.legacy_url("index"),
                     data={
                         "mode": "bulk_journal",
                         "journal": self.journal.slug,
@@ -615,7 +997,7 @@ class PlacementDashboardTests(TestCase):
         )
 
         response = self.client.post(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data={
                 "mode": "bulk_journal",
                 "journal": self.journal.slug,
@@ -650,7 +1032,7 @@ class PlacementDashboardTests(TestCase):
         slot = LayoutSlot.objects.get(code="journal_featured")
 
         response = self.client.post(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data={
                 "mode": "bulk_journal",
                 "journal": self.journal.slug,
@@ -682,7 +1064,7 @@ class PlacementDashboardTests(TestCase):
         slot.save(update_fields=["max_items"])
 
         response = self.client.post(
-            reverse("placements:index"),
+            self.legacy_url("index"),
             data={
                 "mode": "bulk_journal",
                 "journal": self.journal.slug,
@@ -712,7 +1094,7 @@ class PlacementDashboardTests(TestCase):
         )
 
         response = self.client.get(
-            reverse("placements:bulk_articles"),
+            self.legacy_url("bulk_articles"),
             data={"journal": self.journal.slug},
         )
 

@@ -40,9 +40,6 @@ from ai_author_forum.utils.public_i18n import (
     localized_article_ai_coauthors,
     localized_article_keywords,
     localized_article_title,
-    localized_journal_description,
-    localized_journal_intro,
-    localized_journal_seo_title,
     localized_navigation_label,
     is_english,
     localized_static_page,
@@ -516,11 +513,16 @@ def get_journal_page_context(slug, at=None):
         get_slot_items("journal_highlights", target, slug, at=at)
     )
     featured_placements = list(get_slot_items("journal_featured", target, slug, at=at))
+    hero_placements = list(get_slot_items("journal_hero", target, slug, at=at))
+    article_placements = _deduplicate_placements(
+        highlighted_placements,
+        featured_placements,
+        list(get_slot_items("journal_latest", target, slug, at=at)),
+    )
+    hero_article_ids = {placement.article_id for placement in hero_placements}
     context.update(
         {
-            "hero_placements": list(
-                get_slot_items("journal_hero", target, slug, at=at)
-            ),
+            "hero_placements": hero_placements,
             "featured_placements": _deduplicate_placements(
                 highlighted_placements,
                 featured_placements,
@@ -528,6 +530,11 @@ def get_journal_page_context(slug, at=None):
             "latest_placements": list(
                 get_slot_items("journal_latest", target, slug, at=at)
             ),
+            "article_placements": [
+                placement
+                for placement in article_placements
+                if placement.article_id not in hero_article_ids
+            ],
             "managed_navigation": _journal_navigation(
                 journal, f"/journals/{journal.slug}/"
             ),
@@ -618,7 +625,11 @@ def get_managed_navigation_info_context(*, internal_path, journal_slug=None):
     sections = ("Editorially approved information", "Static publishing and audit trail")
     if journal:
         journal_name = localized_journal_name(journal)
-        page_title = f"{journal_name}：{item_label}" if not is_english() else f"{journal_name}: {item_label}"
+        page_title = (
+            f"{journal_name}：{item_label}"
+            if not is_english()
+            else f"{journal_name}: {item_label}"
+        )
         scope_label = journal_name
         summary = journal.seo_description or (
             f"Information and resources for {journal_name}."
@@ -649,15 +660,6 @@ def get_managed_navigation_info_context(*, internal_path, journal_slug=None):
             "Submission and AI-use disclosure",
             "Editorial review and approval route",
             "Corrections, image, and citation integrity",
-        )
-
-    if not is_english():
-        summary = f"{scope_label}的{item_label}及相关编辑与出版信息。"
-        body = "本页面由受控导航配置生成，展示经过审核的编辑范围、出版资源和当前内容。"
-        sections = (
-            "编辑范围与责任",
-            "出版资源与当前内容",
-            "编辑联系与静态发布流程",
         )
 
     info_page = {
@@ -775,7 +777,7 @@ def get_content_column_context(
         value = placement.article.article_type
         option = {
             "value": slugify(value),
-            "label": article_type_label(value),
+            "label": placement.article.get_article_type_display(),
         }
         if option not in type_options:
             type_options.append(option)
@@ -840,11 +842,7 @@ def get_content_column_context(
         "journal": journal,
         "navigation_item": item,
         "column_config": config,
-        "navigation_item_label": localized_navigation_label(
-            item.managed_code, fallback=item.label
-        ),
-        "page_title": config.seo_title
-        or localized_navigation_label(item.managed_code, fallback=item.label),
+        "page_title": config.seo_title or item.label,
         "featured_placements": featured[:1],
         "secondary_placements": secondary[:3],
         "article_placements": paged_articles,

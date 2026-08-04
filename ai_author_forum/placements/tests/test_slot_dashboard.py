@@ -262,7 +262,7 @@ class LayoutSlotDashboardTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, f'data-slot-placement-id="{placement.pk}"')
-        self.assertContains(response, "当前上线内容：News（0）")
+        self.assertContains(response, "当前上线内容：新闻（0）")
         self.assertContains(response, "暂无可预览的上线内容")
 
     def test_module_access_is_separate_from_change_permission(self):

@@ -1,4 +1,4 @@
-﻿{% extends "base_page.html" %}
+{% extends "base_page.html" %}
 {% load i18n_frontend %}
 {% block title %}{{ search_config.title }}{% endblock %}
 {% block breadcrumbs %}
@@ -26,7 +26,7 @@
   <form action="{{ '/search/'|localized_url }}" method="get" role="search" data-search-form>
     <div class="c-search-form">
       <label>{% ui_text 'search_terms' 'Search terms' %}<input name="q" type="search" autocomplete="off" placeholder="{% ui_text 'title_keyword_author_journal' 'Title, keyword, author, or journal' %}"></label>
-      <label>{% ui_text 'journal' 'Journal' %}<select name="journal"><option value="">{% ui_text 'all_journals' 'All journals' %}</option>{% for journal in header_journals %}<option value="{{ journal.slug }}">{{ journal|localized_journal_name }}</option>{% endfor %}</select></label>
+      <label>{% ui_text 'journal' 'Journal' %}<select name="journal"><option value="">{% ui_text 'all_journals' 'All journals' %}</option>{% for journal in header_journals %}<option value="{{ journal.slug }}">{{ journal.name }}</option>{% endfor %}</select></label>
       <button type="submit">{% ui_text 'search' 'Search' %}</button>
     </div>
     <details class="c-search-advanced">
@@ -49,7 +49,6 @@
     <div class="c-section-heading"><h2 id="recommended-articles-title">{% ui_text 'recommended_articles' 'Recommended articles' %}</h2></div>
     {% for placement in recommended_placements %}
     <article class="c-search-result-item">
-      <span>{{ placement.article.article_type|article_type_label }}</span>
       <h2><a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a></h2>
       <p>{{ placement.display_summary }}</p>
       <p>{% ui_text 'author_label' 'Author' %}: {{ placement.display_authors }}{% if placement.article.ai_co_authors %} - {% ui_text 'ai_coauthor_label' 'AI co-author' %}: {{ placement.display_ai_coauthors }}{% endif %}</p>

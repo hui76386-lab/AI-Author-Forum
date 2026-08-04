@@ -317,13 +317,21 @@ def retry_job(request, job_id):
     target_ids = list(failed_targets.values_list("pk", flat=True))
     paths = list(failed_targets.values_list("path", flat=True))
     if not paths:
-        messages.error(request, "没有可重试的失败目标。")
+        paths = list(failed_job.requested_paths or [])
+        target_ids = []
+    if not paths and failed_job.scope != StaticPublishJob.Scope.FULL:
+        messages.error(request, "该任务在生成页面前失败，且没有可恢复的发布范围。")
         return redirect("static_publish:job_detail", job_id=failed_job.pk)
     retry_job_record = create_retry_job(
         failed_job=failed_job,
         actor=request.user,
         paths=paths,
         target_ids=target_ids,
+        scope=(
+            StaticPublishJob.Scope.RETRY
+            if paths
+            else StaticPublishJob.Scope.FULL
+        ),
     )
     try:
         task_result = retry_static_publish.delay(retry_job_record.pk, request.user.pk)
@@ -332,7 +340,8 @@ def retry_job(request, job_id):
         messages.error(request, retry_job_record.error)
         return redirect("static_publish:job_detail", job_id=retry_job_record.pk)
     messages.success(
-        request, f"已创建 {len(paths)} 个目标的重试任务（{task_result.id}）。"
+        request,
+        f"已创建 {len(paths) if paths else '全部'} 个目标的重试任务（{task_result.id}）。",
     )
     return redirect("static_publish:job_detail", job_id=retry_job_record.pk)
 

@@ -1,0 +1,6 @@
+{% extends "placements/admin/v2/base.html" %}{% block workflow_content %}
+{% include "placements/admin/v2/stepper.html" %}
+<h2>选择版位 / Select slot</h2>
+<p class="notice">每次只能选择一个固定版位；容量会在预检查和执行阶段再次验证。 / Choose one fixed slot. Capacity is rechecked at review and execution.</p>
+<form method="post">{% csrf_token %}<table><thead><tr><th>选择 / Select</th><th>版位 / Slot</th><th>最大容量 / Maximum</th><th>当前占用 / Current</th></tr></thead><tbody>{% for slot in slots %}<tr><td><input required type="radio" name="slot" value="{{ slot.pk }}" {% if batch.slot_id == slot.pk %}checked{% endif %}></td><td>{{ slot.title }}<div class="muted">{{ slot.code }}</div></td><td>{{ slot.max_items }}</td><td>预检查时计算 / Calculated at review</td></tr>{% empty %}<tr><td colspan="4">没有可用版位。 / No active slots.</td></tr>{% endfor %}</tbody></table><div class="sticky-actions"><button class="button button-primary">保存并继续 / Save and continue</button></div></form>
+{% endblock %}

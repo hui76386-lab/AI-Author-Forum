@@ -334,8 +334,11 @@ def localized_journal_description(journal, language_code=None):
 
 
 def localized_journal_intro(journal, language_code=None):
+    source = str(getattr(journal, "homepage_intro", "") or "")
+    if source:
+        return mark_safe(source)
     if is_english(language_code):
-        return getattr(journal, "homepage_intro", "") or ""
+        return ""
     name = str(getattr(journal, "name_cn", "") or getattr(journal, "name", "") or "")
     focus = localized_journal_focus(journal)
     return mark_safe(

@@ -1,0 +1,7 @@
+{% extends "placements/admin/v2/base.html" %}{% block workflow_content %}
+<h2>{{ batch.batch_number }}</h2>
+<dl><dt>模式 / Mode</dt><dd>{{ batch.get_mode_display }}</dd><dt>操作 / Operation</dt><dd>{{ batch.get_operation_display }}</dd><dt>状态 / Status</dt><dd>{{ batch.get_status_display }}</dd><dt>目标 / Target</dt><dd>{{ batch.target_type }} {{ batch.target_slug }}</dd><dt>版位 / Slot</dt><dd>{{ batch.slot|default:'—' }}</dd><dt>静态发布 / Static publish</dt><dd>{{ batch.get_publish_status_display }} {% if batch.publish_job %}(#{{ batch.publish_job.pk }}){% endif %}</dd><dt>执行时间 / Executed</dt><dd>{{ batch.executed_at|default:'—' }}</dd></dl>
+<h3>明细与审计快照 / Items and audit snapshots</h3>
+<table><thead><tr><th>文章 / Article</th><th>投放 / Placement</th><th>校验 / Validation</th><th>执行 / Execution</th><th>错误 / Error</th></tr></thead><tbody>{% for item in batch.items.all %}<tr><td>{{ item.article|default:'—' }}</td><td>{{ item.placement|default:'—' }}</td><td>{{ item.get_validation_status_display }}</td><td>{{ item.get_execution_status_display }}</td><td>{{ item.error_message|linebreaksbr }}</td></tr>{% endfor %}</tbody></table>
+{% if batch.status == 'draft' %}<div class="actions"><a class="button" href="{% url 'placements:batches' %}?status=draft">保存并退出 / Save and exit</a><form class="inline-form" method="post" action="{% url 'placements:delete_draft' batch_id=batch.pk %}" onsubmit="return confirm('删除此草稿？ / Delete this draft?');">{% csrf_token %}<button class="button button-secondary" type="submit">删除草稿 / Delete draft</button></form></div>{% endif %}
+{% endblock %}

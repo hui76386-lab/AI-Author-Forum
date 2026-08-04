@@ -284,9 +284,13 @@ class HomepageCompositionViewSet(PermissionedModuleViewSet):
 
 
 class PlacementsViewSet(PermissionedModuleViewSet):
-    name = "placements"
+    """Legacy workbench retained only as a superuser compatibility fallback."""
+
+    name = "placements_legacy"
+    url_prefix = "placements/legacy"
+    add_to_admin_menu = False
     menu_label = admin_text("placements.manage")
-    menu_name = "placements"
+    menu_name = "placements_legacy"
     menu_icon = "pick"
     menu_order = 230
     permission = "site_settings.access_placements"
@@ -294,6 +298,9 @@ class PlacementsViewSet(PermissionedModuleViewSet):
     description = admin_text("placements.manage.description")
     owner = "D：placements 应用；A 提供菜单、权限边界和跨模块接入点。"
     integration_points = ("ArticlePlacement", "get_slot_items(slot_code, journal=None)")
+
+    def has_access(self, request) -> bool:
+        return bool(request.user.is_superuser)
 
     def _get_instance(self, request):
         placement_id = request.POST.get("placement_id") or request.GET.get("edit")

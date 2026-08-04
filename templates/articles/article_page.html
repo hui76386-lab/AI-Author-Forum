@@ -15,7 +15,6 @@
     <a href="{{ '/search/'|localized_url }}">{% ui_text 'reprints_permissions' 'Reprints and permissions' %}</a>
   </aside>
   <div class="c-article-body" id="full-text">
-    <span class="c-article-type">{{ article_type_label }}</span>
     {% if article.first_published_at %}<time datetime="{{ article.first_published_at|date:'c' }}">{{ article.first_published_at|date:'Y-m-d' }}</time>{% endif %}
     <h1>{{ article_display_title|default:article.title }}</h1>
     <p class="c-standfirst">{{ article_display_abstract|default:article.abstract }}</p>
@@ -43,6 +42,7 @@
         {% include_block block %}
       {% endif %}
     {% empty %}<p class="c-empty-state">{% ui_text 'no_article_body' 'No article body has been added yet.' %}</p>{% endfor %}
+    {% if contributors %}<section class="c-article-contributors" aria-labelledby="author-information-heading"><h2 id="author-information-heading">{% ui_text 'author_information' 'Author information' %}</h2><dl>{% for contributor in contributors %}<div><dt>{{ contributor|localized_article_contributor_identity }}</dt><dd><strong>{{ contributor.name }}</strong>{% if contributor.affiliation %}<span>{{ contributor.affiliation }}</span>{% endif %}{% if contributor.is_corresponding %}<small>{% ui_text 'corresponding_author' 'Corresponding author' %}</small>{% endif %}</dd></div>{% endfor %}</dl></section>{% endif %}
     {% if ai.has_contribution %}<section><h2>{% ui_text 'ai_authorship_declaration' 'AI authorship declaration' %}</h2>{% if ai.contribution_statement %}<p>{{ ai.contribution_statement|linebreaksbr }}</p>{% endif %}{% if ai.responsibility_statement %}<p>{{ ai.responsibility_statement|linebreaksbr }}</p>{% endif %}</section>{% endif %}
     <section><h2>{% ui_text 'methods_responsibility' 'Methods and responsibility' %}</h2><p>{% ui_text 'methods_responsibility_text' 'This article page records human responsibility, AI contribution, editorial verification and reader-facing context within the shared publishing workflow.' %}</p></section>
     {% if keywords %}<section class="c-related"><h2>{% ui_text 'related_articles' 'Related Articles' %}</h2>{% for keyword in keywords %}<a href="{% localize_url '/search/' %}?q={{ keyword|urlencode }}"><span>{{ keyword }}</span>{% ui_text 'explore_related' 'Explore related AI authorship recommendations' %}</a>{% endfor %}</section>{% endif %}

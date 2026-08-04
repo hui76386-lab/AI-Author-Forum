@@ -9,6 +9,7 @@ from modelcluster.fields import ParentalKey
 from wagtail.admin.panels import (
     FieldPanel,
     HelpPanel,
+    InlinePanel,
     MultiFieldPanel,
     ObjectList,
     TabbedInterface,
@@ -22,7 +23,6 @@ from ai_author_forum.utils.public_i18n import (
     localized_article_abstract,
     localized_article_authors,
     localized_article_body,
-    localized_article_ai_coauthors,
     localized_article_keywords,
     localized_article_title,
 )
@@ -138,6 +138,7 @@ class ArticlePage(Page):
     )
     authors = models.CharField(
         max_length=255,
+        blank=True,
         help_text="多个作者请使用英文逗号分隔。",
     )
     ai_co_authors = models.CharField(max_length=255, blank=True)
@@ -262,7 +263,15 @@ class ArticlePage(Page):
             ],
             heading="封面与摘要",
         ),
-        FieldPanel("authors"),
+        InlinePanel(
+            "contributors",
+            label="作者或编辑",
+            heading="作者",
+            min_num=1,
+            help_text=(
+                "添加文章作者和编辑信息。可选择预设身份，或选择“自定义身份”后填写新身份名称。"
+            ),
+        ),
         FieldPanel("body"),
         FieldPanel("keywords"),
         PreviewButton(heading="动态预览"),
@@ -373,6 +382,27 @@ class ArticlePage(Page):
         """Return the one canonical fixed-HTML file path for this article."""
         return f"/articles/{self.static_slug}/index.html"
 
+    def sync_authors_from_contributors(self):
+        """Keep the legacy search/import field aligned with structured people."""
+        if not self.pk:
+            return self.authors
+
+        contributors = list(self.contributors.all())
+        if not contributors:
+            summary = ""
+        else:
+            author_names = [
+                contributor.name
+                for contributor in contributors
+                if contributor.identity == ArticleContributor.Identity.AUTHOR
+            ]
+            summary = ", ".join(author_names or [item.name for item in contributors])
+
+        if self.authors != summary:
+            type(self).objects.filter(pk=self.pk).update(authors=summary)
+            self.authors = summary
+        return summary
+
     def get_absolute_url(self):
         """Return the one canonical production URL, independent of the page tree."""
         return reverse("article_detail", kwargs={"slug": self.static_slug})
@@ -391,6 +421,8 @@ class ArticlePage(Page):
         context["article_display_title"] = localized_article_title(self)
         context["article_display_abstract"] = localized_article_abstract(self)
         context["article_display_authors"] = localized_article_authors(self)
+        context["authors_text"] = context["article_display_authors"]
+        context["contributors"] = tuple(self.contributors.all())
         context["article_display_keywords"] = localized_article_keywords(self)
         context["article_display_body"] = localized_article_body(self)
         context["review_status_label"] = self.get_review_status_display()
@@ -654,6 +686,89 @@ class ArticlePage(Page):
             ("trigger_article_placement", "可管理文章投放"),
             ("use_raw_html", "可使用文章 Raw HTML 正文块"),
         ]
+
+
+class ArticleContributor(Orderable):
+    """A person credited on an article, with an editorial identity when needed."""
+
+    class Identity(models.TextChoices):
+        AUTHOR = "author", "作者"
+        EDITOR_IN_CHIEF = "editor_in_chief", "主编"
+        EXECUTIVE_EDITOR = "executive_editor", "执行主编"
+        ASSOCIATE_EDITOR = "associate_editor", "副编辑"
+        CUSTOM = "custom", "自定义身份"
+
+    ENGLISH_IDENTITIES = {
+        Identity.AUTHOR: "Author",
+        Identity.EDITOR_IN_CHIEF: "Editor-in-Chief",
+        Identity.EXECUTIVE_EDITOR: "Executive Editor",
+        Identity.ASSOCIATE_EDITOR: "Associate Editor",
+    }
+
+    article = ParentalKey(
+        ArticlePage,
+        on_delete=models.CASCADE,
+        related_name="contributors",
+    )
+    identity = models.CharField(
+        max_length=32,
+        choices=Identity.choices,
+        default=Identity.AUTHOR,
+        verbose_name="身份",
+    )
+    custom_identity = models.CharField(
+        max_length=120,
+        blank=True,
+        verbose_name="自定义身份",
+        help_text="仅在身份选择“自定义身份”时填写。",
+    )
+    name = models.CharField(max_length=255, verbose_name="姓名")
+    affiliation = models.CharField(max_length=500, blank=True, verbose_name="单位")
+    is_corresponding = models.BooleanField(default=False, verbose_name="通讯作者")
+
+    panels = [
+        FieldPanel("identity"),
+        FieldPanel("custom_identity"),
+        FieldPanel("name"),
+        FieldPanel("affiliation"),
+        FieldPanel("is_corresponding"),
+    ]
+
+    class Meta(Orderable.Meta):
+        verbose_name = "文章作者或编辑"
+        verbose_name_plural = "文章作者或编辑"
+
+    def clean(self):
+        super().clean()
+        self.name = (self.name or "").strip()
+        self.custom_identity = (self.custom_identity or "").strip()
+        if self.identity == self.Identity.CUSTOM and not self.custom_identity:
+            raise ValidationError({"custom_identity": "请选择或填写自定义身份名称。"})
+        if self.identity != self.Identity.CUSTOM:
+            self.custom_identity = ""
+
+    def display_identity(self, language_code=None):
+        if self.identity == self.Identity.CUSTOM:
+            return self.custom_identity
+        if str(language_code or "").lower().startswith("en"):
+            return self.ENGLISH_IDENTITIES.get(self.identity, self.get_identity_display())
+        return self.get_identity_display()
+
+    def save(self, *args, **kwargs):
+        result = super().save(*args, **kwargs)
+        if self.article_id:
+            ArticlePage.objects.get(pk=self.article_id).sync_authors_from_contributors()
+        return result
+
+    def delete(self, *args, **kwargs):
+        article_id = self.article_id
+        result = super().delete(*args, **kwargs)
+        if article_id:
+            ArticlePage.objects.get(pk=article_id).sync_authors_from_contributors()
+        return result
+
+    def __str__(self):
+        return f"{self.display_identity()}: {self.name}"
 
 
 class ArticleCategoryAssignment(Orderable):

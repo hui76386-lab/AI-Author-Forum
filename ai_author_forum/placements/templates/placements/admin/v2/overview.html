@@ -1,0 +1,41 @@
+{% extends "placements/admin/v2/base.html" %}
+{% block workflow_content %}
+<div class="page-heading">
+  <div>
+    <h2>投放总览 <span class="muted">/ Placement overview</span></h2>
+    <p>查看投放状态、容量风险和最近批次。审核通过不等于已投放，静态发布也必须单独执行。</p>
+  </div>
+  <div class="actions"><a class="button button-primary" href="{% url 'placements:new_single' %}">新建单篇投放</a><a class="button button-secondary" href="{% url 'placements:bulk_new' %}">批量投放</a></div>
+</div>
+<div class="stats">
+  <div class="stat"><span>当前生效 / Active</span><strong>{{ stats.active }}</strong></div>
+  <div class="stat"><span>即将生效 / Future</span><strong>{{ stats.future }}</strong></div>
+  <div class="stat"><span>两周内到期 / Expiring</span><strong>{{ stats.expiring }}</strong></div>
+  <div class="stat"><span>容量异常 / Capacity</span><strong>{{ stats.capacity }}</strong></div>
+  <div class="stat"><span>草稿批次 / Drafts</span><strong>{{ stats.drafts }}</strong></div>
+  <div class="stat"><span>发布失败 / Failures</span><strong>{{ stats.failed_publishes }}</strong></div>
+</div>
+{% if issues %}
+  <section class="surface attention-panel">
+    <div class="section-heading"><div><h2>需要处理 <span class="muted">/ Needs attention</span></h2><p class="muted">先处理以下问题，再执行正式静态发布。</p></div><span class="status-badge status-badge--placed">{{ issues|length }} 项</span></div>
+    <ul class="attention-list">{% for label,count,url in issues %}<li><a href="{{ url }}"><strong>{{ count }}</strong><span>{{ label }}</span><span aria-hidden="true">→</span></a></li>{% endfor %}</ul>
+  </section>
+{% endif %}
+<section class="surface">
+  <div class="section-heading"><div><h2>最近批次 <span class="muted">/ Recent batches</span></h2><p class="muted">批次保留完整的选择、校验和执行记录，可从详情页继续处理草稿。</p></div><a class="button button-secondary" href="{% url 'placements:batches' %}">查看全部批次</a></div>
+  <div class="table-shell"><table><thead><tr><th>批次</th><th>操作</th><th>状态</th><th>版位</th><th>静态发布</th><th>更新时间</th></tr></thead><tbody>
+    {% for batch in recent_batches %}<tr><td><a href="{% url 'placements:batch_detail' batch_id=batch.pk %}"><strong>{{ batch.batch_number }}</strong></a></td><td>{{ batch.get_operation_display }}</td><td><span class="status-badge">{{ batch.get_status_display }}</span></td><td>{{ batch.slot|default:'未选择' }}</td><td>{{ batch.get_publish_status_display }}</td><td>{{ batch.updated_at }}</td></tr>
+    {% empty %}<tr><td colspan="6"><div class="empty-state"><strong>暂时没有投放批次</strong><span>从新建单篇投放开始。</span></div></td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+<style>
+.placement-v2 .section-heading { display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; margin-bottom: 1rem; }
+.placement-v2 .section-heading h2 { margin-bottom: .25rem; }
+.placement-v2 .section-heading p { margin: 0; }
+.placement-v2 .attention-panel { border-color: #f0d0b4; background: #fffaf5; }
+.placement-v2 .attention-list { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }
+.placement-v2 .attention-list a { display: grid; grid-template-columns: 3rem 1fr auto; gap: .7rem; align-items: center; padding: .7rem .75rem; border-radius: .45rem; color: var(--placement-ink); text-decoration: none; }
+.placement-v2 .attention-list a:hover { background: #fff1df; }
+.placement-v2 .attention-list strong { color: #b54708; font-size: 1.15rem; text-align: center; }
+</style>
+{% endblock %}

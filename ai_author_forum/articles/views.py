@@ -38,6 +38,7 @@ from .models import (
     ArticlePage,
     ArticleRevisionConflict,
     user_has_article_edit_permission,
+    user_has_article_placement_permission,
     user_has_article_review_permission,
 )
 
@@ -455,6 +456,21 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         latest_revision = self.article.get_latest_revision()
+        placement_url = ""
+        if (
+            self.article.review_status
+            in {
+                ArticlePage.ReviewStatus.APPROVED,
+                ArticlePage.ReviewStatus.PUBLISHED,
+            }
+            and user_has_article_placement_permission(self.request.user)
+            and self.article.primary_journal_id
+            and getattr(self.article.primary_journal, "status", "") == "active"
+        ):
+            placement_url = (
+                f"{reverse('placements:new_single')}?"
+                f"{urlencode({'article': self.article.pk, 'journal': self.article.primary_journal.slug})}"
+            )
         context.update(
             {
                 "article": self.article,
@@ -465,6 +481,7 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
                 ),
                 "edit_url": reverse("wagtailadmin_pages:edit", args=[self.article.pk]),
                 "placements_url": f"{reverse('placements:index')}?article={self.article.pk}",
+                "placement_url": placement_url,
                 "submit_review_url": reverse(
                     "article_admin:submit_review", args=[self.article.pk]
                 ),

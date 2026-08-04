@@ -388,6 +388,10 @@ STATIC_PUBLISH_AUTO_DEBOUNCE_SECONDS = int(
     os.environ.get("STATIC_PUBLISH_AUTO_DEBOUNCE_SECONDS", "60")
 )
 
+# Placement workflow V2 is opt-in during the compatibility window.
+PLACEMENTS_V2_ENABLED = os.environ.get("PLACEMENTS_V2_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+PLACEMENTS_BATCH_MAX_ITEMS = int(os.environ.get("PLACEMENTS_BATCH_MAX_ITEMS", "100"))
+
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 CELERY_TASK_DEFAULT_QUEUE = os.environ.get("CELERY_TASK_DEFAULT_QUEUE", "celery")

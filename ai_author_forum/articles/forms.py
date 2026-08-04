@@ -86,6 +86,9 @@ class ArticleCategoryAssignmentInlinePanel(InlinePanel):
 class ArticlePageForm(WagtailAdminPageForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # The Authors panel is now an InlinePanel. Keep the legacy summary field
+        # out of the form; ArticleContributor maintains it after inline saves.
+        self.fields.pop("authors", None)
         self._set_default_body_initial()
         self._limit_journal_fields_to_active_journals()
 

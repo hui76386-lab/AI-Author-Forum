@@ -668,7 +668,7 @@
                 </div>
             </div>
             <div class="placement-filter">
-                <form method="get" action="{% url 'placements:index' %}">
+                <form method="get" action="{% url 'placements_legacy:index' %}">
                     <ul class="fields">
                         {% for field in filter_form %}
                             {% if field.is_hidden %}
@@ -684,7 +684,7 @@
                     </ul>
                     <div class="placement-filter__actions">
                         <button type="submit" class="button">应用筛选</button>
-                        <a class="button button-secondary" href="{% url 'placements:index' %}">重置条件</a>
+                        <a class="button button-secondary" href="{% url 'placements_legacy:index' %}">重置条件</a>
                     </div>
                 </form>
                 <p class="placement-filter__result">
@@ -699,8 +699,8 @@
                 class="placement-surface"
                 id="bulk-journal-placement"
                 data-bulk-placement
-                data-articles-url="{% url 'placements:bulk_articles' %}"
-                data-capacity-url="{% url 'placements:capacity' %}"
+                data-articles-url="{% url 'placements_legacy:bulk_articles' %}"
+                data-capacity-url="{% url 'placements_legacy:capacity' %}"
             >
                 <div class="placement-surface__header">
                     <div>
@@ -710,7 +710,7 @@
                     </div>
                     <span class="placement-mode">批量模式</span>
                 </div>
-                <form method="post" action="{% url 'placements:index' %}" data-bulk-placement-form>
+                <form method="post" action="{% url 'placements_legacy:index' %}" data-bulk-placement-form>
                     <div class="placement-editor__body">
                         {% csrf_token %}
                         <input type="hidden" name="mode" value="bulk_journal">
@@ -762,7 +762,7 @@
                 class="placement-surface"
                 id="placement-editor"
                 data-placement-workbench
-                data-capacity-url="{% url 'placements:capacity' %}"
+                data-capacity-url="{% url 'placements_legacy:capacity' %}"
                 data-preview-fallback="{% static 'images/reference/article-1.png' %}"
             >
                 <div class="placement-surface__header">
@@ -774,14 +774,14 @@
                     <span class="placement-mode">{% if editing_placement %}编辑模式{% else %}新增投放{% endif %}</span>
                 </div>
 
-                <form method="post" enctype="multipart/form-data" action="{% url 'placements:index' %}" data-placement-form>
+                <form method="post" enctype="multipart/form-data" action="{% url 'placements_legacy:index' %}" data-placement-form>
                     <div class="placement-editor__body">
                         {% csrf_token %}
                         {% if editing_placement %}<input type="hidden" name="placement_id" value="{{ editing_placement.pk }}">{% endif %}
                         <input type="hidden" name="article_query" value="{{ article_query }}">
 
                         {% if editing_placement %}
-                            <p><a href="{% url 'placements:index' %}#placement-editor">退出编辑，改为新增投放</a></p>
+                            <p><a href="{% url 'placements_legacy:index' %}#placement-editor">退出编辑，改为新增投放</a></p>
                         {% endif %}
                         {% if form.non_field_errors %}
                             <div class="placement-form-errors">{{ form.non_field_errors }}</div>
@@ -998,7 +998,7 @@
         <section
             class="placement-surface placement-current"
             id="current-placements"
-            data-reorder-url="{% url 'placements:reorder' %}"
+            data-reorder-url="{% url 'placements_legacy:reorder' %}"
             data-can-reorder="{% if can_change %}1{% else %}0{% endif %}"
         >
             <div class="placement-current__heading">
@@ -1041,8 +1041,8 @@
                                         <td class="placement-order-actions">
                                             <button type="button" class="button button-small button-secondary" data-move="up" title="上移">↑</button>
                                             <button type="button" class="button button-small button-secondary" data-move="down" title="下移">↓</button>
-                                            <a class="button button-small button-secondary" href="{% url 'placements:index' %}?edit={{ placement.pk }}#placement-editor">编辑</a>
-                                            <form method="post" action="{% url 'placements:deactivate' placement.pk %}" style="display:inline" onsubmit="return confirm('确认停用此投放？');">
+                                            <a class="button button-small button-secondary" href="{% url 'placements_legacy:index' %}?edit={{ placement.pk }}#placement-editor">编辑</a>
+                                            <form method="post" action="{% url 'placements_legacy:deactivate' placement.pk %}" style="display:inline" onsubmit="return confirm('确认停用此投放？');">
                                                 {% csrf_token %}
                                                 <button class="button button-small button-secondary" type="submit">停用</button>
                                             </form>

@@ -1,0 +1,111 @@
+{% extends "placements/admin/v2/base.html" %}
+{% block workflow_content %}
+{% include "placements/admin/v2/stepper.html" %}
+<div class="page-heading">
+  <div>
+    <h2>选择文章 <span class="muted">/ Select articles</span></h2>
+    <p>只显示审核通过且所属子期刊启用的文章。搜索支持标题、slug、摘要、作者、关键词和子期刊名称。</p>
+  </div>
+  {% if selected_journal %}<div class="selected-target"><strong>目标子期刊</strong><span>{{ selected_journal.name_cn|default:selected_journal.name }}</span><span class="muted">{{ selected_journal.slug }}</span></div>{% endif %}
+</div>
+
+<form class="filters" method="get" action="{{ next_url }}">
+  <label>
+    关键词 / Keyword
+    <input type="search" name="q" value="{{ request.GET.q }}" placeholder="标题、slug、摘要、作者或关键词" autocomplete="off">
+  </label>
+  <label>
+    子期刊 / Journal
+    <input type="search" name="journal" value="{% if request.GET.journal %}{{ request.GET.journal }}{% elif selected_journal %}{{ selected_journal.slug }}{% endif %}" placeholder="名称、中文名或 slug" autocomplete="off">
+  </label>
+  <label>
+    每页 / Page size
+    <select name="page_size">
+      <option value="20">20 篇</option>
+      <option value="50" {% if request.GET.page_size == '50' %}selected{% endif %}>50 篇</option>
+      <option value="100" {% if request.GET.page_size == '100' %}selected{% endif %}>100 篇</option>
+    </select>
+  </label>
+  <div class="filter-actions">
+    <button class="button button-primary" type="submit">搜索文章</button>
+    <a class="button button-secondary" href="{{ next_url }}">清空</a>
+  </div>
+</form>
+
+<form method="post" action="{{ next_url }}">
+  {% csrf_token %}
+  <div class="selection-toolbar">
+    <label><input type="checkbox" data-select-visible> 选择当前页</label>
+    <span>共 <strong>{{ paginator.count }}</strong> 篇，已选 <strong data-selected-count>{{ selected_ids|length }}</strong> 篇</span>
+  </div>
+  <div class="table-shell">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">选择</th>
+          <th scope="col">文章 / Article</th>
+          <th scope="col">主属子期刊 / Journal</th>
+          <th scope="col">审核 / Review</th>
+          <th scope="col">投放状态 / Placement</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for article in page_obj.object_list %}
+          <tr class="{% if article.pk in selected_ids %}selected{% endif %}">
+            <td>
+              {% if single %}
+                <input required type="radio" name="article_id" value="{{ article.pk }}" {% if article.pk in selected_ids %}checked{% endif %}>
+              {% else %}
+                <input type="checkbox" name="article_ids" value="{{ article.pk }}" data-article-choice {% if article.pk in selected_ids %}checked{% endif %}>
+              {% endif %}
+            </td>
+            <td class="article-title">
+              {{ article.title }}
+              <div class="muted">{{ article.static_slug }} · #{{ article.pk }}</div>
+            </td>
+            <td>
+              {{ article.primary_journal.name_cn|default:article.primary_journal.name }}
+              <div class="muted">{{ article.primary_journal.slug }}</div>
+            </td>
+            <td><span class="status-badge status-badge--ready">审核通过</span><div class="muted">可投放</div></td>
+            <td>
+              {% if article.current_placement_count %}
+                <span class="status-badge status-badge--placed">已有 {{ article.current_placement_count }} 个投放</span>
+              {% else %}
+                <span class="status-badge status-badge--ready">未投放 · 优先</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5"><div class="article-empty"><strong>没有符合条件的文章</strong><span>请尝试标题、slug、子期刊中文名或英文名。</span></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="sticky-actions">
+    <span class="muted">投放前仍会再次校验审核状态、子期刊归属和版位容量。</span>
+    <button class="button button-primary" type="submit">保存选择并继续</button>
+  </div>
+</form>
+{% include "placements/admin/v2/pagination.html" %}
+<script>
+(() => {
+  const selectVisible = document.querySelector('[data-select-visible]');
+  const choices = [...document.querySelectorAll('[data-article-choice]')];
+  const count = document.querySelector('[data-selected-count]');
+  const refresh = () => {
+    if (count) count.textContent = String(choices.filter((choice) => choice.checked).length);
+    if (selectVisible) selectVisible.checked = choices.length > 0 && choices.every((choice) => choice.checked);
+  };
+  selectVisible?.addEventListener('change', () => { choices.forEach((choice) => { choice.checked = selectVisible.checked; }); refresh(); });
+  choices.forEach((choice) => choice.addEventListener('change', refresh));
+  refresh();
+})();
+</script>
+<style>
+.placement-v2 .article-empty { display: grid; gap: .35rem; padding: 2.5rem 1rem; color: var(--placement-muted); text-align: center; }
+.placement-v2 .article-empty strong { color: var(--placement-ink); font-size: 1rem; }
+.placement-v2 tr.selected { background: #f0fbfa; }
+.placement-v2 .selection-toolbar input { accent-color: var(--placement-accent); }
+</style>
+{% endblock %}

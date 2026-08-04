@@ -12,7 +12,7 @@ from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
-from django.utils import timezone
+from django.utils import timezone, translation
 from PIL import Image as PillowImage
 from wagtail.documents import get_document_model
 from wagtail.models import Page
@@ -126,7 +126,7 @@ class StaticFrontendTests(TestCase):
         response = self.client.get(item.target_url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, f"{self.journal.name}: {item.label}")
+        self.assertContains(response, f"{self.journal.name_cn}：期刊信息")
         sponsorship = BeautifulSoup(response.content, "html.parser").select_one(
             ".c-footer__sponsorship"
         )
@@ -298,7 +298,7 @@ class StaticFrontendTests(TestCase):
                     visual_section.select_one(".c-section-heading h2").get_text(
                         strip=True
                     ),
-                    "Research Highlights",
+                    "研究亮点",
                 )
                 visual_cards = visual_section.select("article.c-visual-story-card")
                 self.assertEqual(len(visual_cards), 2)
@@ -466,6 +466,42 @@ class StaticFrontendTests(TestCase):
         self.assertNotContains(
             response, "No placed articles are currently available for this journal."
         )
+
+    def test_english_journal_page_uses_localized_labels_and_deduplicated_articles(self):
+        self.place(
+            self.article_a,
+            "journal_hero",
+            ArticlePlacement.TargetType.JOURNAL,
+            self.journal.slug,
+        )
+        self.place(
+            self.article_a,
+            "journal_latest",
+            ArticlePlacement.TargetType.JOURNAL,
+            self.journal.slug,
+        )
+        self.place(
+            self.article_b,
+            "journal_latest",
+            ArticlePlacement.TargetType.JOURNAL,
+            self.journal.slug,
+        )
+
+        with translation.override("en"):
+            response = self.client.get(f"/en/journals/{self.journal.slug}/")
+
+        self.assertEqual(response.status_code, 200)
+        rendered = response.content.decode("utf-8")
+        soup = BeautifulSoup(rendered, "html.parser")
+        self.assertEqual(
+            soup.select_one("#journal-home-heading").get_text(strip=True),
+            self.journal.name,
+        )
+        self.assertEqual(len(soup.select(".c-journal-home__featured-story article")), 1)
+        self.assertEqual(len(soup.select(".c-journal-home__article-grid article")), 1)
+        self.assertIn("AI Article", rendered)
+        self.assertNotIn("AI 文章", rendered)
+        self.assertNotIn("Replaceable journal cover", rendered)
 
     def test_section_page_uses_exact_section_target_and_display_order(self):
         later = self.place(

@@ -1,10 +1,9 @@
-﻿{% load article_images wagtailimages_tags i18n_frontend %}
+{% load article_images wagtailimages_tags i18n_frontend %}
 {% article_image placement.article placement=placement as visual %}
-<article class="c-card" data-placement-article="{{ placement.article.static_slug }}" data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0"{% if placement.is_auto_filled %} data-auto-placement="true"{% endif %}>
+<article class="c-card{% if card_class %} {{ card_class }}{% endif %}" data-placement-article="{{ placement.article.static_slug }}" data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0"{% if placement.is_auto_filled %} data-auto-placement="true"{% endif %}>
   <a class="c-card__image" href="{{ placement.article.get_absolute_url|localized_url }}">
     {% if visual.image %}{% image visual.image fill-720x420 as card_image %}<img src="{{ card_image.url }}" width="{{ card_image.width }}" height="{{ card_image.height }}" alt="{{ visual.alt }}">{% else %}<img src="{{ visual.placeholder_url }}" width="720" height="420" alt="{{ visual.alt }}">{% endif %}
   </a>
-  <span class="c-meta">{{ placement.article.article_type|article_type_label }}</span>
   <h3><a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a></h3>
   {% if placement.display_summary %}<p>{{ placement.display_summary }}</p>{% endif %}
   <div class="c-card__meta-footer"><span>{{ placement.display_authors }}</span><span><strong>{% ui_text 'article' 'Article' %}</strong>{% if placement.article.first_published_at %} {{ placement.article.first_published_at|date:'Y-m-d' }}{% endif %}</span></div>

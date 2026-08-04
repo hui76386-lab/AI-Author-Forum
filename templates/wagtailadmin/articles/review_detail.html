@@ -21,8 +21,13 @@
             </div>
 
             <div class="article-review-next-step">
-                <strong>流程提示：</strong>审核通过后进入投放管理，不代表前台发布。只有完成版位投放并执行静态发布后，文章才会进入对应静态页面。
-                <a href="{{ placements_url }}">进入投放管理</a>
+                {% if placement_url %}
+                    <strong>审核已完成：</strong>文章可以进入投放管理，选择版位后再执行静态发布。
+                    <a class="button button-primary" href="{{ placement_url }}">投放文章</a>
+                {% else %}
+                    <strong>流程提示：</strong>审核通过后进入投放管理，不代表前台发布。只有完成版位投放并执行静态发布后，文章才会进入对应静态页面。
+                    <a href="{{ placements_url }}">进入投放管理</a>
+                {% endif %}
             </div>
 
             <dl class="article-review-versions">
