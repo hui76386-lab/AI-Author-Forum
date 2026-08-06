@@ -12,6 +12,9 @@ from ai_author_forum.articles.display import resolve_article_image
 from ai_author_forum.articles.integrations import get_site_settings
 from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.journals.models import (
+    Journal,
+    JournalEditorAssignment,
+    JournalStatus,
     PublicationIssue,
     PublicationIssueScope,
     PublicationIssueStatus,
@@ -102,6 +105,28 @@ def _finding(code, message, *, target=None, path=""):
     )
 
 
+def _check_active_journal_chiefs(result, *, at):
+    for journal in Journal.objects.filter(status=JournalStatus.ACTIVE).order_by("pk"):
+        chief_count = (
+            JournalEditorAssignment.objects.effective(at=at)
+            .filter(
+                journal=journal,
+                role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            )
+            .count()
+        )
+        if chief_count != 1:
+            result.block(
+                "active_journal_chief_invalid",
+                (
+                    f"Active journal '{journal}' requires exactly one effective "
+                    f"chief editor; found {chief_count}."
+                ),
+                target=journal,
+                path=f"/journals/{journal.slug}/",
+            )
+
+
 def _normalise_public_path(value):
     path = urlsplit(value or "").path
     if not path:
@@ -133,7 +158,7 @@ def requires_homepage_readiness(targets):
 
 def _homepage_placements(at):
     return list(
-        ArticlePlacement.objects.available(at=at)
+        ArticlePlacement.objects.available_for_static_release(at=at)
         .filter(
             target_type=ArticlePlacement.TargetType.MAIN_SITE,
             target_slug="",
@@ -639,7 +664,7 @@ def _check_static_targets(result, targets, at):
 
     if dependency_placement_ids:
         available_ids = set(
-            ArticlePlacement.objects.available(at=at)
+            ArticlePlacement.objects.available_for_static_release(at=at)
             .filter(pk__in=dependency_placement_ids)
             .values_list("pk", flat=True)
         )
@@ -663,6 +688,7 @@ def check_content_readiness(*, targets=None, at=None):
         )
     if target_list is None or requires_homepage_readiness(target_list):
         _check_homepage(result, at=at)
+    _check_active_journal_chiefs(result, at=at)
 
     items = list(
         NavigationItem.objects.select_related(

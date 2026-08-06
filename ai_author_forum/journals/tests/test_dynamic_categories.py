@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from ai_author_forum.articles.category_services import (
@@ -11,10 +12,18 @@ from ai_author_forum.journals.category_services import (
     move_category,
 )
 from ai_author_forum.journals.models import Journal, JournalCategoryPathRedirect
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 
 class DynamicCategoryTests(TestCase):
     def setUp(self):
+        self.actor = grant_business_super_admin(
+            get_user_model().objects.create_superuser(
+                username="dynamic-category-admin",
+                email="dynamic-category-admin@example.com",
+                password="test",
+            )
+        )
         self.journal = Journal.objects.create(
             name="AI Ethics Forum", slug="ai-ethics", az_group="A"
         )
@@ -24,6 +33,7 @@ class DynamicCategoryTests(TestCase):
             journal=self.journal,
             parent=parent,
             data={"name": code.title(), "code": code, "slug": slug},
+            actor=self.actor,
         ).category
 
     def test_three_level_tree_and_canonical_url(self):
@@ -81,6 +91,7 @@ class DynamicCategoryTests(TestCase):
             category_id=child.pk,
             new_parent_id=second.pk,
             expected_version=child.version,
+            actor=self.actor,
         )
         child.refresh_from_db()
         leaf.refresh_from_db()
@@ -98,7 +109,11 @@ class DynamicCategoryTests(TestCase):
         second = self.create("SECOND", "second")
         child = self.create("CHILD", "child", first)
         self.assertEqual(self.client.get(child.get_absolute_url()).status_code, 200)
-        move_category(category_id=child.pk, new_parent_id=second.pk)
+        move_category(
+            category_id=child.pk,
+            new_parent_id=second.pk,
+            actor=self.actor,
+        )
         response = self.client.get("/journals/ai-ethics/categories/first/child/")
         self.assertEqual(response.status_code, 301)
         self.assertEqual(

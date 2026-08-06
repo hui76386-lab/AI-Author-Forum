@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django.contrib import messages
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
@@ -6,6 +8,7 @@ from django.db import OperationalError, ProgrammingError, transaction
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
 from django.templatetags.static import static
 from django.urls import path, reverse, reverse_lazy
 from django.utils.html import format_html
@@ -15,8 +18,6 @@ from wagtail.admin.auth import permission_denied, permission_required
 from wagtail.admin.menu import MenuItem
 from wagtail.admin.viewsets.base import ViewSet
 from wagtail.models import (
-    GroupPagePermission,
-    Page,
     Workflow,
     WorkflowContentType,
     WorkflowPage,
@@ -33,35 +34,38 @@ from .import_views import (
     article_import_status,
     article_import_template,
 )
-from .integrations import log_article_audit
 from .models import (
     ARTICLE_EDIT_PERMISSION,
     ARTICLE_PLACEMENT_PERMISSION,
     ARTICLE_RAW_HTML_PERMISSION,
     ARTICLE_REVIEW_PERMISSION,
     WAGTAIL_ADMIN_ACCESS_PERMISSION,
+    ArticleFinalReviewTask,
+    ArticleInitialReviewTask,
     ArticlePage,
-    ArticleReviewRecord,
     ArticleReviewTask,
     user_has_article_edit_permission,
 )
 from .views import (
+    ArticleClaimInitialReviewView,
     ArticleEditorCapabilitiesView,
     ArticleListView,
+    ArticleReassignInitialReviewView,
+    ArticleReopenReviewView,
     ArticleReviewDetailView,
     ArticleReviewPreviewView,
     ArticleSubmitReviewView,
     BulkArticleActionView,
+    FinalArticleListView,
     PendingArticleListView,
     user_can_review_articles,
 )
 
 ARTICLE_MODERATION_WORKFLOW_NAME = "Article Moderation"
 ARTICLE_REVIEW_TASK_NAME = "Article Review"
-CONTENT_EDITORS_GROUP_NAME = "Content Editors"
-CONTENT_REVIEWERS_GROUP_NAME = "审核人员"
-LEGACY_CONTENT_REVIEWERS_GROUP_NAME = "Content Reviewers"
-CONTENT_PUBLISHERS_GROUP_NAME = "Content Publishers"
+ARTICLE_INITIAL_REVIEW_TASK_NAME = "Article Initial Review"
+ARTICLE_FINAL_REVIEW_TASK_NAME = "Article Final Review"
+JOURNAL_EDITOR_ACCESS_GROUP_NAME = "子期刊编辑基础访问"
 ARTICLE_PERMISSION_NAMES = {
     ARTICLE_EDIT_PERMISSION.split(".", maxsplit=1)[1]: "可编辑文章",
     ARTICLE_REVIEW_PERMISSION.split(".", maxsplit=1)[1]: "可审核文章",
@@ -70,10 +74,6 @@ ARTICLE_PERMISSION_NAMES = {
         "可使用文章 Raw HTML 正文块"
     ),
 }
-REVIEW_PERMISSION_CODENAME = ARTICLE_REVIEW_PERMISSION.split(".", maxsplit=1)[1]
-EDIT_PERMISSION_CODENAME = ARTICLE_EDIT_PERMISSION.split(".", maxsplit=1)[1]
-PLACEMENT_PERMISSION_CODENAME = ARTICLE_PLACEMENT_PERMISSION.split(".", maxsplit=1)[1]
-RAW_HTML_PERMISSION_CODENAME = ARTICLE_RAW_HTML_PERMISSION.split(".", maxsplit=1)[1]
 
 
 class ArticleAdminViewSet(ViewSet):
@@ -82,8 +82,7 @@ class ArticleAdminViewSet(ViewSet):
     url_namespace = "article_admin"
 
     def get_urlpatterns(self):
-        require_edit_permission = permission_required("site_settings.access_articles")
-        require_review_permission = permission_required(ARTICLE_REVIEW_PERMISSION)
+        require_admin_access = permission_required(WAGTAIL_ADMIN_ACCESS_PERMISSION)
         return [
             path("import/", article_import_dashboard, name="import"),
             path("import/confirm/", article_import_confirm, name="import_confirm"),
@@ -96,34 +95,52 @@ class ArticleAdminViewSet(ViewSet):
             ),
             path(
                 "",
-                require_edit_permission(ArticleListView.as_view()),
+                require_admin_access(ArticleListView.as_view()),
                 name="index",
             ),
             path(
                 "pending/",
-                require_review_permission(PendingArticleListView.as_view()),
+                require_admin_access(PendingArticleListView.as_view()),
                 name="pending",
             ),
             path(
+                "final/",
+                require_admin_access(FinalArticleListView.as_view()),
+                name="final",
+            ),
+            path(
                 "<int:page_id>/review/",
-                require_review_permission(ArticleReviewDetailView.as_view()),
+                require_admin_access(ArticleReviewDetailView.as_view()),
                 name="review_detail",
             ),
             path(
                 "<int:page_id>/review/preview/",
-                require_review_permission(ArticleReviewPreviewView.as_view()),
+                require_admin_access(ArticleReviewPreviewView.as_view()),
                 name="review_preview",
             ),
             path(
+                "<int:page_id>/review/claim/",
+                require_admin_access(ArticleClaimInitialReviewView.as_view()),
+                name="claim_review",
+            ),
+            path(
+                "<int:page_id>/review/reassign/",
+                require_admin_access(ArticleReassignInitialReviewView.as_view()),
+                name="reassign_review",
+            ),
+            path(
+                "<int:page_id>/review/reopen/",
+                require_admin_access(ArticleReopenReviewView.as_view()),
+                name="reopen_review",
+            ),
+            path(
                 "<int:page_id>/submit-review/",
-                permission_required(ARTICLE_EDIT_PERMISSION)(
-                    ArticleSubmitReviewView.as_view()
-                ),
+                require_admin_access(ArticleSubmitReviewView.as_view()),
                 name="submit_review",
             ),
             path(
                 "category-options/",
-                require_edit_permission(article_category_options),
+                require_admin_access(article_category_options),
                 name="category_options",
             ),
             path(
@@ -145,8 +162,14 @@ class ArticleAdminViewSet(ViewSet):
 
 class ArticleListMenuItem(MenuItem):
     def is_shown(self, request):
-        return request.user.is_superuser or request.user.has_perm(
-            "site_settings.access_articles"
+        from ai_author_forum.journals.models import JournalEditorAssignment
+        from ai_author_forum.site_settings.access_control import is_super_admin
+
+        return is_super_admin(request.user) or (
+            request.user.is_active
+            and JournalEditorAssignment.objects.effective()
+            .filter(user=request.user)
+            .exists()
         )
 
 
@@ -155,20 +178,40 @@ class ArticleReviewMenuItem(MenuItem):
         return user_can_review_articles(request.user)
 
 
+class ArticleFinalReviewMenuItem(MenuItem):
+    def is_shown(self, request):
+        from ai_author_forum.journals.models import JournalEditorAssignment
+
+        return (
+            JournalEditorAssignment.objects.effective()
+            .filter(
+                user=request.user,
+                role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            )
+            .exists()
+        )
+
+
 class PlacementSyncExceptionMenuItem(MenuItem):
     def is_shown(self, request):
-        return request.user.is_superuser or (
-            request.user.has_perm("site_settings.access_placements")
-            and request.user.has_perm("placements.view_system_categoryplacement")
-        )
+        from ai_author_forum.site_settings.access_control import is_super_admin
+
+        return is_super_admin(request.user)
 
 
 def article_category_options(request):
     journal_id = request.GET.get("journal")
     categories = JournalCategory.objects.none()
     if journal_id:
+        from ai_author_forum.journals.models import Journal
+        from ai_author_forum.site_settings.access_control import (
+            filter_accessible_journals,
+        )
+
+        accessible = filter_accessible_journals(request.user, Journal.objects.all())
+        journal = get_object_or_404(accessible, pk=journal_id)
         categories = JournalCategory.objects.filter(
-            journal_id=journal_id,
+            journal=journal,
             status__in=(JournalCategoryStatus.ACTIVE, JournalCategoryStatus.HIDDEN),
         ).order_by("path_cache")
     return JsonResponse(
@@ -434,7 +477,14 @@ def redirect_after_article_quick_save_create(request, page):
 
 @hooks.register("before_create_page")
 def require_article_edit_permission_before_create(request, parent_page, page_class):
+    from ai_author_forum.site_settings.access_control import is_super_admin
+
+    is_journal_editor = request.user.groups.filter(
+        name=JOURNAL_EDITOR_ACCESS_GROUP_NAME
+    ).exists()
     if page_class is not ArticlePage:
+        if is_journal_editor and not is_super_admin(request.user):
+            return permission_denied(request)
         return None
 
     if not user_has_article_edit_permission(request.user):
@@ -547,56 +597,81 @@ def assign_article_workflow_after_create(request, page):
 
 @receiver(workflow_submitted, dispatch_uid="articles.workflow_submitted")
 def sync_article_status_on_workflow_submitted(sender, instance, user, **kwargs):
-    _sync_article_review_status(
-        workflow_state=instance,
-        status=ArticlePage.ReviewStatus.SUBMITTED,
-        user=user,
-        default_comment="已提交至文章审核流程。",
+    article = _get_article_from_workflow_state(instance)
+    if article is None or article.review_status == ArticlePage.ReviewStatus.SUBMITTED:
+        return
+    from .review_services import submit_article_for_initial_review
+
+    revision = article.get_latest_revision()
+    submit_article_for_initial_review(
+        actor=user,
+        article=article,
+        expected_state=ArticlePage.ReviewStatus.DRAFT,
+        expected_revision_id=getattr(revision, "pk", None),
+        request_id=uuid4(),
+        comment="已提交至文章初审流程。",
+    )
+
+
+@hooks.register("register_admin_menu_item")
+def register_final_articles_menu_item():
+    return ArticleFinalReviewMenuItem(
+        "本刊待终审",
+        reverse_lazy("article_admin:final"),
+        name="final-review-articles",
+        icon_name="clipboard-list",
+        order=302,
     )
 
 
 @receiver(workflow_approved, dispatch_uid="articles.workflow_approved")
 def sync_article_status_on_workflow_approved(sender, instance, user, **kwargs):
-    article, revision = _sync_article_review_status(
-        workflow_state=instance,
-        status=ArticlePage.ReviewStatus.APPROVED,
-        user=user,
-        default_comment="文章审核流程已批准。",
-    )
-    if article:
-        actor_id = getattr(user, "pk", None)
-        revision_id = getattr(revision, "pk", None) or getattr(
-            article, "live_revision_id", None
+    article = _get_article_from_workflow_state(instance)
+    if article is None:
+        return
+    revision = article.get_latest_revision()
+    from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
+
+    from .review_services import has_valid_final_approval
+
+    if not has_valid_final_approval(article, revision):
+        AuditLog.record(
+            action=AuditAction.PERMISSION,
+            status=AuditStatus.FAILURE,
+            actor=user,
+            target=article,
+            message="Wagtail Workflow 缺少同 revision 终审记录，拒绝批准。",
+            metadata={
+                "workflow_state_id": instance.pk,
+                "revision_id": getattr(revision, "pk", None),
+            },
         )
-        transaction.on_commit(
-            lambda article_id=article.pk, revision_id=revision_id, actor_id=actor_id: _run_category_sync(
-                article_id, revision_id, actor_id
-            )
-        )
+        raise PermissionDenied("缺少同 revision 的有效终审通过记录。")
+    if article.approved_version_id != revision.pk:
+        raise PermissionDenied("终审 revision 与文章批准 revision 不一致。")
 
 
 @receiver(workflow_rejected, dispatch_uid="articles.workflow_rejected")
 def sync_article_status_on_workflow_rejected(sender, instance, user, **kwargs):
-    _sync_article_review_status(
-        workflow_state=instance,
-        status=ArticlePage.ReviewStatus.REJECTED,
-        user=user,
-        default_comment="文章审核流程已驳回。",
-    )
+    return None
 
 
 def _get_or_create_article_workflow():
-    groups = _ensure_article_permission_groups()
-    reviewers_group = groups["reviewers"]
-
-    task, _ = ArticleReviewTask.objects.get_or_create(
-        name=ARTICLE_REVIEW_TASK_NAME,
+    editor_group, _ = Group.objects.get_or_create(name=JOURNAL_EDITOR_ACCESS_GROUP_NAME)
+    initial_task, _ = ArticleInitialReviewTask.objects.get_or_create(
+        name=ARTICLE_INITIAL_REVIEW_TASK_NAME,
         defaults={"active": True},
     )
-    if not task.active:
-        task.active = True
-        task.save(update_fields=["active"])
-    task.groups.set([reviewers_group])
+    final_task, _ = ArticleFinalReviewTask.objects.get_or_create(
+        name=ARTICLE_FINAL_REVIEW_TASK_NAME,
+        defaults={"active": True},
+    )
+    for task in (initial_task, final_task):
+        if not task.active:
+            task.active = True
+            task.save(update_fields=["active"])
+        task.groups.set([editor_group])
+    ArticleReviewTask.objects.filter(name=ARTICLE_REVIEW_TASK_NAME).update(active=False)
 
     workflow, _ = Workflow.objects.get_or_create(
         name=ARTICLE_MODERATION_WORKFLOW_NAME,
@@ -606,10 +681,18 @@ def _get_or_create_article_workflow():
         workflow.active = True
         workflow.save(update_fields=["active"])
 
+    WorkflowTask.objects.filter(workflow=workflow).exclude(
+        task_id__in=(initial_task.pk, final_task.pk)
+    ).delete()
     WorkflowTask.objects.update_or_create(
         workflow=workflow,
-        task=task,
+        task=initial_task,
         defaults={"sort_order": 0},
+    )
+    WorkflowTask.objects.update_or_create(
+        workflow=workflow,
+        task=final_task,
+        defaults={"sort_order": 1},
     )
 
     article_page_content_type = ContentType.objects.get_for_model(
@@ -624,218 +707,12 @@ def _get_or_create_article_workflow():
     return workflow
 
 
-def _get_or_create_content_reviewers_group():
-    group, _ = Group.objects.get_or_create(
-        name=CONTENT_REVIEWERS_GROUP_NAME,
-    )
-    legacy_group = Group.objects.filter(
-        name=LEGACY_CONTENT_REVIEWERS_GROUP_NAME
-    ).first()
-    if legacy_group is not None and legacy_group.pk != group.pk:
-        group.user_set.add(*legacy_group.user_set.all())
-        article_permissions = _get_or_create_article_permissions()
-        legacy_group.permissions.remove(*article_permissions.values())
-        _clear_wagtail_page_permissions(legacy_group)
-
-    _set_django_permissions(
-        group,
-        add_codenames=[REVIEW_PERMISSION_CODENAME],
-        remove_codenames=[
-            EDIT_PERMISSION_CODENAME,
-            PLACEMENT_PERMISSION_CODENAME,
-            RAW_HTML_PERMISSION_CODENAME,
-        ],
-    )
-    _clear_wagtail_page_permissions(group)
-    return group
-
-
-def _ensure_article_permission_groups():
-    return {
-        "editors": _get_or_create_content_editors_group(),
-        "reviewers": _get_or_create_content_reviewers_group(),
-        "publishers": _get_or_create_content_publishers_group(),
-    }
-
-
-def _get_or_create_content_editors_group():
-    group, _ = Group.objects.get_or_create(name=CONTENT_EDITORS_GROUP_NAME)
-    _set_django_permissions(
-        group,
-        add_codenames=[EDIT_PERMISSION_CODENAME],
-        remove_codenames=[
-            REVIEW_PERMISSION_CODENAME,
-            PLACEMENT_PERMISSION_CODENAME,
-            RAW_HTML_PERMISSION_CODENAME,
-        ],
-    )
-    _set_wagtail_page_permissions(group, permission_types=["add"])
-    return group
-
-
-def _get_or_create_content_publishers_group():
-    group, _ = Group.objects.get_or_create(name=CONTENT_PUBLISHERS_GROUP_NAME)
-    _set_django_permissions(
-        group,
-        add_codenames=[PLACEMENT_PERMISSION_CODENAME],
-        remove_codenames=[
-            EDIT_PERMISSION_CODENAME,
-            REVIEW_PERMISSION_CODENAME,
-            RAW_HTML_PERMISSION_CODENAME,
-        ],
-    )
-    _clear_wagtail_page_permissions(group)
-    return group
-
-
-def _set_django_permissions(group, add_codenames, remove_codenames):
-    _add_wagtail_admin_access_permission(group)
-    article_permissions = _get_or_create_article_permissions()
-
-    group.permissions.add(
-        *[
-            article_permissions[codename]
-            for codename in add_codenames
-            if codename in article_permissions
-        ]
-    )
-    group.permissions.remove(
-        *[
-            article_permissions[codename]
-            for codename in remove_codenames
-            if codename in article_permissions
-        ]
-    )
-
-
-def _add_wagtail_admin_access_permission(group):
-    access_admin_permission = Permission.objects.filter(
-        content_type__app_label="wagtailadmin",
-        codename="access_admin",
-    ).first()
-
-    if access_admin_permission:
-        group.permissions.add(access_admin_permission)
-
-
-def _get_or_create_article_permissions():
-    article_page_content_type = ContentType.objects.get_for_model(
-        ArticlePage,
-        for_concrete_model=False,
-    )
-    permissions = {}
-
-    for codename, name in ARTICLE_PERMISSION_NAMES.items():
-        permission, _ = Permission.objects.update_or_create(
-            content_type=article_page_content_type,
-            codename=codename,
-            defaults={"name": name},
-        )
-        permissions[codename] = permission
-
-    return permissions
-
-
-def _set_wagtail_page_permissions(group, permission_types):
-    root_page = Page.get_first_root_node()
-    permissions = _get_wagtail_page_permissions(permission_types)
-
-    group.page_permissions.exclude(
-        page=root_page,
-        permission__in=permissions,
-    ).delete()
-
-    for permission in permissions:
-        GroupPagePermission.objects.update_or_create(
-            group=group,
-            page=root_page,
-            permission=permission,
-        )
-
-
-def _clear_wagtail_page_permissions(group):
-    group.page_permissions.all().delete()
-
-
-def _get_wagtail_page_permissions(permission_types):
-    codenames = [f"{permission_type}_page" for permission_type in permission_types]
-    return list(
-        Permission.objects.filter(
-            content_type__app_label="wagtailcore",
-            codename__in=codenames,
-        )
-    )
-
-
 def _assign_workflow_to_existing_article_pages(workflow):
     for article in ArticlePage.objects.all():
         WorkflowPage.objects.update_or_create(
             page=article,
             defaults={"workflow": workflow},
         )
-
-
-def _sync_article_review_status(workflow_state, status, user, default_comment):
-    article = _get_article_from_workflow_state(workflow_state)
-    if not article:
-        return None, None
-
-    update_values = {"review_status": status}
-    review_revision = _get_workflow_review_revision(
-        workflow_state=workflow_state,
-        article=article,
-        status=status,
-        user=user,
-    )
-
-    if status == ArticlePage.ReviewStatus.APPROVED:
-        update_values["approved_version_id"] = (
-            review_revision.pk if review_revision else None
-        )
-        if article.publication_status not in (
-            ArticlePage.PublicationStatus.BUILT,
-            ArticlePage.PublicationStatus.PUBLISHED,
-        ):
-            update_values["publication_status"] = ArticlePage.PublicationStatus.APPROVED
-    elif status == ArticlePage.ReviewStatus.REJECTED:
-        update_values["rejected_version_id"] = (
-            review_revision.pk if review_revision else None
-        )
-        if article.publication_status:
-            update_values["publication_status"] = ArticlePage.PublicationStatus.OFFLINE
-
-    ArticlePage.objects.filter(pk=article.pk).update(**update_values)
-    from .publication import sync_article_placement_status
-
-    sync_article_placement_status(article.pk)
-
-    if user:
-        comment = _get_workflow_comment(workflow_state, default_comment)
-        record = ArticleReviewRecord.objects.create(
-            article=article,
-            reviewer=user,
-            action=status,
-            revision=review_revision,
-            comment=comment,
-        )
-        log_article_audit(
-            action=status,
-            article=article,
-            user=user,
-            comment=comment,
-            metadata={
-                "workflow_state_id": workflow_state.pk,
-                "task_state_id": getattr(
-                    workflow_state.current_task_state,
-                    "pk",
-                    None,
-                ),
-                "review_record_id": record.pk,
-                "review_revision_id": review_revision.pk if review_revision else None,
-            },
-        )
-
-    return article, review_revision
 
 
 def _get_article_from_workflow_state(workflow_state):
@@ -848,29 +725,6 @@ def _get_article_from_workflow_state(workflow_state):
         return obj
 
     return None
-
-
-def _get_workflow_review_revision(workflow_state, article, status, user):
-    if status not in (
-        ArticlePage.ReviewStatus.APPROVED,
-        ArticlePage.ReviewStatus.REJECTED,
-    ):
-        return None
-
-    task_state = workflow_state.current_task_state
-    if task_state and task_state.revision_id:
-        return task_state.revision
-
-    return article._get_or_create_current_review_revision(user)
-
-
-def _get_workflow_comment(workflow_state, default_comment):
-    task_state = workflow_state.current_task_state
-
-    if task_state and task_state.comment:
-        return task_state.comment
-
-    return default_comment
 
 
 def _actor_from_id(actor_id):

@@ -13,6 +13,10 @@ from ai_author_forum.articles.models import (
     ArticlePage,
 )
 from ai_author_forum.journals.models import Journal, JournalCategory
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class EnglishAdminPageContractTests(TestCase):
@@ -25,6 +29,7 @@ class EnglishAdminPageContractTests(TestCase):
             email="english-admin@example.com",
             password="test-password",
         )
+        grant_business_super_admin(cls.user)
         journal = Journal.objects.create(
             name="English Journal",
             name_cn="\u4e2d\u6587\u671f\u520a\u540d",
@@ -39,8 +44,6 @@ class EnglishAdminPageContractTests(TestCase):
             authors="\u4e2d\u6587\u4f5c\u8005",
             keywords="english, contract",
             article_type=ArticlePage.ArticleType.AI_ARTICLE,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
-            publication_status=ArticlePage.PublicationStatus.PUBLISHED,
             primary_journal=journal,
             owner=cls.user,
         )
@@ -55,6 +58,10 @@ class EnglishAdminPageContractTests(TestCase):
         )
         ArticleCategoryAssignment.objects.create(
             article=article, category=category, is_primary=True
+        )
+        formally_approve_test_article(article, actor=cls.user)
+        ArticlePage.objects.filter(pk=article.pk).update(
+            publication_status=ArticlePage.PublicationStatus.PUBLISHED
         )
 
     def setUp(self):

@@ -5,6 +5,9 @@ from dataclasses import asdict, dataclass
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
+from ai_author_forum.journals.models import JournalEditorAssignment
+from ai_author_forum.site_settings.access_control import can_manage_journal
+
 from .integrations import log_article_audit
 from .models import (
     ArticleCategoryAssignment,
@@ -56,6 +59,7 @@ def user_can_bulk_action(user, action):
     return False
 
 
+@transaction.atomic
 def execute_bulk_article_action(
     *,
     user,
@@ -183,7 +187,7 @@ def _execute_one(*, article, user, action, params, comment, expected_revision_id
         locked.reject(user, comment, expected_revision_id=expected_revision_id)
         return
     if action == "set_primary_journal":
-        _set_primary_journal(locked, params.get("primary_journal"))
+        _set_primary_journal(locked, params.get("primary_journal"), user=user)
     elif action == "set_primary_category":
         _set_primary_category(locked, params.get("category"))
     elif action == "add_category":
@@ -193,12 +197,18 @@ def _execute_one(*, article, user, action, params, comment, expected_revision_id
     _save_content_change(locked, user)
 
 
-def _set_primary_journal(article, value):
+def _set_primary_journal(article, value, *, user):
     journal_model = ArticlePage._meta.get_field("primary_journal").remote_field.model
     try:
         journal = journal_model.objects.get(pk=int(value))
     except (TypeError, ValueError, journal_model.DoesNotExist):
         raise ValidationError("请选择有效的主属期刊。") from None
+    if not can_manage_journal(
+        user,
+        journal,
+        JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE,
+    ):
+        raise PermissionDenied("无权将文章移动到该子期刊。")
     incompatible = article.category_assignments.exclude(category__journal=journal)
     if incompatible.exists():
         raise ValidationError("现有动态栏目不属于目标期刊，请先调整栏目。")

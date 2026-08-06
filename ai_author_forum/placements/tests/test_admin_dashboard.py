@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.staticfiles import finders
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -15,6 +16,10 @@ from ai_author_forum.journals.models import Journal
 from ai_author_forum.news.models import NewsListingPage
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 from ai_author_forum.static_publish.models import StaticPublishJob
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 from ..batch_services import execute_create_batch, precheck_batch
 from ..forms import make_target_value
@@ -46,6 +51,11 @@ class PlacementDashboardTests(TestCase):
             az_group="O",
             status="active",
         )
+        cls.superuser = grant_business_super_admin(
+            get_user_model().objects.create_superuser(
+                "placement-admin", "placement@example.com", "password"
+            )
+        )
         cls.approved_article = cls.create_article(
             "Approved placement article",
             "approved-placement-article",
@@ -65,9 +75,6 @@ class PlacementDashboardTests(TestCase):
             live=False
         )
         cls.approved_unpublished_article.refresh_from_db()
-        cls.superuser = get_user_model().objects.create_superuser(
-            "placement-admin", "placement@example.com", "password"
-        )
 
     @classmethod
     def create_article(cls, title, slug, review_status, journal=None):
@@ -78,14 +85,15 @@ class PlacementDashboardTests(TestCase):
             body=[{"type": "paragraph", "value": f"{title} body."}],
             authors="Editor",
             article_type=ArticlePage.ArticleType.AI_ARTICLE,
-            review_status=review_status,
             primary_journal=journal or cls.journal,
             keywords="ai",
             static_slug=slug,
         )
         cls.news_listing.add_child(instance=article)
         article.save_revision().publish()
-        return article
+        if review_status == ArticlePage.ReviewStatus.APPROVED:
+            formally_approve_test_article(article, actor=cls.superuser)
+        return ArticlePage.objects.get(pk=article.pk)
 
     def setUp(self):
         self.client.force_login(self.superuser)
@@ -154,9 +162,7 @@ class PlacementDashboardTests(TestCase):
 
         self.assertEqual(api_response.status_code, 200)
         payload = next(
-            item
-            for item in api_response.json()["results"]
-            if item["id"] == slot.pk
+            item for item in api_response.json()["results"] if item["id"] == slot.pk
         )
         self.assertEqual(payload["current"], 1)
         self.assertEqual(payload["remaining"], slot.max_items - 1)
@@ -179,13 +185,17 @@ class PlacementDashboardTests(TestCase):
         )
 
         page_obj, _ = select_articles(
+            user=self.superuser,
             journal_slug=self.journal.name_cn or self.journal.name,
             page_size=100,
         )
 
         article_ids = [article.pk for article in page_obj.object_list]
         self.assertIn(self.approved_article.pk, article_ids)
-        self.assertLess(article_ids.index(self.approved_article.pk), article_ids.index(placed_article.pk))
+        self.assertLess(
+            article_ids.index(self.approved_article.pk),
+            article_ids.index(placed_article.pk),
+        )
 
     def test_one_click_single_placement_prefills_article_and_journal(self):
         response = self.client.get(
@@ -206,7 +216,9 @@ class PlacementDashboardTests(TestCase):
         )
 
     def test_approved_unpublished_article_can_be_searched_and_strictly_placed(self):
-        page_obj, _ = select_articles(query="review-only", page_size=100)
+        page_obj, _ = select_articles(
+            user=self.superuser, query="review-only", page_size=100
+        )
         self.assertIn(
             self.approved_unpublished_article.pk,
             [article.pk for article in page_obj.object_list],
@@ -228,6 +240,14 @@ class PlacementDashboardTests(TestCase):
         )
         batch.slot = LayoutSlot.objects.get(code="journal_featured")
         batch.save(update_fields=("slot", "updated_at"))
+        stale_job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.SELECTIVE,
+            requested_paths=["/stale/"],
+            is_automatic=True,
+            coalesce_key="",
+            triggered_by=self.superuser,
+            summary={"trigger": "placement_batch"},
+        )
 
         result = precheck_batch(batch, actor=self.superuser)
         self.assertTrue(result["ok"], result["errors"])
@@ -235,6 +255,12 @@ class PlacementDashboardTests(TestCase):
 
         batch.refresh_from_db()
         self.assertEqual(batch.status, PlacementBatch.Status.SUCCEEDED)
+        self.assertEqual(
+            batch.publish_job.coalesce_key,
+            f"placement-batch:{batch.pk}",
+        )
+        stale_job.refresh_from_db()
+        self.assertEqual(stale_job.status, StaticPublishJob.Status.PENDING)
         self.assertTrue(
             ArticlePlacement.objects.filter(
                 article=self.approved_unpublished_article,
@@ -287,9 +313,7 @@ class PlacementDashboardTests(TestCase):
             result = precheck_batch(batch, actor=self.superuser)
 
         self.assertFalse(result["ok"])
-        self.assertIn(
-            "override_image", [error["code"] for error in result["errors"]]
-        )
+        self.assertIn("override_image", [error["code"] for error in result["errors"]])
         self.assertIn("重新选择可用图片", result["errors"][0]["message"])
 
     def test_single_rules_uses_an_image_picker_instead_of_an_internal_image_id(self):
@@ -357,7 +381,7 @@ class PlacementDashboardTests(TestCase):
         response = self.client.get(reverse("placements:image_upload_api"))
 
         self.assertEqual(response.status_code, 405)
-        self.assertContains(response, "请使用上传操作提交图片。")
+        self.assertEqual(response.json()["message"], "请使用上传操作提交图片。")
 
     def test_review_explains_how_to_recover_from_a_missing_override_image(self):
         batch = PlacementBatch.objects.create(
@@ -413,6 +437,47 @@ class PlacementDashboardTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "可以投放。")
         self.assertContains(response, "通过")
+        self.assertContains(response, 'id="placement-review-form"')
+        self.assertContains(response, 'data-submitting-label="正在投放..."')
+
+    def test_concurrent_review_confirmation_redirects_to_existing_result(self):
+        cases = (
+            (PlacementBatch.Mode.SINGLE, "placements:single_review"),
+            (PlacementBatch.Mode.BULK_CREATE, "placements:batch_review"),
+        )
+        for mode, route_name in cases:
+            with self.subTest(mode=mode):
+                batch = PlacementBatch.objects.create(
+                    mode=mode,
+                    operation=PlacementBatch.Operation.CREATE,
+                    created_by=self.superuser,
+                    updated_by=self.superuser,
+                    target_type=ArticlePlacement.TargetType.JOURNAL,
+                    target_slug=self.journal.slug,
+                    slot=LayoutSlot.objects.get(code="journal_featured"),
+                )
+                batch.items.create(article=self.approved_article, sort_order=1)
+
+                def finish_concurrent_request(*args, batch_id=batch.pk, **kwargs):
+                    PlacementBatch.objects.filter(pk=batch_id).update(
+                        status=PlacementBatch.Status.SUCCEEDED,
+                        executed_at=timezone.now(),
+                    )
+                    raise ValidationError("This batch has already been executed.")
+
+                with patch(
+                    "ai_author_forum.placements.workflow_viewset.execute_create_batch",
+                    side_effect=finish_concurrent_request,
+                ):
+                    response = self.client.post(
+                        reverse(route_name, kwargs={"batch_id": batch.pk})
+                    )
+
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(
+                    response["Location"],
+                    reverse("placements:batch_result", kwargs={"batch_id": batch.pk}),
+                )
 
     def test_new_single_placement_without_journal_renders_article_selector(self):
         response = self.client.get(reverse("placements:new_single"))
@@ -846,9 +911,7 @@ class PlacementDashboardTests(TestCase):
             is_active=True,
         )
 
-        response = self.client.get(
-            self.legacy_url("index"), data={"capacity": "over"}
-        )
+        response = self.client.get(self.legacy_url("index"), data={"capacity": "over"})
 
         self.assertEqual(response.status_code, 200)
         result_ids = {item.pk for item in response.context["current_placements"]}
@@ -880,7 +943,11 @@ class PlacementDashboardTests(TestCase):
 
     def test_module_access_does_not_grant_write_permission(self):
         user = get_user_model().objects.create_user(
-            "placement-viewer", password="password", is_staff=True
+            "placement-viewer",
+            email="placement-viewer@example.com",
+            display_name="Placement Viewer",
+            password="password",
+            is_staff=True,
         )
         user.user_permissions.add(
             Permission.objects.get(
@@ -1105,7 +1172,11 @@ class PlacementDashboardTests(TestCase):
 
     def test_homepage_composition_requires_placements_module_access(self):
         user = get_user_model().objects.create_user(
-            "homepage-no-access", password="test", is_staff=True
+            "homepage-no-access",
+            email="homepage-no-access@example.com",
+            display_name="Homepage No Access",
+            password="test",
+            is_staff=True,
         )
         user.user_permissions.add(Permission.objects.get(codename="access_admin"))
         self.client.force_login(user)
@@ -1217,7 +1288,11 @@ class PlacementDashboardTests(TestCase):
             slot=LayoutSlot.objects.get(code="home_hero"),
         )
         user = get_user_model().objects.create_user(
-            "homepage-readonly", password="test", is_staff=True
+            "homepage-readonly",
+            email="homepage-readonly@example.com",
+            display_name="Homepage Readonly",
+            password="test",
+            is_staff=True,
         )
         user.user_permissions.add(
             Permission.objects.get(codename="access_admin"),
@@ -1230,12 +1305,4 @@ class PlacementDashboardTests(TestCase):
 
         response = self.client.get(reverse("homepage-composition:index"))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "?edit=")
-        self.assertNotContains(
-            response,
-            reverse("wagtailadmin_pages:edit", args=[self.approved_article.pk]),
-        )
-        self.assertNotContains(
-            response, f"slot={LayoutSlot.objects.get(code='home_hero').pk}"
-        )
+        self.assertIn(response.status_code, (302, 403))

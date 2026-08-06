@@ -1,8 +1,11 @@
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
-from ai_author_forum.journals.models import ArticlePlacement as LegacyArticlePlacement
-from ai_author_forum.journals.models import Journal, StaticArticle
+from ai_author_forum.journals.models import (
+    ArticlePlacement as LegacyArticlePlacement,
+    Journal,
+    StaticArticle,
+)
 
 
 class JournalModelTests(TestCase):
@@ -29,6 +32,7 @@ class JournalModelTests(TestCase):
         journal.name = "AI Ethics Forum Updated"
         journal.save()
         self.assertEqual(journal.slug, "ai-ethics-forum")
+
 
 class StaticArticleModelTests(TestCase):
     def test_static_output_path_uses_the_canonical_article_directory(self):

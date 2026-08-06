@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
+from django.contrib.auth import get_user_model
 from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 from openpyxl import Workbook
@@ -12,9 +13,22 @@ from ai_author_forum.articles.services import sync_imported_article
 from ai_author_forum.journals.models import Journal, JournalCategory, StaticArticle
 from ai_author_forum.journals.services import import_package
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class StaticSiteExportTests(TestCase):
+    def setUp(self):
+        self.actor = grant_business_super_admin(
+            get_user_model().objects.create_superuser(
+                username="static-export-admin",
+                email="static-export-admin@example.com",
+                password="test",
+            )
+        )
+
     def _build_package(self):
         buffer = BytesIO()
         with ZipFile(buffer, "w") as zf:
@@ -156,14 +170,7 @@ class StaticSiteExportTests(TestCase):
                 category=category,
                 defaults={"is_primary": True, "sort_order": 0},
             )
-            revision = article.save_revision(
-                user=None, bypass_article_permission_check=True
-            )
-            revision.publish(user=None, skip_permission_checks=True)
-            ArticlePage.objects.filter(pk=article.pk).update(
-                review_status=ArticlePage.ReviewStatus.APPROVED
-            )
-            article.refresh_from_db()
+            formally_approve_test_article(article, actor=self.actor)
             ArticlePlacement.objects.create(
                 article=article,
                 slot=journal_slot,
@@ -241,7 +248,7 @@ class StaticSiteExportTests(TestCase):
             ).read_text(encoding="utf-8")
             self.assertNotIn(article.title, journal_html)
 
-    def test_export_command_isolates_journal_articles_by_target_slug(self):
+    def test_export_command_ignores_cross_journal_target_even_when_related(self):
         import_package(self._build_package(), operator=None)
         self._approve_and_place_imported_articles()
         first_journal = Journal.objects.get(slug="ai-journal-001")
@@ -278,7 +285,7 @@ class StaticSiteExportTests(TestCase):
 
         self.assertNotIn(first_article.title, first_html)
         self.assertIn(second_article.title, first_html)
-        self.assertIn(first_article.title, second_html)
+        self.assertNotIn(first_article.title, second_html)
         self.assertNotIn(second_article.title, second_html)
 
     def test_export_command_rejects_output_dir_outside_static_root(self):

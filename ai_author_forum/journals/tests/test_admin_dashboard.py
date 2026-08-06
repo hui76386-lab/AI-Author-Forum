@@ -21,6 +21,7 @@ from ai_author_forum.journals.models import (
     StaticArticle,
 )
 from ai_author_forum.journals.publishing import start_import_publish_process
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 
 class JournalImportDashboardTests(TestCase):
@@ -70,11 +71,17 @@ class JournalImportDashboardTests(TestCase):
         user = get_user_model().objects.create_superuser(
             "admin", "admin@example.com", "password"
         )
+        grant_business_super_admin(user)
         self.client.force_login(user)
         return user
 
     def _login_importer(self):
-        user = get_user_model().objects.create_user("importer", password="password")
+        user = get_user_model().objects.create_user(
+            "importer",
+            email="importer@example.com",
+            display_name="Importer",
+            password="password",
+        )
         user.is_staff = True
         user.save(update_fields=("is_staff",))
         user.user_permissions.add(
@@ -181,24 +188,22 @@ class JournalImportDashboardTests(TestCase):
 
     def test_importer_without_publish_permission_cannot_confirm_publish(self):
         self._login_importer()
-        journal_job, article_job, _ = self._upload_preview()
 
         with patch(
             "ai_author_forum.journals.wagtail_hooks.start_import_publish_process"
         ) as start_process:
             response = self.client.post(
-                reverse("journals_import_confirm"),
+                reverse("journals_import_dashboard"),
                 data={
-                    "journal_job_id": journal_job.pk,
-                    "article_job_id": article_job.pk,
+                    "package": self._build_package(),
                     "publish_static_site": "on",
                 },
             )
 
         self.assertEqual(response.status_code, 302)
         start_process.assert_not_called()
-        journal_job.refresh_from_db()
-        self.assertEqual(journal_job.status, ImportJobStatus.READY)
+        self.assertEqual(JournalImportJob.objects.count(), 0)
+        self.assertEqual(ArticleImportJob.objects.count(), 0)
 
     def test_invalid_row_is_retained_and_error_report_is_downloadable(self):
         self._login_superuser()

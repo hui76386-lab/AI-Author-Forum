@@ -72,7 +72,10 @@ class Migration(migrations.Migration):
                     "affiliation",
                     models.CharField(blank=True, max_length=500, verbose_name="单位"),
                 ),
-                ("is_corresponding", models.BooleanField(default=False, verbose_name="通讯作者")),
+                (
+                    "is_corresponding",
+                    models.BooleanField(default=False, verbose_name="通讯作者"),
+                ),
                 (
                     "article",
                     modelcluster.fields.ParentalKey(

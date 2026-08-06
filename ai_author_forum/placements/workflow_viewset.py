@@ -4,7 +4,6 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
-from PIL import Image as PillowImage, UnidentifiedImageError
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -14,10 +13,22 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 from django.utils import timezone
+from PIL import Image as PillowImage, UnidentifiedImageError
 
 from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.images.models import CustomImage
-from ai_author_forum.journals.models import Journal, JournalStatus
+from ai_author_forum.journals.models import (
+    Journal,
+    JournalCategory,
+    JournalCategoryStatus,
+    JournalStatus,
+)
+from ai_author_forum.site_settings.access_control import (
+    filter_accessible_articles,
+    filter_accessible_journals,
+    filter_accessible_placements,
+    is_super_admin,
+)
 from ai_author_forum.site_settings.admin_views import PermissionedModuleViewSet
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 from ai_author_forum.utils.admin_i18n import admin_text
@@ -33,6 +44,7 @@ from .batch_services import (
     create_draft,
     execute_create_batch,
     precheck_batch,
+    require_batch_scope,
     update_draft,
 )
 from .models import ArticlePlacement, LayoutSlot, PlacementBatch, PlacementBatchItem
@@ -48,8 +60,8 @@ from .services import (
     PLACEABLE_REVIEW_STATUSES,
     has_placement_permission,
     placement_capacity,
+    require_placement_scope,
 )
-
 
 PLACEMENT_IMAGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 
@@ -76,10 +88,12 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
     )
 
     def _guard(self, request):
-        if not self.has_access(request):
+        if not self.has_access(request) or not has_placement_permission(
+            request.user, "view"
+        ):
             raise PermissionDenied
         if not getattr(settings, "PLACEMENTS_V2_ENABLED", False):
-            if request.user.is_superuser:
+            if is_super_admin(request.user):
                 return redirect("placements_legacy:index")
             raise PermissionDenied
         return None
@@ -96,11 +110,61 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         if (
             batch.created_by_id
             and batch.created_by_id != request.user.pk
-            and not request.user.is_superuser
+            and not is_super_admin(request.user)
         ):
             raise PermissionDenied
+        if not is_super_admin(request.user):
+            if batch.mode == PlacementBatch.Mode.BULK_MAINTENANCE:
+                for item in batch.items.select_related(
+                    "placement__article__primary_journal",
+                    "placement__slot",
+                ):
+                    if item.placement_id is None:
+                        raise PermissionDenied
+                    require_placement_scope(request.user, item.placement)
+            else:
+                require_batch_scope(batch, request.user)
         sync_batch_publish_status(batch)
         return batch
+
+    @staticmethod
+    def _journal_queryset(user):
+        return filter_accessible_journals(
+            user, Journal.objects.filter(status=JournalStatus.ACTIVE)
+        )
+
+    @staticmethod
+    def _placement_queryset(user):
+        queryset = ArticlePlacement.objects.filter(
+            source=ArticlePlacement.Source.MANUAL
+        )
+        return filter_accessible_placements(user, queryset)
+
+    def _require_target_access(self, user, target_type, target_slug):
+        if is_super_admin(user):
+            return None
+        accessible_journals = self._journal_queryset(user)
+        if target_type == ArticlePlacement.TargetType.JOURNAL:
+            target = accessible_journals.filter(slug=target_slug).first()
+        elif target_type == ArticlePlacement.TargetType.CATEGORY:
+            target = JournalCategory.objects.filter(
+                Q(slug=target_slug) | Q(path_cache=target_slug),
+                journal__in=accessible_journals,
+                status__in=(
+                    JournalCategoryStatus.ACTIVE,
+                    JournalCategoryStatus.HIDDEN,
+                ),
+            ).first()
+        elif target_type == ArticlePlacement.TargetType.ARTICLE:
+            target = filter_accessible_articles(
+                user,
+                ArticlePage.objects.filter(static_slug=target_slug),
+            ).first()
+        else:
+            target = None
+        if target is None:
+            raise PermissionDenied
+        return target
 
     def _render(self, request, template, **context):
         params = request.GET.copy()
@@ -112,6 +176,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
                 "title": context.pop("title", self.title),
                 "viewset": self,
                 "pagination_query": urlencode(params, doseq=True),
+                "can_add_placements": has_placement_permission(request.user, "add"),
                 **context,
             },
         )
@@ -209,9 +274,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         if redirect_response:
             return redirect_response
         now = timezone.now()
-        placements = ArticlePlacement.objects.filter(
-            source=ArticlePlacement.Source.MANUAL
-        )
+        placements = self._placement_queryset(request.user)
         active = (
             placements.filter(is_active=True, starts_at__lte=now)
             .filter(Q(ends_at__isnull=True) | Q(ends_at__gt=now))
@@ -250,9 +313,10 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             .filter(Q(override_image_alt__isnull=True) | Q(override_image_alt=""))
             .count()
         )
-        recent_batches = PlacementBatch.objects.select_related(
-            "created_by", "slot"
-        ).order_by("-updated_at")[:10]
+        recent_batches = PlacementBatch.objects.select_related("created_by", "slot")
+        if not is_super_admin(request.user):
+            recent_batches = recent_batches.filter(created_by=request.user)
+        recent_batches = recent_batches.order_by("-updated_at")[:10]
         issues = []
         if capacity_exceptions:
             issues.append(
@@ -358,7 +422,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             return JsonResponse({"error": "POST required"}, status=405)
         if self._guard(request):
             raise PermissionDenied
-        journal = get_object_or_404(Journal, pk=journal_id, status=JournalStatus.ACTIVE)
+        journal = get_object_or_404(self._journal_queryset(request.user), pk=journal_id)
         from .models import JournalUserPreference
 
         preference, _ = JournalUserPreference.objects.get_or_create(
@@ -376,6 +440,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         if self._guard(request):
             raise PermissionDenied
         page_obj, paginator = select_articles(
+            user=request.user,
             query=request.GET.get("q", ""),
             journal_slug=request.GET.get("journal", ""),
             page=request.GET.get("page", 1),
@@ -431,21 +496,12 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         if self._guard(request):
             raise PermissionDenied
         if request.method != "POST":
-            return JsonResponse(
-                {"message": "请使用上传操作提交图片。"}, status=405
-            )
-        if not request.user.has_perm("images.add_customimage"):
-            return JsonResponse(
-                {"message": "当前账号没有上传图片到图库的权限。"}, status=403
-            )
-
+            return JsonResponse({"message": "请使用上传操作提交图片。"}, status=405)
         uploaded_file = request.FILES.get("file")
         if uploaded_file is None:
             return JsonResponse({"message": "请选择一张本地图片。"}, status=400)
         if uploaded_file.size > PLACEMENT_IMAGE_UPLOAD_MAX_BYTES:
-            return JsonResponse(
-                {"message": "图片文件不能超过 10 MB。"}, status=400
-            )
+            return JsonResponse({"message": "图片文件不能超过 10 MB。"}, status=400)
         try:
             uploaded_file.seek(0)
             with PillowImage.open(uploaded_file) as probe:
@@ -475,13 +531,19 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
     def capacity_api(self, request):
         if self._guard(request):
             raise PermissionDenied
-        slot = get_object_or_404(LayoutSlot, pk=request.GET.get("slot"), is_active=True)
+        target_type = request.GET.get(
+            "target_type", ArticlePlacement.TargetType.JOURNAL
+        )
+        target_slug = request.GET.get("target_slug", "").strip().strip("/")
+        self._require_target_access(request.user, target_type, target_slug)
+        slots = LayoutSlot.objects.filter(is_active=True)
+        if not is_super_admin(request.user):
+            slots = slots.filter(scope=LayoutSlot.Scope.JOURNAL)
+        slot = get_object_or_404(slots, pk=request.GET.get("slot"))
         candidate = ArticlePlacement(
             slot=slot,
-            target_type=request.GET.get(
-                "target_type", ArticlePlacement.TargetType.JOURNAL
-            ),
-            target_slug=request.GET.get("target_slug", ""),
+            target_type=target_type,
+            target_slug=target_slug,
             starts_at=None,
             ends_at=None,
             is_active=True,
@@ -495,6 +557,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             "target_type", ArticlePlacement.TargetType.JOURNAL
         )
         target_slug = request.GET.get("target_slug", "").strip().strip("/")
+        self._require_target_access(request.user, target_type, target_slug)
         return JsonResponse(
             {
                 "results": [
@@ -512,9 +575,11 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
     def new_single(self, request):
         if response := self._guard(request):
             return response
+        if not has_placement_permission(request.user, "add"):
+            raise PermissionDenied
         requested_journal = (request.GET.get("journal") or "").strip().strip("/")
         journal = (
-            Journal.objects.filter(status=JournalStatus.ACTIVE)
+            self._journal_queryset(request.user)
             .filter(Q(slug__iexact=requested_journal))
             .first()
             if requested_journal
@@ -528,18 +593,18 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         article = None
         if article_id:
             article = (
-                ArticlePage.objects.filter(
-                    pk=article_id,
-                    review_status__in=PLACEABLE_REVIEW_STATUSES,
-                    primary_journal__status=JournalStatus.ACTIVE,
+                filter_accessible_articles(
+                    request.user,
+                    ArticlePage.objects.filter(
+                        pk=article_id,
+                        review_status__in=PLACEABLE_REVIEW_STATUSES,
+                        primary_journal__status=JournalStatus.ACTIVE,
+                    ),
                 )
                 .select_related("primary_journal")
                 .first()
             )
-            if article and journal and not (
-                article.primary_journal_id == journal.pk
-                or article.related_journals.filter(pk=journal.pk).exists()
-            ):
+            if article and journal and article.primary_journal_id != journal.pk:
                 article = None
             if article and journal is None:
                 journal = article.primary_journal
@@ -563,7 +628,9 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             return redirect("placements:single_target", batch_id=batch.pk)
 
         query = {"journal": journal.slug} if journal else {}
-        selector_url = reverse("placements:single_article", kwargs={"batch_id": batch.pk})
+        selector_url = reverse(
+            "placements:single_article", kwargs={"batch_id": batch.pk}
+        )
         if query:
             selector_url = f"{selector_url}?{urlencode(query)}"
         return redirect(selector_url)
@@ -585,10 +652,13 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
                         selected_article_ids=[article_id],
                     )
                 except (TypeError, ValueError, ValidationError) as exc:
-                    messages.error(request, "; ".join(getattr(exc, "messages", [str(exc)])))
+                    messages.error(
+                        request, "; ".join(getattr(exc, "messages", [str(exc)]))
+                    )
                 else:
                     return redirect("placements:single_target", batch_id=batch.pk)
         page_obj, paginator = select_articles(
+            user=request.user,
             query=request.GET.get("q", ""),
             journal_slug=self._article_selector_journal(request, batch),
             page=request.GET.get("page", 1),
@@ -605,12 +675,10 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             next_url=reverse(
                 "placements:single_article", kwargs={"batch_id": batch.pk}
             ),
-            journals=Journal.objects.filter(status=JournalStatus.ACTIVE).order_by(
-                "name"
-            )[:0],
-            selected_journal=Journal.objects.filter(
-                slug=batch.target_slug, status=JournalStatus.ACTIVE
-            ).first(),
+            journals=self._journal_queryset(request.user).order_by("name")[:0],
+            selected_journal=self._journal_queryset(request.user)
+            .filter(slug=batch.target_slug, status=JournalStatus.ACTIVE)
+            .first(),
             single=True,
         )
 
@@ -626,25 +694,38 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             if target_type not in dict(ArticlePlacement.TargetType.choices):
                 messages.error(request, "Select a valid placement target type.")
             else:
+                target = None
+                try:
+                    target = self._require_target_access(
+                        request.user, target_type, target_slug
+                    )
+                except PermissionDenied:
+                    messages.error(request, "Select a target in your journal scope.")
                 slot = (
                     self._slots_for_target(target_type)
                     .filter(pk=request.POST.get("slot"))
                     .first()
                 )
-                if not slot:
+                if target is None and not is_super_admin(request.user):
+                    pass
+                elif not slot:
                     messages.error(
                         request,
                         "The selected slot does not match the target or is inactive.",
                     )
-                elif (
-                    target_type == ArticlePlacement.TargetType.JOURNAL
-                    and not Journal.objects.filter(
-                        slug=target_slug, status=JournalStatus.ACTIVE
-                    ).exists()
-                ):
-                    messages.error(request, "Select an active journal.")
                 else:
                     if target_type == ArticlePlacement.TargetType.MAIN_SITE:
+                        target_slug = ""
+                    target_category = None
+                    if target_type == ArticlePlacement.TargetType.CATEGORY:
+                        if is_super_admin(request.user):
+                            target_category = JournalCategory.objects.filter(
+                                Q(slug=target_slug) | Q(path_cache=target_slug)
+                            ).first()
+                            if target_category is None:
+                                raise PermissionDenied
+                        else:
+                            target_category = target
                         target_slug = ""
                     try:
                         update_draft(
@@ -653,6 +734,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
                             step="rules",
                             target_type=target_type,
                             target_slug=target_slug,
+                            target_category=target_category,
                             slot=slot,
                         )
                     except ValidationError as exc:
@@ -661,7 +743,9 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
                         if target_type == ArticlePlacement.TargetType.JOURNAL:
                             mark_journal_used(
                                 user=request.user,
-                                journal=Journal.objects.get(slug=target_slug),
+                                journal=self._journal_queryset(request.user).get(
+                                    slug=target_slug
+                                ),
                             )
                         return redirect("placements:single_rules", batch_id=batch.pk)
         return self._render(
@@ -669,7 +753,24 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             "placements/admin/v2/target.html",
             title="选择投放目标 / Select placement target",
             batch=batch,
-            target_types=ArticlePlacement.TargetType.choices,
+            target_types=(
+                ArticlePlacement.TargetType.choices
+                if is_super_admin(request.user)
+                else [
+                    (
+                        ArticlePlacement.TargetType.JOURNAL,
+                        ArticlePlacement.TargetType.JOURNAL.label,
+                    ),
+                    (
+                        ArticlePlacement.TargetType.CATEGORY,
+                        ArticlePlacement.TargetType.CATEGORY.label,
+                    ),
+                    (
+                        ArticlePlacement.TargetType.ARTICLE,
+                        ArticlePlacement.TargetType.ARTICLE.label,
+                    ),
+                ]
+            ),
             slot_options=[
                 self._slot_payload(
                     slot,
@@ -679,9 +780,9 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
                 for slot in self._slots_for_target(batch.target_type)
             ],
             selected_journal=(
-                Journal.objects.filter(
-                    slug=batch.target_slug, status=JournalStatus.ACTIVE
-                ).first()
+                self._journal_queryset(request.user)
+                .filter(slug=batch.target_slug, status=JournalStatus.ACTIVE)
+                .first()
                 if batch.target_type == ArticlePlacement.TargetType.JOURNAL
                 else None
             ),
@@ -759,6 +860,13 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
                 messages.error(
                     request, "; ".join(error["message"] for error in exc.errors)
                 )
+            except ValidationError as exc:
+                # A concurrent confirmation can finish while this request waits for
+                # the batch row lock. Treat that replay as an idempotent result view.
+                batch.refresh_from_db()
+                if batch.is_executed:
+                    return redirect("placements:batch_result", batch_id=batch.pk)
+                messages.error(request, "; ".join(exc.messages))
             else:
                 return redirect("placements:batch_result", batch_id=batch.pk)
         return self._render(
@@ -799,7 +907,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         if response := self._guard(request):
             return response
         journal = get_object_or_404(
-            Journal, slug=journal_slug, status=JournalStatus.ACTIVE
+            self._journal_queryset(request.user), slug=journal_slug
         )
         mark_journal_used(user=request.user, journal=journal)
         slots = LayoutSlot.objects.filter(
@@ -808,7 +916,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         rows = []
         now = timezone.now()
         for slot in slots:
-            qs = ArticlePlacement.objects.filter(
+            qs = self._placement_queryset(request.user).filter(
                 slot=slot,
                 target_type=ArticlePlacement.TargetType.JOURNAL,
                 target_slug=journal.slug,
@@ -840,13 +948,14 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         if response := self._guard(request):
             return response
         journal = get_object_or_404(
-            Journal, slug=journal_slug, status=JournalStatus.ACTIVE
+            self._journal_queryset(request.user), slug=journal_slug
         )
         slot = get_object_or_404(
             LayoutSlot, code=slot_code, scope=LayoutSlot.Scope.JOURNAL
         )
         placements = (
-            ArticlePlacement.objects.filter(
+            self._placement_queryset(request.user)
+            .filter(
                 slot=slot,
                 target_type=ArticlePlacement.TargetType.JOURNAL,
                 target_slug=journal.slug,
@@ -878,6 +987,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             )
             return redirect("placements:batch_rules", batch_id=batch.pk)
         page_obj, paginator = select_articles(
+            user=request.user,
             query=request.GET.get("q", ""),
             journal_slug=self._article_selector_journal(request, batch),
             page=request.GET.get("page", 1),
@@ -894,17 +1004,19 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             next_url=reverse(
                 "placements:journal_add_articles", kwargs={"batch_id": batch.pk}
             ),
-            selected_journal=Journal.objects.filter(
-                slug=batch.target_slug, status=JournalStatus.ACTIVE
-            ).first(),
+            selected_journal=self._journal_queryset(request.user)
+            .filter(slug=batch.target_slug, status=JournalStatus.ACTIVE)
+            .first(),
             single=False,
         )
 
     def journal_slot_add(self, request, journal_slug, slot_code):
         if response := self._guard(request):
             return response
+        if not has_placement_permission(request.user, "add"):
+            raise PermissionDenied
         journal = get_object_or_404(
-            Journal, slug=journal_slug, status=JournalStatus.ACTIVE
+            self._journal_queryset(request.user), slug=journal_slug
         )
         slot = get_object_or_404(
             LayoutSlot, code=slot_code, scope=LayoutSlot.Scope.JOURNAL, is_active=True
@@ -924,6 +1036,8 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
     def bulk_new(self, request):
         if response := self._guard(request):
             return response
+        if not has_placement_permission(request.user, "add"):
+            raise PermissionDenied
         batch = create_draft(
             actor=request.user,
             mode=PlacementBatch.Mode.BULK_CREATE,
@@ -937,7 +1051,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         batch = self._batch(request, batch_id, modes={PlacementBatch.Mode.BULK_CREATE})
         if request.method == "POST":
             journal = get_object_or_404(
-                Journal, pk=request.POST.get("journal_id"), status=JournalStatus.ACTIVE
+                self._journal_queryset(request.user), pk=request.POST.get("journal_id")
             )
             update_draft(
                 batch,
@@ -1001,6 +1115,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             )
             return redirect("placements:batch_rules", batch_id=batch.pk)
         page_obj, paginator = select_articles(
+            user=request.user,
             query=request.GET.get("q", ""),
             journal_slug=self._article_selector_journal(request, batch),
             page=request.GET.get("page", 1),
@@ -1015,9 +1130,9 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             paginator=paginator,
             selected_ids=set(batch.items.values_list("article_id", flat=True)),
             next_url=reverse("placements:bulk_articles", kwargs={"batch_id": batch.pk}),
-            selected_journal=Journal.objects.filter(
-                slug=batch.target_slug, status=JournalStatus.ACTIVE
-            ).first(),
+            selected_journal=self._journal_queryset(request.user)
+            .filter(slug=batch.target_slug, status=JournalStatus.ACTIVE)
+            .first(),
             single=False,
         )
 
@@ -1086,6 +1201,11 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
                 messages.error(
                     request, "; ".join(error["message"] for error in exc.errors)
                 )
+            except ValidationError as exc:
+                batch.refresh_from_db()
+                if batch.is_executed:
+                    return redirect("placements:batch_result", batch_id=batch.pk)
+                messages.error(request, "; ".join(exc.messages))
             else:
                 return redirect("placements:batch_result", batch_id=batch.pk)
         return self._render(
@@ -1124,7 +1244,7 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             .order_by("-batch__executed_at", "-batch__updated_at")
         )
         qs = (
-            ArticlePlacement.objects.filter(source=ArticlePlacement.Source.MANUAL)
+            self._placement_queryset(request.user)
             .select_related("article", "article__primary_journal", "slot")
             .annotate(
                 latest_batch_number=Subquery(
@@ -1213,7 +1333,13 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             title="投放清单 / Placement list",
             page_obj=page_obj,
             paginator=paginator,
-            slots=LayoutSlot.objects.filter(is_active=True).order_by("code"),
+            slots=(
+                LayoutSlot.objects.filter(is_active=True).order_by("code")
+                if is_super_admin(request.user)
+                else LayoutSlot.objects.filter(
+                    is_active=True, scope=LayoutSlot.Scope.JOURNAL
+                ).order_by("code")
+            ),
             target_types=ArticlePlacement.TargetType.choices,
             publish_statuses=PlacementBatch.PublishStatus.choices,
         )
@@ -1349,9 +1475,9 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
     def placement_export(self, request):
         if response := self._guard(request):
             return response
-        queryset = ArticlePlacement.objects.filter(
-            source=ArticlePlacement.Source.MANUAL
-        ).select_related("article", "article__primary_journal", "slot")
+        queryset = self._placement_queryset(request.user).select_related(
+            "article", "article__primary_journal", "slot"
+        )
         response = HttpResponse(
             export_placements_csv(queryset), content_type="text/csv; charset=utf-8"
         )
@@ -1364,8 +1490,23 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         qs = PlacementBatch.objects.select_related("created_by", "slot", "publish_job")
         if request.GET.get("status"):
             qs = qs.filter(status=request.GET["status"])
-        if not request.user.is_superuser:
-            qs = qs.filter(created_by=request.user)
+        if not is_super_admin(request.user):
+            accessible_articles = filter_accessible_articles(
+                request.user, ArticlePage.objects.all()
+            )
+            accessible_slugs = self._journal_queryset(request.user).values("slug")
+            qs = (
+                qs.filter(created_by=request.user)
+                .filter(
+                    Q(items__article__in=accessible_articles)
+                    | Q(
+                        items__isnull=True,
+                        target_type=ArticlePlacement.TargetType.JOURNAL,
+                        target_slug__in=accessible_slugs,
+                    )
+                )
+                .distinct()
+            )
         page_obj, paginator = self._paginate(qs, request)
         return self._render(
             request,

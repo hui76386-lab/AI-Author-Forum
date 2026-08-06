@@ -1,0 +1,13 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+{% block titletag %}账号管理{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title="账号管理" icon="user" %}
+<div class="nice-padding">
+  <div class="button-group"><a class="button button-primary" href="{{ new_account_url }}">新建账号</a></div>
+  <form method="get" class="w-mt-5"><label for="status">账号状态</label> <select id="status" name="status"><option value="">全部</option><option value="active"{% if status == 'active' %} selected{% endif %}>正常</option><option value="suspended"{% if status == 'suspended' %} selected{% endif %}>已暂停</option><option value="deactivated"{% if status == 'deactivated' %} selected{% endif %}>已停用</option></select> <button class="button" type="submit">筛选</button></form>
+  <div class="w-overflow-x-auto w-mt-5"><table class="listing"><thead><tr><th>姓名</th><th>用户名</th><th>邮箱</th><th>状态</th><th>子期刊任命</th><th>最后登录</th></tr></thead><tbody>
+  {% for account in accounts %}<tr><td><a href="{% url 'account_admin:detail' account.pk %}">{{ account.display_name }}</a></td><td>{{ account.username }}</td><td>{{ account.email }}</td><td>{{ account.get_account_status_display }}</td><td>{{ account.journal_editor_assignments.all|length }}</td><td>{{ account.last_login|date:"Y-m-d H:i"|default:"-" }}</td></tr>{% empty %}<tr><td colspan="6">暂无账号。</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}

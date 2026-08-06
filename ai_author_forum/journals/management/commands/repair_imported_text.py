@@ -14,6 +14,7 @@ from ai_author_forum.journals.models import (
     JournalImportRow,
     StaticArticle,
 )
+from ai_author_forum.site_settings.access_control import is_super_admin
 from ai_author_forum.site_settings.models import AuditAction, AuditStatus
 from ai_author_forum.site_settings.services import record_audit_event
 
@@ -128,7 +129,7 @@ class Command(BaseCommand):
             user = get_user_model().objects.get(pk=user_id)
         except get_user_model().DoesNotExist as exc:
             raise CommandError("operator 不存在。") from exc
-        if not user.is_superuser:
+        if not is_super_admin(user):
             raise CommandError("只有超级管理员可执行 apply。")
         return user
 

@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from wagtail.models import Page
 
@@ -24,6 +25,11 @@ from ai_author_forum.placements.category_services import (
 )
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.site_settings.models import AuditLog, AuditStatus
+from ai_author_forum.test_helpers import (
+    ensure_test_journal_chief,
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class CategoryRevisionWorkflowTests(TestCase):
@@ -31,6 +37,7 @@ class CategoryRevisionWorkflowTests(TestCase):
         self.user = get_user_model().objects.create_superuser(
             username="category-admin", email="category@example.com", password="test"
         )
+        grant_business_super_admin(self.user)
         self.journal = Journal.objects.create(
             name="AI Journal", slug="ai-journal", az_group="A"
         )
@@ -61,7 +68,6 @@ class CategoryRevisionWorkflowTests(TestCase):
             keywords="AI",
             primary_journal=self.journal,
             owner=self.user,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         Page.get_first_root_node().add_child(instance=page)
         if category is not None:
@@ -71,15 +77,19 @@ class CategoryRevisionWorkflowTests(TestCase):
         return page
 
     def publish_revision(self, page):
+        page.refresh_from_db()
+        if page.review_status in {
+            ArticlePage.ReviewStatus.APPROVED,
+            ArticlePage.ReviewStatus.PUBLISHED,
+        }:
+            page.title = f"{page.title} revised"
+            page.save(user=self.user)
         revision = page.save_revision(
             user=self.user, bypass_article_permission_check=True
         )
         revision.publish(user=self.user, skip_permission_checks=True)
-        ArticlePage.objects.filter(pk=page.pk).update(
-            review_status=ArticlePage.ReviewStatus.APPROVED
-        )
-        page.refresh_from_db()
-        return revision
+        formally_approve_test_article(page, actor=self.user)
+        return page.approved_version
 
     def test_draft_can_be_saved_without_categories_but_submit_is_blocked(self):
         page = self.create_article(category=None)
@@ -134,8 +144,13 @@ class CategoryRevisionWorkflowTests(TestCase):
         ArticleCategoryAssignment.objects.create(
             article=page, category=self.related, is_primary=True
         )
+        page.abstract = "Revised abstract"
+        page.save(user=self.user)
         page.save_revision(user=self.user, bypass_article_permission_check=True)
-        page.reject(self.user, "Needs changes")
+        page.submit_for_review(self.user, "Revised category submission")
+        page.refresh_from_db()
+        chief = ensure_test_journal_chief(journal=self.journal, actor=self.user)
+        page.reject(chief, "Needs changes")
 
         live_categories = get_live_article_categories(article_id=page.pk)
         active_ids = set(
@@ -149,10 +164,9 @@ class CategoryRevisionWorkflowTests(TestCase):
     def test_business_approval_retries_category_sync_for_live_article(self):
         page = self.create_article(category=self.primary)
         revision = self.publish_revision(page)
-        page.submit_for_review(self.user, "Ready for review")
-
-        with self.captureOnCommitCallbacks(execute=True):
-            page.approve(self.user, "Approved")
+        sync_category_placements(
+            article_id=page.pk, revision_id=revision.pk, actor=self.user
+        )
 
         placement = ArticlePlacement.objects.get(
             article=page,
@@ -243,21 +257,19 @@ class CategoryRevisionWorkflowTests(TestCase):
             {self.related.pk},
         )
 
-        first_revision.publish(user=self.user, skip_permission_checks=True)
-        ArticlePage.objects.filter(pk=page.pk).update(
-            review_status=ArticlePage.ReviewStatus.APPROVED
-        )
-        page.refresh_from_db()
-        sync_category_placements(
-            article_id=page.pk, revision_id=first_revision.pk, actor=self.user
-        )
+        with self.assertRaises(ValidationError):
+            sync_category_placements(
+                article_id=page.pk,
+                revision_id=first_revision.pk,
+                actor=self.user,
+            )
         self.assertEqual(
             set(
                 ArticlePlacement.objects.filter(
                     article=page, source="system", is_active=True
                 ).values_list("target_category_id", flat=True)
             ),
-            {self.primary.pk},
+            {self.related.pk},
         )
         self.assertFalse(validate_category_placement_consistency(article_ids=[page.pk]))
 
@@ -283,7 +295,7 @@ class CategoryRevisionWorkflowTests(TestCase):
             is_active=True,
         )
 
-        page.unpublish(user=self.user)
+        page.unpublish()
         disable_category_placements(article_id=page.pk, actor=self.user)
 
         self.assertFalse(

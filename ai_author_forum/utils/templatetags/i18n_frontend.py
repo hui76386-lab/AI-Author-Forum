@@ -13,8 +13,8 @@ from ai_author_forum.utils.public_i18n import (
     localized_article_authors as get_localized_article_authors,
     localized_article_keywords as get_localized_article_keywords,
     localized_article_title as get_localized_article_title,
-    localized_category_name as get_localized_category_name,
     localized_category_description as get_localized_category_description,
+    localized_category_name as get_localized_category_name,
     localized_discipline_name as get_localized_discipline_name,
     localized_page_title as get_localized_page_title,
 )
@@ -112,7 +112,11 @@ def article_type_text(value, default=""):
         "research analysis": "research_analysis",
         "research_analysis": "research_analysis",
     }.get(normalized)
-    return ui_label(key, translation.get_language(), default or value) if key else (default or value)
+    return (
+        ui_label(key, translation.get_language(), default or value)
+        if key
+        else (default or value)
+    )
 
 
 @register.simple_tag

@@ -20,6 +20,10 @@ from ai_author_forum.journals.models import Journal, JournalCategory
 from ai_author_forum.placements.category_services import sync_category_placements
 from ai_author_forum.placements.models import ArticlePlacement
 from ai_author_forum.site_settings.models import AuditLog
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class CategoryMigrationCommandTests(TestCase):
@@ -33,6 +37,7 @@ class CategoryMigrationCommandTests(TestCase):
         self.user = get_user_model().objects.create_superuser(
             "migration-admin", "migration@example.com", "test"
         )
+        grant_business_super_admin(self.user)
         self.journal = Journal.objects.create(
             name="Migration Journal", slug="migration-journal", az_group="M"
         )
@@ -72,7 +77,6 @@ class CategoryMigrationCommandTests(TestCase):
             keywords="AI",
             primary_journal=self.journal,
             owner=self.user,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         Page.get_first_root_node().add_child(instance=article)
         if category is not None:
@@ -80,14 +84,7 @@ class CategoryMigrationCommandTests(TestCase):
                 article=article, category=category, is_primary=True
             )
         if publish:
-            revision = article.save_revision(
-                user=self.user, bypass_article_permission_check=True
-            )
-            revision.publish(user=self.user, skip_permission_checks=True)
-            ArticlePage.objects.filter(pk=article.pk).update(
-                review_status=ArticlePage.ReviewStatus.APPROVED
-            )
-            article.refresh_from_db()
+            formally_approve_test_article(article, actor=self.user)
             sync_category_placements(article_id=article.pk, actor=self.user)
         return article
 

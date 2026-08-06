@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models, transaction
@@ -15,12 +17,19 @@ from wagtail.admin.panels import (
     TabbedInterface,
 )
 from wagtail.fields import StreamField
-from wagtail.models import AbstractGroupApprovalTask, Orderable, Page, TaskState
+from wagtail.models import (
+    AbstractGroupApprovalTask,
+    Orderable,
+    Page,
+    PagePermissionTester,
+    TaskState,
+)
 from wagtail.search import index
 
 from ai_author_forum.utils.i18n import article_type_label
 from ai_author_forum.utils.public_i18n import (
     localized_article_abstract,
+    localized_article_ai_coauthors,
     localized_article_authors,
     localized_article_body,
     localized_article_keywords,
@@ -29,7 +38,7 @@ from ai_author_forum.utils.public_i18n import (
 
 from .blocks import ArticleBodyBlock
 from .forms import ArticleCategoryAssignmentInlinePanel, ArticlePageForm
-from .integrations import get_article_fallback_context, log_article_audit
+from .integrations import get_article_fallback_context
 from .panels import PreviewButton
 
 ARTICLE_REVIEW_PERMISSION = "articles.review_article"
@@ -48,12 +57,39 @@ def user_has_article_permission(user, permission_name):
     if not user.is_active:
         return False
 
-    if user.is_superuser:
+    from ai_author_forum.site_settings.access_control import is_super_admin
+
+    if is_super_admin(user):
         return True
 
-    return user.has_perm(WAGTAIL_ADMIN_ACCESS_PERMISSION) and user.has_perm(
-        permission_name
-    )
+    from ai_author_forum.journals.models import JournalEditorAssignment
+
+    assignments = JournalEditorAssignment.objects.effective().filter(user=user)
+    if permission_name == ARTICLE_EDIT_PERMISSION:
+        if assignments.filter(
+            models.Q(
+                role__in=(
+                    JournalEditorAssignment.Role.CHIEF_EDITOR,
+                    JournalEditorAssignment.Role.EXECUTIVE_EDITOR,
+                )
+            )
+        ).exists():
+            return True
+        return any(
+            JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE
+            in (responsibilities or [])
+            for responsibilities in assignments.values_list(
+                "responsibilities", flat=True
+            )
+        )
+    if permission_name == ARTICLE_PLACEMENT_PERMISSION:
+        return assignments.filter(
+            role__in=(
+                JournalEditorAssignment.Role.CHIEF_EDITOR,
+                JournalEditorAssignment.Role.EXECUTIVE_EDITOR,
+            )
+        ).exists()
+    return False
 
 
 def user_has_article_edit_permission(user):
@@ -61,7 +97,15 @@ def user_has_article_edit_permission(user):
 
 
 def user_has_article_review_permission(user):
-    return user_has_article_permission(user, ARTICLE_REVIEW_PERMISSION)
+    if user is None or not user.is_active:
+        return False
+    from ai_author_forum.journals.models import JournalEditorAssignment
+    from ai_author_forum.site_settings.access_control import is_super_admin
+
+    return (
+        is_super_admin(user)
+        or JournalEditorAssignment.objects.effective().filter(user=user).exists()
+    )
 
 
 def user_has_article_placement_permission(user):
@@ -76,7 +120,70 @@ class ArticleRevisionConflict(ValidationError):
     pass
 
 
+class ArticlePagePermissionTester(PagePermissionTester):
+    """Expose Wagtail's editor only through the journal-scoped RBAC service."""
+
+    def _can_access(self):
+        from ai_author_forum.site_settings.access_control import (
+            get_journal_editor_assignment,
+            is_super_admin,
+        )
+
+        return is_super_admin(self.user) or bool(
+            get_journal_editor_assignment(self.user, self.page.primary_journal)
+        )
+
+    def can_edit(self):
+        from ai_author_forum.site_settings.access_control import can_manage_article
+
+        return can_manage_article(self.user, self.page)
+
+    def can_view_revisions(self):
+        return self._can_access()
+
+    def can_lock(self):
+        return self.can_edit()
+
+    def can_unlock(self):
+        return self.can_edit()
+
+    def can_submit_for_moderation(self):
+        # Submission is handled by submit_article_for_initial_review(), which
+        # enforces expected state/revision, idempotency and audit logging.
+        return False
+
+    def can_publish(self):
+        return False
+
+    def can_unpublish(self):
+        return False
+
+    def can_delete(self, ignore_bulk=False):
+        return False
+
+    def can_move(self):
+        return False
+
+    def can_copy(self):
+        return False
+
+
 class ArticlePage(Page):
+    REVIEW_GUARDED_FIELDS = (
+        "title",
+        "abstract",
+        "featured_image",
+        "featured_image_alt",
+        "authors",
+        "ai_co_authors",
+        "ai_contribution_statement",
+        "responsibility_statement",
+        "article_type",
+        "primary_journal",
+        "keywords",
+        "static_slug",
+        "body",
+    )
     template = ARTICLE_PAGE_TEMPLATE
     page_ptr = models.OneToOneField(
         Page,
@@ -86,6 +193,9 @@ class ArticlePage(Page):
     )
     base_form_class = ArticlePageForm
 
+    def permissions_for_user(self, user):
+        return ArticlePagePermissionTester(user, self)
+
     class ArticleType(models.TextChoices):
         AI_ARTICLE = "AI Article", "AI 文章"
         NEWS = "News", "新闻"
@@ -94,7 +204,8 @@ class ArticlePage(Page):
 
     class ReviewStatus(models.TextChoices):
         DRAFT = "draft", "草稿"
-        SUBMITTED = "submitted", "待审核"
+        SUBMITTED = "submitted", "待初审"
+        PENDING_FINAL = "pending_final", "待终审"
         APPROVED = "approved", "审核通过"
         REJECTED = "rejected", "已驳回"
         # Compatibility alias for records created before publication state was split out.
@@ -142,8 +253,8 @@ class ArticlePage(Page):
         help_text="多个作者请使用英文逗号分隔。",
     )
     ai_co_authors = models.CharField(max_length=255, blank=True)
-    ai_contribution_statement = models.TextField(blank=True)
-    responsibility_statement = models.TextField(blank=True)
+    ai_contribution_statement = models.TextField(blank=True, verbose_name="AI 参与说明")
+    responsibility_statement = models.TextField(blank=True, verbose_name="作者声明")
     article_type = models.CharField(
         max_length=32,
         choices=ArticleType.choices,
@@ -243,6 +354,29 @@ class ArticlePage(Page):
         related_name="+",
         help_text="文章审核驳回时对应的 revision。",
     )
+    assigned_initial_editor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_initial_review_articles",
+        editable=False,
+    )
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_initial_review_actions",
+        editable=False,
+    )
+    assigned_at = models.DateTimeField(null=True, blank=True, editable=False)
+    assignment_request_id = models.UUIDField(
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+    )
 
     search_fields = Page.search_fields + [
         index.SearchField("abstract"),
@@ -315,9 +449,13 @@ class ArticlePage(Page):
             [
                 FieldPanel("ai_co_authors"),
                 FieldPanel("ai_contribution_statement"),
-                FieldPanel("responsibility_statement"),
             ],
-            heading="AI 参与与责任声明",
+            heading="AI 参与说明",
+        ),
+        MultiFieldPanel(
+            [FieldPanel("responsibility_statement")],
+            heading="作者声明",
+            help_text="纯文本字段；可留空，HTML、脚本和 iframe 不会作为标记渲染。",
         ),
         MultiFieldPanel(
             [
@@ -427,6 +565,7 @@ class ArticlePage(Page):
         context["article_display_body"] = localized_article_body(self)
         context["review_status_label"] = self.get_review_status_display()
         context["related_journals"] = self._get_related_journals_for_preview()
+        context.update(self._declaration_context())
         context.update(get_article_fallback_context(self, request=request))
         return context
 
@@ -450,8 +589,34 @@ class ArticlePage(Page):
                 "is_preview": True,
             }
         )
+        context.update(self._declaration_context())
         context.update(get_article_fallback_context(self, request=request))
         return context
+
+    def _declaration_context(self):
+        from ai_author_forum.journals.frontend import get_public_editorial_team
+
+        ai_coauthors = localized_article_ai_coauthors(self)
+        editorial_team = get_public_editorial_team(self.primary_journal)
+        if not self.primary_journal.show_editorial_team_on_article_pages:
+            editorial_team = {
+                "heading": editorial_team["heading"],
+                "groups": [],
+                "has_members": False,
+            }
+        return {
+            "primary_journal": self.primary_journal,
+            "author_declaration": self.responsibility_statement,
+            "editorial_team": editorial_team,
+            "ai": {
+                "co_authors_text": ai_coauthors,
+                "contribution_statement": self.ai_contribution_statement,
+                "responsibility_statement": self.responsibility_statement,
+                "has_contribution": bool(
+                    ai_coauthors or self.ai_contribution_statement
+                ),
+            },
+        }
 
     def save(
         self,
@@ -463,10 +628,84 @@ class ArticlePage(Page):
     ):
         if not bypass_article_permission_check:
             self._raise_if_user_cannot_save(user)
+            self._raise_if_review_projection_written_directly()
+        update_fields = kwargs.get("update_fields")
+        review_fields_are_being_saved = update_fields is None or bool(
+            set(update_fields) & set(self.REVIEW_GUARDED_FIELDS)
+        )
+        reset_review = (
+            review_fields_are_being_saved and self._approved_content_changed()
+        )
+        previous_approved_revision_id = self.approved_version_id
+        if reset_review:
+            self.review_status = self.ReviewStatus.DRAFT
+            self.approved_version = None
+            self.assigned_initial_editor = None
+            self.assigned_by = None
+            self.assigned_at = None
+            self.assignment_request_id = None
+            if self.publication_status:
+                self.publication_status = self.PublicationStatus.OFFLINE
 
-        if not self.static_slug:
-            self.static_slug = self._generate_unique_static_slug()
-        super().save(clean=clean, user=user, log_action=log_action, **kwargs)
+        with transaction.atomic():
+            if not self.static_slug:
+                self.static_slug = self._generate_unique_static_slug()
+            super().save(clean=clean, user=user, log_action=log_action, **kwargs)
+            if reset_review:
+                from ai_author_forum.site_settings.models import (
+                    AuditAction,
+                    AuditLog,
+                    AuditStatus,
+                )
+
+                from .publication import sync_article_placement_status
+
+                AuditLog.record(
+                    action=AuditAction.PERMISSION,
+                    status=AuditStatus.SUCCESS,
+                    actor=user,
+                    target=self,
+                    message="终审后的正文或作者声明发生修改，撤销旧审核投影并返回草稿。",
+                    metadata={
+                        "previous_approved_revision_id": previous_approved_revision_id
+                    },
+                )
+                sync_article_placement_status(self.pk)
+
+    def _raise_if_review_projection_written_directly(self):
+        if not self.pk:
+            if (
+                self.review_status
+                in {
+                    self.ReviewStatus.PENDING_FINAL,
+                    self.ReviewStatus.APPROVED,
+                    self.ReviewStatus.PUBLISHED,
+                }
+                or self.approved_version_id
+            ):
+                raise ValidationError("审核投影只能由两级审核 service 创建。")
+            return
+        previous = (
+            type(self)
+            .objects.filter(pk=self.pk)
+            .only(
+                "review_status",
+                "approved_version_id",
+            )
+            .first()
+        )
+        if previous is None:
+            return
+        if (
+            self.review_status != previous.review_status
+            and self.review_status
+            in {
+                self.ReviewStatus.PENDING_FINAL,
+                self.ReviewStatus.APPROVED,
+                self.ReviewStatus.PUBLISHED,
+            }
+        ) or self.approved_version_id != previous.approved_version_id:
+            raise ValidationError("审核状态和批准 revision 只能由审核 service 写入。")
 
     def save_revision(
         self,
@@ -479,34 +718,94 @@ class ArticlePage(Page):
             self._raise_if_user_cannot_save(user)
         return super().save_revision(*args, user=user, **kwargs)
 
-    def submit_for_review(self, user, comment="", expected_revision_id=None):
-        from .category_services import validate_article_category_revision
+    def _approved_content_changed(self):
+        if not self.pk:
+            return False
+        previous = type(self).objects.filter(pk=self.pk).first()
+        if previous is None or previous.review_status not in {
+            self.ReviewStatus.APPROVED,
+            self.ReviewStatus.PUBLISHED,
+        }:
+            return False
+        fields = tuple(
+            (
+                f"{field_name}_id"
+                if field_name in {"featured_image", "primary_journal"}
+                else field_name
+            )
+            for field_name in self.REVIEW_GUARDED_FIELDS
+            if field_name != "body"
+        )
+        if any(getattr(previous, field) != getattr(self, field) for field in fields):
+            return True
+        return previous.body.raw_data != self.body.raw_data
 
-        validate_article_category_revision(article=self, action="submit")
-        return self._record_review_action(
-            user=user,
-            action=self.ReviewStatus.SUBMITTED,
+    def submit_for_review(
+        self,
+        user,
+        comment="",
+        expected_revision_id=None,
+        request_id=None,
+    ):
+        from .review_services import submit_article_for_initial_review
+
+        revision = self.get_latest_revision()
+        return submit_article_for_initial_review(
+            actor=user,
+            article=self,
+            expected_state=self.ReviewStatus.DRAFT,
+            expected_revision_id=expected_revision_id or getattr(revision, "pk", None),
+            request_id=request_id or uuid4(),
             comment=comment,
-            expected_revision_id=expected_revision_id,
         )
 
-    def approve(self, user, comment="", expected_revision_id=None):
-        return self._record_review_action(
-            user=user,
-            action=self.ReviewStatus.APPROVED,
-            comment=comment,
-            expected_revision_id=expected_revision_id,
-        )
+    def approve(
+        self,
+        user,
+        comment="",
+        expected_revision_id=None,
+        request_id=None,
+    ):
+        from .review_services import final_review_article, initial_review_article
 
-    def reject(self, user, comment, expected_revision_id=None):
-        if not str(comment or "").strip():
-            raise ValidationError("驳回意见必填。")
-        return self._record_review_action(
-            user=user,
-            action=self.ReviewStatus.REJECTED,
-            comment=comment,
-            expected_revision_id=expected_revision_id,
-        )
+        revision = self.get_latest_revision()
+        values = {
+            "actor": user,
+            "article": self,
+            "action": "approve",
+            "comment": comment,
+            "expected_state": self.review_status,
+            "expected_revision_id": expected_revision_id
+            or getattr(revision, "pk", None),
+            "request_id": request_id or uuid4(),
+        }
+        if self.review_status == self.ReviewStatus.SUBMITTED:
+            return initial_review_article(**values)
+        return final_review_article(**values)
+
+    def reject(
+        self,
+        user,
+        comment,
+        expected_revision_id=None,
+        request_id=None,
+    ):
+        from .review_services import final_review_article, initial_review_article
+
+        revision = self.get_latest_revision()
+        values = {
+            "actor": user,
+            "article": self,
+            "action": "reject",
+            "comment": comment,
+            "expected_state": self.review_status,
+            "expected_revision_id": expected_revision_id
+            or getattr(revision, "pk", None),
+            "request_id": request_id or uuid4(),
+        }
+        if self.review_status == self.ReviewStatus.SUBMITTED:
+            return initial_review_article(**values)
+        return final_review_article(**values)
 
     def _generate_unique_static_slug(self):
         max_length = self._meta.get_field("static_slug").max_length
@@ -532,86 +831,6 @@ class ArticlePage(Page):
         except ValueError:
             return []
 
-    def _record_review_action(
-        self,
-        user,
-        action,
-        comment="",
-        expected_revision_id=None,
-    ):
-        if action in (
-            self.ReviewStatus.APPROVED,
-            self.ReviewStatus.REJECTED,
-        ) and not user_has_article_review_permission(user):
-            raise PermissionDenied("User does not have article review permission.")
-
-        with transaction.atomic():
-            article = type(self).objects.select_for_update().get(pk=self.pk)
-            revision = article._get_or_create_current_review_revision(user)
-            if expected_revision_id is not None and str(revision.pk) != str(
-                expected_revision_id
-            ):
-                raise ArticleRevisionConflict(
-                    "文章在审核页面打开后已产生新 revision，请刷新后重新审核。"
-                )
-
-            article.review_status = action
-            if action == self.ReviewStatus.APPROVED:
-                if article.publication_status not in (
-                    self.PublicationStatus.BUILT,
-                    self.PublicationStatus.PUBLISHED,
-                ):
-                    article.publication_status = self.PublicationStatus.APPROVED
-                article.approved_version = revision
-            elif action == self.ReviewStatus.REJECTED:
-                if article.publication_status:
-                    article.publication_status = self.PublicationStatus.OFFLINE
-                article.rejected_version = revision
-
-            article.save(bypass_article_permission_check=True)
-            from .publication import sync_article_placement_status
-
-            sync_article_placement_status(article.pk)
-            article.refresh_from_db(fields=("publication_status",))
-            record = ArticleReviewRecord.objects.create(
-                article=article,
-                reviewer=user,
-                revision=revision,
-                action=action,
-                comment=comment,
-            )
-            log_article_audit(
-                action=action,
-                article=article,
-                user=user,
-                comment=comment,
-                metadata={
-                    "review_record_id": record.pk,
-                    "review_revision_id": revision.pk,
-                },
-            )
-            if action == self.ReviewStatus.APPROVED:
-                article_id = article.pk
-                revision_id = revision.pk
-
-                def synchronize_approved_categories():
-                    from ai_author_forum.placements.category_services import (
-                        sync_category_placements,
-                    )
-
-                    sync_category_placements(
-                        article_id=article_id,
-                        revision_id=revision_id,
-                        actor=user,
-                    )
-
-                transaction.on_commit(synchronize_approved_categories)
-            self.review_status = article.review_status
-            self.publication_status = article.publication_status
-            self.approved_version_id = article.approved_version_id
-            self.rejected_version_id = article.rejected_version_id
-            return record
-
     def _get_or_create_current_review_revision(self, user):
         revision = self.get_latest_revision()
         if revision:
@@ -624,10 +843,11 @@ class ArticlePage(Page):
         )
 
     def _raise_if_user_cannot_save(self, user):
-        if user is None or user.is_superuser:
+        if user is None:
             return
+        from ai_author_forum.site_settings.access_control import can_manage_article
 
-        if not user_has_article_edit_permission(user):
+        if not can_manage_article(user, self):
             raise PermissionDenied("User does not have article edit permission.")
 
         if self.pk and not self.permissions_for_user(user).can_edit():
@@ -665,7 +885,9 @@ class ArticlePage(Page):
         if not user.is_active:
             return False
 
-        if user.is_superuser:
+        from ai_author_forum.site_settings.access_control import can_manage_article
+
+        if can_manage_article(user, self):
             return True
 
         from wagtail.permissions import page_permission_policy
@@ -751,7 +973,9 @@ class ArticleContributor(Orderable):
         if self.identity == self.Identity.CUSTOM:
             return self.custom_identity
         if str(language_code or "").lower().startswith("en"):
-            return self.ENGLISH_IDENTITIES.get(self.identity, self.get_identity_display())
+            return self.ENGLISH_IDENTITIES.get(
+                self.identity, self.get_identity_display()
+            )
         return self.get_identity_display()
 
     def save(self, *args, **kwargs):
@@ -828,6 +1052,8 @@ class ArticleCategoryAssignment(Orderable):
 
 
 class ArticleReviewTask(AbstractGroupApprovalTask):
+    """Compatibility task retained for one migration cycle only."""
+
     def user_can_access_editor(self, obj, user):
         return False
 
@@ -860,33 +1086,209 @@ class ArticleReviewTask(AbstractGroupApprovalTask):
     def _user_can_review(self, user):
         if not user.is_active:
             return False
-
-        if user.is_superuser:
-            return True
-
-        # Business roles are the source of truth for the AI Author Forum admin.
-        # Wagtail's GroupApprovalTask still stores a reviewer group, but project
-        # leads / super-admin role presets may receive articles.review_article
-        # directly without being placed in the narrow task group. In that case
-        # the review dashboard was visible while approve/reject actions were
-        # hidden. Treat the business review permission as sufficient and keep
-        # group membership as a compatibility fallback for legacy reviewers.
-        return user_has_article_review_permission(user) or self._user_in_groups(user)
+        return self._user_in_groups(user)
 
     class Meta:
         verbose_name = "文章审核任务"
         verbose_name_plural = "文章审核任务"
 
 
+class ArticleInitialReviewTask(AbstractGroupApprovalTask):
+    def user_can_access_editor(self, obj, user):
+        return False
+
+    def locked_for_user(self, obj, user):
+        return not self._user_can_review(obj, user)
+
+    def user_can_lock(self, obj, user):
+        return self._user_can_review(obj, user)
+
+    def get_actions(self, obj, user):
+        if not self._user_can_review(obj, user):
+            return []
+        return [
+            ("reject", "退回修改", True),
+            ("approve", "初审通过", False),
+            ("approve", "初审通过并填写意见", True),
+        ]
+
+    @transaction.atomic
+    def on_action(self, task_state, user, action_name, **kwargs):
+        from .review_services import initial_review_article
+
+        article = task_state.workflow_state.get_content_object().specific
+        revision = article.get_latest_revision()
+        if action_name == "approve":
+            task_state.approve(
+                user=user, update=False, comment=kwargs.get("comment", "")
+            )
+        else:
+            task_state.reject(
+                user=user, update=False, comment=kwargs.get("comment", "")
+            )
+        initial_review_article(
+            actor=user,
+            article=article,
+            action="approve" if action_name == "approve" else "return",
+            comment=str(kwargs.get("comment", "")),
+            expected_state=ArticlePage.ReviewStatus.SUBMITTED,
+            expected_revision_id=getattr(revision, "pk", None),
+            request_id=kwargs.get("request_id") or uuid4(),
+        )
+        workflow_state = task_state.workflow_state
+        if action_name == "approve":
+            workflow_state.update(user=user)
+        else:
+            workflow_state.status = workflow_state.STATUS_NEEDS_CHANGES
+            workflow_state.save(update_fields=["status"])
+
+    def get_task_states_user_can_moderate(self, user, **kwargs):
+        from ai_author_forum.site_settings.access_control import (
+            filter_accessible_articles,
+        )
+
+        article_ids = [
+            str(pk)
+            for pk in filter_accessible_articles(
+                user, ArticlePage.objects.all()
+            ).values_list("pk", flat=True)
+        ]
+        return self.task_states.filter(
+            status=TaskState.STATUS_IN_PROGRESS,
+            workflow_state__object_id__in=article_ids,
+        )
+
+    def _user_can_review(self, obj, user):
+        from ai_author_forum.site_settings.access_control import can_initial_review
+
+        article = getattr(obj, "specific", obj)
+        return isinstance(article, ArticlePage) and can_initial_review(user, article)
+
+    @classmethod
+    def get_description(cls):
+        return "本刊有效编辑可对当前 revision 执行初审。"
+
+    class Meta:
+        verbose_name = "文章初审任务"
+        verbose_name_plural = "文章初审任务"
+
+
+class ArticleFinalReviewTask(AbstractGroupApprovalTask):
+    def user_can_access_editor(self, obj, user):
+        return False
+
+    def locked_for_user(self, obj, user):
+        return not self._user_can_review(obj, user)
+
+    def user_can_lock(self, obj, user):
+        return self._user_can_review(obj, user)
+
+    def get_actions(self, obj, user):
+        if not self._user_can_review(obj, user):
+            return []
+        return [
+            ("reject", "终审退回", True),
+            ("approve", "终审通过", False),
+            ("approve", "终审通过并填写意见", True),
+        ]
+
+    @transaction.atomic
+    def on_action(self, task_state, user, action_name, **kwargs):
+        from .review_services import final_review_article
+
+        article = task_state.workflow_state.get_content_object().specific
+        revision = article.get_latest_revision()
+        if action_name == "approve":
+            task_state.approve(
+                user=user,
+                update=False,
+                comment=kwargs.get("comment", ""),
+            )
+        else:
+            task_state.reject(
+                user=user, update=False, comment=kwargs.get("comment", "")
+            )
+        final_review_article(
+            actor=user,
+            article=article,
+            action="approve" if action_name == "approve" else "return",
+            comment=str(kwargs.get("comment", "")),
+            expected_state=ArticlePage.ReviewStatus.PENDING_FINAL,
+            expected_revision_id=getattr(revision, "pk", None),
+            request_id=kwargs.get("request_id") or uuid4(),
+        )
+        if action_name == "approve":
+            workflow_state = task_state.workflow_state
+            workflow_state.status = workflow_state.STATUS_APPROVED
+            workflow_state.save(update_fields=["status"])
+        else:
+            workflow_state = task_state.workflow_state
+            workflow_state.status = workflow_state.STATUS_NEEDS_CHANGES
+            workflow_state.save(update_fields=["status"])
+
+    def get_task_states_user_can_moderate(self, user, **kwargs):
+        from ai_author_forum.journals.models import JournalEditorAssignment
+
+        journal_ids = (
+            JournalEditorAssignment.objects.effective()
+            .filter(
+                user=user,
+                role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            )
+            .values_list("journal_id", flat=True)
+        )
+        article_ids = [
+            str(pk)
+            for pk in ArticlePage.objects.filter(
+                primary_journal_id__in=journal_ids
+            ).values_list("pk", flat=True)
+        ]
+        return self.task_states.filter(
+            status=TaskState.STATUS_IN_PROGRESS,
+            workflow_state__object_id__in=article_ids,
+        )
+
+    def _user_can_review(self, obj, user):
+        from ai_author_forum.site_settings.access_control import can_final_review
+
+        article = getattr(obj, "specific", obj)
+        return isinstance(article, ArticlePage) and can_final_review(user, article)
+
+    @classmethod
+    def get_description(cls):
+        return "只有本刊有效主编辑可对同一 revision 执行终审。"
+
+    class Meta:
+        verbose_name = "文章终审任务"
+        verbose_name_plural = "文章终审任务"
+
+
+class ImmutableReviewRecordQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("审核记录创建后不可修改。")
+
+    def delete(self):
+        raise ValidationError("审核记录创建后不可删除。")
+
+
 class ArticleReviewRecord(models.Model):
+    class Stage(models.TextChoices):
+        INITIAL = "initial", "初审"
+        FINAL = "final", "终审"
+
     class Action(models.TextChoices):
-        SUBMITTED = "submitted", "已提交审核"
-        APPROVED = "approved", "审核通过"
-        REJECTED = "rejected", "已驳回"
+        SUBMIT = "submit", "提交初审"
+        INITIAL_APPROVE = "initial_approve", "初审通过"
+        INITIAL_RETURN = "initial_return", "初审退回"
+        INITIAL_REJECT = "initial_reject", "初审拒绝"
+        FINAL_APPROVE = "final_approve", "终审通过"
+        FINAL_RETURN = "final_return", "终审退回"
+        FINAL_REJECT = "final_reject", "终审拒绝"
+        REOPEN = "reopen", "重新开启"
 
     article = models.ForeignKey(
         ArticlePage,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="review_records",
     )
     reviewer = models.ForeignKey(
@@ -894,20 +1296,89 @@ class ArticleReviewRecord(models.Model):
         on_delete=models.PROTECT,
         related_name="article_review_records",
     )
-    action = models.CharField(max_length=16, choices=Action.choices)
+    stage = models.CharField(
+        max_length=12,
+        choices=Stage.choices,
+        null=True,
+        blank=True,
+    )
+    action = models.CharField(max_length=24, choices=Action.choices)
     revision = models.ForeignKey(
         "wagtailcore.Revision",
         null=True,
         blank=True,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         related_name="article_review_records",
         help_text="本次审核操作明确针对的文章 revision。",
     )
+    journal_editor_assignment = models.ForeignKey(
+        "journals.JournalEditorAssignment",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="article_review_records",
+    )
+    reviewer_role = models.CharField(max_length=24, blank=True)
+    request_id = models.UUIDField(null=True, blank=True, unique=True)
     comment = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = ImmutableReviewRecordQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]
 
     def __str__(self):
         return f"{self.article} {self.action} by {self.reviewer}"
+
+    def clean(self):
+        super().clean()
+        initial_actions = {
+            self.Action.SUBMIT,
+            self.Action.INITIAL_APPROVE,
+            self.Action.INITIAL_RETURN,
+            self.Action.INITIAL_REJECT,
+            self.Action.REOPEN,
+        }
+        final_actions = {
+            self.Action.FINAL_APPROVE,
+            self.Action.FINAL_RETURN,
+            self.Action.FINAL_REJECT,
+        }
+        errors = {}
+        if self.action in initial_actions and self.stage != self.Stage.INITIAL:
+            errors["stage"] = "初审动作必须记录为 initial 阶段。"
+        if self.action in final_actions and self.stage != self.Stage.FINAL:
+            errors["stage"] = "终审动作必须记录为 final 阶段。"
+        if self.action in initial_actions | final_actions:
+            if not self.revision_id:
+                errors["revision"] = "审核记录必须绑定固定 revision。"
+            if not self.request_id:
+                errors["request_id"] = "审核记录必须包含幂等 request id。"
+            if not self.reviewer_role:
+                errors["reviewer_role"] = "审核记录必须保存操作时角色快照。"
+        if self.action in final_actions and not self.journal_editor_assignment_id:
+            errors["journal_editor_assignment"] = "终审记录必须绑定主编辑任命。"
+        if (
+            self.action
+            in {
+                self.Action.INITIAL_RETURN,
+                self.Action.INITIAL_REJECT,
+                self.Action.FINAL_RETURN,
+                self.Action.FINAL_REJECT,
+                self.Action.REOPEN,
+            }
+            and not self.comment.strip()
+        ):
+            errors["comment"] = "退回、拒绝或重新开启必须填写意见。"
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("审核记录创建后不可修改。")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("审核记录创建后不可删除。")

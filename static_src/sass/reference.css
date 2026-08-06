@@ -1911,7 +1911,7 @@ h3 {
     border-left: 0;
   }
 
-  .c-language-switcher__item {
+  .c-language-switcher .c-language-switcher__item {
     min-height: 64px;
     padding: 0 8px;
     font-size: 12px;
@@ -2363,6 +2363,15 @@ h3 {
   .c-content-row {
     margin-top: 22px;
   }
+
+  .c-three-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .c-side-panel {
+    border-left: 0;
+    padding-left: 0;
+  }
 }
 
 .c-article-contributors {
@@ -2415,6 +2424,60 @@ h3 {
   color: #006d75;
   font-size: 13px;
   font-weight: 700;
+}
+
+.c-author-declaration,
+.c-editorial-team {
+  border-top: 3px solid #17233d;
+  margin: 30px 0 24px;
+  padding-top: 18px;
+}
+
+.c-editorial-team h2,
+.c-author-declaration h2 {
+  font-size: 28px;
+  margin: 0 0 12px;
+}
+
+.c-editorial-team dl {
+  border-top: 1px solid #d9d9d9;
+  margin: 0;
+}
+
+.c-editorial-team dl > div {
+  border-bottom: 1px solid #d9d9d9;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(120px, .28fr) minmax(0, 1fr);
+  padding: 13px 0;
+}
+
+.c-editorial-team dt {
+  color: #17233d;
+  font-weight: 800;
+}
+
+.c-editorial-team dd,
+.c-editorial-team dd > span {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.c-editorial-team dd {
+  gap: 12px;
+}
+
+.c-editorial-team small {
+  color: #4e5b65;
+  font-size: 14px;
+}
+
+@media (max-width: 767px) {
+  .c-editorial-team dl > div {
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Journal static homepage */

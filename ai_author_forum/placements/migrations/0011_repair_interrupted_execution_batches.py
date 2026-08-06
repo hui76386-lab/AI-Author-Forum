@@ -1,7 +1,6 @@
 from django.db import migrations
 from django.utils import timezone
 
-
 INTERRUPTED_STATUSES = ("draft", "validating", "ready", "executing")
 
 

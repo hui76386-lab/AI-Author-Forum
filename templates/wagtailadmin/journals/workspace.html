@@ -70,6 +70,7 @@
       </div>
       <div class="journal-workspace__actions">
         {% if actions.edit %}<a class="button button-primary" href="{{ actions.edit }}">编辑期刊资料</a>{% endif %}
+        <a class="button button-secondary" href="{{ actions.editorial_team }}">编辑团队</a>
         {% if actions.categories %}<a class="button button-secondary" href="{{ actions.categories }}">管理本刊栏目</a>{% endif %}
         {% if not actions.edit and not actions.categories %}<span class="w-text-meta">当前角色仅可查看工作台。</span>{% endif %}
       </div>
@@ -83,7 +84,7 @@
       </div>
       <dl class="journal-workspace__definition">
         <div><dt>主属文章</dt><dd>正式归档在本刊，可使用本刊栏目。</dd></div>
-        <div><dt>相关文章</dt><dd>主属在其他期刊，可作为跨刊投放候选。</dd></div>
+        <div><dt>相关文章</dt><dd>仅表示内容关联，不授予跨刊投放权限。</dd></div>
       </dl>
       <div class="journal-workspace__actions">
         {% if actions.articles %}<a class="button button-primary" href="{{ actions.articles }}">查看本刊文章</a>{% else %}<span class="w-text-meta">当前角色无文章列表权限。</span>{% endif %}
@@ -95,7 +96,7 @@
       <div class="journal-workspace__card-number">03</div>
       <div>
         <h2>投放与版位</h2>
-        <p>把审核通过的文章投放到本刊具体版位，并维护排序、置顶和生效时间。只有主属或相关于本刊的文章才能投放到这里。</p>
+        <p>把本刊主属且经主编辑终审通过的文章投放到本刊具体版位，并维护排序、置顶和生效时间。</p>
       </div>
       <div class="journal-workspace__actions">
         {% if actions.placements %}<a class="button button-primary" href="{{ actions.placements }}">{{ placement_action_label }}</a>{% else %}<span class="w-text-meta">当前角色无投放管理权限。</span>{% endif %}

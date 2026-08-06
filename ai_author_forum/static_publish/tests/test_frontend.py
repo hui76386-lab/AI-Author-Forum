@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
@@ -21,6 +22,10 @@ from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.home.models import HomePage
 from ai_author_forum.images.models import CustomImage
 from ai_author_forum.journals.models import Journal
+from ai_author_forum.placements.category_services import (
+    sync_category_placements,
+    validate_category_placement_consistency,
+)
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.site_settings.models import (
     ContentColumnConfig,
@@ -36,6 +41,10 @@ from ai_author_forum.static_publish.services import (
     StaticPublisher,
     safe_relative_path,
 )
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class StaticFrontendTests(TestCase):
@@ -50,6 +59,15 @@ class StaticFrontendTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.root = HomePage.objects.first() or Page.get_first_root_node()
+        cls.admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="static-frontend-admin",
+                email="static-frontend-admin@example.com",
+                display_name="Static Frontend Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
         cls.journal = Journal.objects.create(
             name="AI Ethics Forum",
             name_cn="AI 伦理论坛",
@@ -86,11 +104,11 @@ class StaticFrontendTests(TestCase):
             article_type=ArticlePage.ArticleType.AI_ARTICLE,
             primary_journal=cls.journal,
             keywords="AI authorship",
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         cls.root.add_child(instance=article)
         article.save_revision().publish()
-        return article
+        formally_approve_test_article(article, actor=cls.admin)
+        return ArticlePage.objects.get(pk=article.pk)
 
     def place(self, article, slot_code, target_type, target_slug, **kwargs):
         return ArticlePlacement.objects.create(
@@ -136,6 +154,48 @@ class StaticFrontendTests(TestCase):
             "Sponsored by University of Tennessee Health Science Center",
         )
 
+    def test_chinese_navigation_and_search_use_localized_labels(self):
+        response = self.client.get("/search/")
+
+        self.assertEqual(response.status_code, 200)
+        soup = BeautifulSoup(response.content, "html.parser")
+        reader_links = {
+            link["data-navigation-item"]: link.get_text(" ", strip=True)
+            for link in soup.select('[data-navigation-group="for-readers"] a')
+        }
+        self.assertEqual(
+            reader_links["how-ai-authored-articles-produced"],
+            "AI 署名文章如何产生",
+        )
+        self.assertEqual(reader_links["readers-responsibility"], "读者责任")
+        self.assertEqual(
+            soup.select_one(
+                'form[data-search-form] select[name="journal"] '
+                'option[value="ai-ethics-forum"]'
+            ).get_text(" ", strip=True),
+            self.journal.name_cn,
+        )
+        self.assertEqual(
+            soup.select_one(
+                '#site-search-panel select[name="journal"] '
+                'option[value="AI Ethics Forum"]'
+            ).get_text(" ", strip=True),
+            self.journal.name_cn,
+        )
+
+    def test_english_search_keeps_english_journal_labels(self):
+        response = self.client.get("/en/search/")
+
+        self.assertEqual(response.status_code, 200)
+        soup = BeautifulSoup(response.content, "html.parser")
+        self.assertEqual(
+            soup.select_one(
+                'form[data-search-form] select[name="journal"] '
+                'option[value="ai-ethics-forum"]'
+            ).get_text(" ", strip=True),
+            self.journal.name,
+        )
+
     def test_editorial_page_uses_wagtail_content_and_publishes_fixed_html(self):
         careers = StandardPage.objects.get(slug="careers")
         careers.introduction = "Editor-maintained careers introduction."
@@ -175,7 +235,9 @@ class StaticFrontendTests(TestCase):
 
         with TemporaryDirectory() as output_root:
             publisher = StaticPublisher(output_root)
-            job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+            job = StaticPublishJob.objects.create(
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+            )
             publisher.build(job)
             page_html = Path(
                 output_root,
@@ -230,12 +292,16 @@ class StaticFrontendTests(TestCase):
                 )
                 self.article_a.featured_image = hero_image
                 self.article_a.featured_image_alt = "Hero article cover alt"
+                self.article_a.save(user=self.admin)
                 self.article_a.save_revision().publish()
-                ArticlePage.objects.filter(pk=self.article_c.pk).update(
-                    featured_image=story_article_image,
-                    featured_image_alt="Story article cover alt",
-                    abstract="",
-                )
+                formally_approve_test_article(self.article_a, actor=self.admin)
+                self.article_a.refresh_from_db()
+                self.article_c.featured_image = story_article_image
+                self.article_c.featured_image_alt = "Story article cover alt"
+                self.article_c.abstract = "Story article summary"
+                self.article_c.save(clean=False, user=self.admin)
+                self.article_c.save_revision().publish()
+                formally_approve_test_article(self.article_c, actor=self.admin)
                 self.article_c.refresh_from_db()
 
                 hero = self.place(
@@ -308,7 +374,7 @@ class StaticFrontendTests(TestCase):
                         "Placement-specific visual story alt",
                         True,
                     ),
-                    (story_article, "Story article cover alt", False),
+                    (story_article, "Story article cover alt", True),
                 )
                 for placement, expected_alt, has_summary in expected_visuals:
                     card = visual_section.select_one(
@@ -340,8 +406,28 @@ class StaticFrontendTests(TestCase):
                 ):
                     self.assertNotIn(legacy_placeholder, rendered)
 
+                for article in (self.article_a, self.article_c):
+                    article.refresh_from_db()
+                    sync_category_placements(
+                        article_id=article.pk,
+                        revision_id=article.approved_version_id,
+                        actor=self.admin,
+                    )
+                self.assertEqual(
+                    validate_category_placement_consistency(
+                        article_ids=(
+                            self.article_a.pk,
+                            self.article_b.pk,
+                            self.article_c.pk,
+                        )
+                    ),
+                    [],
+                )
+
                 publisher = StaticPublisher(output_root)
-                job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+                job = StaticPublishJob.objects.create(
+                    scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+                )
                 publisher.build(job)
                 home_path = Path(output_root, "current", "index.html")
                 article_path = Path(
@@ -412,7 +498,9 @@ class StaticFrontendTests(TestCase):
 
         with TemporaryDirectory() as output_root:
             publisher = StaticPublisher(output_root)
-            job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+            job = StaticPublishJob.objects.create(
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+            )
             publisher.build(job)
             home_html = Path(output_root, "current", "index.html").read_text(
                 encoding="utf-8"
@@ -774,7 +862,9 @@ class StaticFrontendTests(TestCase):
                     override_image=image,
                 )
                 publisher = StaticPublisher(output_root)
-                job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+                job = StaticPublishJob.objects.create(
+                    scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+                )
                 manifest_record = publisher.build(job)
                 current = Path(output_root, "current")
 
@@ -848,7 +938,7 @@ class StaticFrontendTests(TestCase):
         with TemporaryDirectory() as output_root:
             publisher = StaticPublisher(output_root)
             first_job = StaticPublishJob.objects.create(
-                scope=StaticPublishJob.Scope.FULL
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
             )
             publisher.build(first_job)
             page_path = Path(output_root, "current", "sections", "news", "index.html")
@@ -858,14 +948,16 @@ class StaticFrontendTests(TestCase):
             placement.override_title = "Release two headline"
             placement.save(update_fields=("override_title",))
             second_job = StaticPublishJob.objects.create(
-                scope=StaticPublishJob.Scope.FULL
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
             )
             publisher.build(second_job)
             second_content = page_path.read_text(encoding="utf-8")
             self.assertIn("Release two headline", second_content)
             self.assertNotEqual(first_content, second_content)
 
-            publisher.rollback(first_job.version, reason="rollback regression fixture")
+            publisher.rollback(
+                first_job.version, self.admin, reason="rollback regression fixture"
+            )
 
             restored_content = page_path.read_text(encoding="utf-8")
             restored_manifest = json.loads(

@@ -1,0 +1,48 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+{% block titletag %}新建账号{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title="新建账号" icon="user" %}
+<div class="nice-padding"><form method="post" data-account-form>{% csrf_token %}
+  {{ form.non_field_errors }}
+  <section><h2>账号资料</h2><div class="w-space-y-5">{% for field in form %}{% formattedfield field %}{% endfor %}</div></section>
+  <section class="w-mt-8"><h2>角色分配</h2>{{ assignment_formset.management_form }}
+    <div data-assignment-rows>{% for assignment_form in assignment_formset %}<fieldset class="w-mb-6 w-p-5 w-border" data-assignment-row><legend>子期刊任命 {{ forloop.counter }}</legend>{{ assignment_form.non_field_errors }}<div class="w-space-y-5">{% for field in assignment_form %}{% formattedfield field %}{% endfor %}</div></fieldset>{% endfor %}</div>
+    <template data-assignment-template><fieldset class="w-mb-6 w-p-5 w-border" data-assignment-row><legend>子期刊任命</legend><div class="w-space-y-5">{% for field in assignment_formset.empty_form %}{% formattedfield field %}{% endfor %}</div></fieldset></template>
+    <button class="button button-secondary" type="button" data-add-assignment>增加子期刊任命</button>
+  </section>
+  <section class="w-mt-8"><h2>提交摘要</h2><div data-account-summary>请核对账号和角色分配。</div></section>
+  <button class="button button-primary w-mt-6" type="submit">创建账号和任命</button>
+</form></div>
+<script>
+(() => {
+  const form=document.querySelector('[data-account-form]');
+  const summary=document.querySelector('[data-account-summary]');
+  const rowsContainer=document.querySelector('[data-assignment-rows]');
+  const template=document.querySelector('[data-assignment-template]');
+  const totalForms=form?.querySelector('[name="roles-TOTAL_FORMS"]');
+  if(!form||!summary||!rowsContainer||!template||!totalForms)return;
+  const applyDefault=(field,value)=>{if(!field||field.dataset.manual==='true')return;if(!field.value||field.value===field.dataset.autofillValue){field.value=value;field.dataset.autofillValue=value;}};
+  const render=()=>{
+    const name=form.querySelector('[name="display_name"]')?.value||'';
+    const institution=form.querySelector('[name="institution"]')?.value||'';
+    const username=form.querySelector('[name="username"]')?.value||'-';
+    const superAdmin=form.querySelector('[name="is_super_admin_account"]')?.checked;
+    const rows=[...form.querySelectorAll('[name$="-journal"]')].map((journal)=>{
+      const prefix=journal.name.replace(/journal$/,'');
+      if(form.querySelector(`[name="${prefix}DELETE"]`)?.checked)return null;
+      const role=form.querySelector(`[name="${prefix}role"]`);
+      applyDefault(form.querySelector(`[name="${prefix}public_name"]`),name);
+      applyDefault(form.querySelector(`[name="${prefix}public_affiliation"]`),institution);
+      const duties=role?.value==='associate_editor'?[...form.querySelectorAll(`[name="${prefix}responsibilities"]:checked`)].map((item)=>item.parentElement?.textContent?.trim()||item.value).join('、')||'未分配职责':'全部职责';
+      return journal.selectedOptions[0]?.text&&journal.value?`${journal.selectedOptions[0].text} / ${role?.selectedOptions[0]?.text||'-'} / ${duties}`:null;
+    }).filter(Boolean);
+    summary.textContent=`${name||'-'} (${username}) / ${superAdmin?'超级管理员':rows.join('；')||'未分配角色'}`;
+  };
+  form.addEventListener('input',(event)=>{if(event.target.matches('[name$="-public_name"],[name$="-public_affiliation"]'))event.target.dataset.manual='true';render();});
+  form.addEventListener('change',render);
+  form.querySelector('[data-add-assignment]')?.addEventListener('click',()=>{const index=Number(totalForms.value);rowsContainer.insertAdjacentHTML('beforeend',template.innerHTML.replaceAll('__prefix__',String(index)));totalForms.value=String(index+1);render();});
+  render();
+})();
+</script>
+{% endblock %}

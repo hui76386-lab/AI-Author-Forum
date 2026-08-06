@@ -24,6 +24,10 @@ from ai_author_forum.site_settings.models import (
 from ai_author_forum.site_settings.services import (
     record_audit_event as persist_audit_event,
 )
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 from ..models import StaticManifest, StaticPublishJob, StaticPublishTarget
 from ..providers import output_path_for_url
@@ -53,6 +57,15 @@ class StaticPublisherTests(TestCase):
         media_override.enable()
         self.addCleanup(media_override.disable)
         self.publisher = StaticPublisher(self.temporary.name)
+        self.admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="static-publisher-admin",
+                email="static-publisher-admin@example.com",
+                display_name="Static Publisher Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
         readiness_patcher = patch(
             "ai_author_forum.static_publish.services.check_content_readiness",
             return_value=ContentReadinessResult(),
@@ -72,6 +85,7 @@ class StaticPublisherTests(TestCase):
                 else StaticPublishJob.Scope.FULL
             ),
             requested_paths=paths or [],
+            triggered_by=self.admin,
         )
         manifest = self.publisher.build(job)
         job.refresh_from_db()
@@ -97,6 +111,7 @@ class StaticPublisherTests(TestCase):
             scope=StaticPublishJob.Scope.FULL,
             status=StaticPublishJob.Status.RUNNING,
             version="snapshot-test",
+            triggered_by=self.admin,
         )
         snapshots, snapshot_at = self.publisher._snapshot_targets(job, None)
         TARGETS["/"] = b"<html>changed after snapshot</html>"
@@ -133,6 +148,7 @@ class StaticPublisherTests(TestCase):
             scope=StaticPublishJob.Scope.FULL,
             status=StaticPublishJob.Status.RUNNING,
             version="error-code-test",
+            triggered_by=self.admin,
         )
         target = TestTarget("/broken/", b"unused")
         record = StaticPublishTarget.objects.create(
@@ -177,7 +193,9 @@ class StaticPublisherTests(TestCase):
             self.temporary.name, "current", "manifest.json"
         ).read_bytes()
         TARGETS["/"] = b"<html>home v2</html>"
-        job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+        job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+        )
 
         def fail_success_audit(**kwargs):
             if kwargs["status"] == AuditStatus.SUCCESS:
@@ -216,7 +234,9 @@ class StaticPublisherTests(TestCase):
         )
 
         with self.assertRaisesMessage(PublishError, "integrity check failed"):
-            self.publisher.rollback(first.version, reason="rollback regression fixture")
+            self.publisher.rollback(
+                first.version, self.admin, reason="rollback regression fixture"
+            )
 
         self.assertEqual(
             Path(self.temporary.name, "current", "manifest.json").read_bytes(),
@@ -242,7 +262,9 @@ class StaticPublisherTests(TestCase):
         ).write_text("{not-json", encoding="utf-8")
 
         with self.assertRaisesMessage(PublishError, "invalid manifest.json"):
-            self.publisher.rollback(first.version, reason="rollback regression fixture")
+            self.publisher.rollback(
+                first.version, self.admin, reason="rollback regression fixture"
+            )
 
         self.assertEqual(
             Path(self.temporary.name, "current", "manifest.json").read_bytes(),
@@ -279,7 +301,9 @@ class StaticPublisherTests(TestCase):
             ),
             self.assertRaisesMessage(AuditWriteError, "Audit log write failed"),
         ):
-            self.publisher.rollback(first.version, reason="rollback regression fixture")
+            self.publisher.rollback(
+                first.version, self.admin, reason="rollback regression fixture"
+            )
 
         self.assertEqual(
             Path(self.temporary.name, "current", "manifest.json").read_bytes(),
@@ -370,7 +394,7 @@ class StaticPublisherTests(TestCase):
         TARGETS["/"] = b"<html>home v2</html>"
         self.build()
         rollback = self.publisher.rollback(
-            first.version, reason="rollback regression fixture"
+            first.version, self.admin, reason="rollback regression fixture"
         )
         self.assertEqual(rollback.status, StaticPublishJob.Status.ROLLED_BACK)
         self.assertEqual(
@@ -386,7 +410,9 @@ class StaticPublisherTests(TestCase):
         active_before = Path(self.temporary.name, "current/manifest.json").read_bytes()
         home_before = Path(self.temporary.name, "current/index.html").read_bytes()
         TARGETS["/"] = b"<html>home v2</html>"
-        failed_job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+        failed_job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+        )
         with (
             patch.object(
                 self.publisher,
@@ -423,7 +449,9 @@ class StaticPublisherTests(TestCase):
             ),
             self.assertRaisesMessage(RuntimeError, "rollback database failed"),
         ):
-            self.publisher.rollback(first.version, reason="rollback regression fixture")
+            self.publisher.rollback(
+                first.version, self.admin, reason="rollback regression fixture"
+            )
         self.assertEqual(
             Path(self.temporary.name, "current/manifest.json").read_bytes(),
             active_before,
@@ -442,19 +470,23 @@ class StaticPublisherTests(TestCase):
 
     def test_retry_only_rebuilds_failed_paths(self):
         TARGETS["/"] = RuntimeError("temporary")
-        job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+        job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+        )
         with self.assertRaises(PublishError):
             self.publisher.build(job)
         TARGETS["/"] = b"<html>recovered</html>"
-        retry = self.publisher.retry(job)
+        retry = self.publisher.retry(job, self.admin)
         self.assertEqual(retry.retry_of, job)
         self.assertEqual(retry.requested_paths, ["index.html"])
         self.assertEqual(retry.status, StaticPublishJob.Status.SUCCEEDED)
 
     def test_retry_reuses_requested_paths_after_an_asset_copy_failure(self):
+        self.build()
         job = StaticPublishJob.objects.create(
             scope=StaticPublishJob.Scope.SELECTIVE,
             requested_paths=["/articles/one/"],
+            triggered_by=self.admin,
         )
 
         with (
@@ -467,8 +499,8 @@ class StaticPublisherTests(TestCase):
         ):
             self.publisher.build(job)
 
-        self.assertFalse(job.targets.exists())
-        retry = self.publisher.retry(job)
+        self.assertTrue(job.targets.exists())
+        retry = self.publisher.retry(job, self.admin)
 
         self.assertEqual(retry.retry_of, job)
         self.assertEqual(retry.requested_paths, ["/articles/one/"])
@@ -483,6 +515,15 @@ class ContentReadinessPublishGateTests(TestCase):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.publisher = StaticPublisher(self.temporary.name)
+        self.admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="readiness-publish-admin",
+                email="readiness-publish-admin@example.com",
+                display_name="Readiness Publish Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
         TARGETS.clear()
         TARGETS.update({"/": b"<html>blocked</html>"})
 
@@ -500,7 +541,9 @@ class ContentReadinessPublishGateTests(TestCase):
             checked_navigation_items=1,
             checked_columns=1,
         )
-        job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+        job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+        )
 
         with (
             patch(
@@ -540,7 +583,11 @@ class WorkerPreflightFailureTests(TestCase):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.publisher = StaticPublisher(self.temporary.name)
-        self.user = get_user_model().objects.create_user("worker-without-permission")
+        self.user = get_user_model().objects.create_user(
+            "worker-without-permission",
+            email="worker-without-permission@example.com",
+            display_name="Worker Without Permission",
+        )
 
     def assert_worker_failure(self, job, action):
         job.refresh_from_db()
@@ -624,6 +671,15 @@ class ArticlePublicationStatusTests(TestCase):
         media_override.enable()
         self.addCleanup(media_override.disable)
         self.publisher = StaticPublisher(self.temporary.name)
+        self.admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="article-publication-admin",
+                email="article-publication-admin@example.com",
+                display_name="Article Publication Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
         readiness_patcher = patch(
             "ai_author_forum.static_publish.services.check_content_readiness",
             return_value=ContentReadinessResult(),
@@ -646,18 +702,20 @@ class ArticlePublicationStatusTests(TestCase):
             article_type=ArticlePage.ArticleType.NEWS,
             primary_journal=self.journal,
             keywords="publication",
-            review_status=ArticlePage.ReviewStatus.APPROVED,
-            publication_status=ArticlePage.PublicationStatus.APPROVED,
         )
         Page.get_first_root_node().add_child(instance=self.article)
         self.article.save_revision().publish()
+        formally_approve_test_article(self.article, actor=self.admin)
+        self.article.refresh_from_db()
 
     @property
     def article_source(self):
         return f"articles.ArticlePage:{self.article.pk}"
 
     def build(self):
-        job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+        job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+        )
         manifest = self.publisher.build(job)
         job.refresh_from_db()
         return job, manifest
@@ -696,8 +754,12 @@ class ArticlePublicationStatusTests(TestCase):
         self.assertEqual(self.article.publish_failure_reason, "")
 
     def test_successful_render_can_be_recorded_as_built_before_activation(self):
-        record_article_build_success(self.article_source, "candidate-v1")
+        updated = record_article_build_success(self.article_source, "candidate-v1")
 
+        self.assertIsNotNone(updated)
+        self.assertEqual(
+            updated.publication_status, ArticlePage.PublicationStatus.BUILT
+        )
         self.article.refresh_from_db()
         self.assertEqual(
             self.article.publication_status,
@@ -739,7 +801,9 @@ class ArticlePublicationStatusTests(TestCase):
         )
         self.assertEqual(self.article.published_version, "")
 
-        self.publisher.rollback(first_job.version, reason="rollback regression fixture")
+        self.publisher.rollback(
+            first_job.version, self.admin, reason="rollback regression fixture"
+        )
         self.article.refresh_from_db()
         self.assertEqual(
             self.article.publication_status,
@@ -748,7 +812,7 @@ class ArticlePublicationStatusTests(TestCase):
         self.assertEqual(self.article.published_version, first_job.version)
 
         self.publisher.rollback(
-            second_job.version, reason="rollback regression fixture"
+            second_job.version, self.admin, reason="rollback regression fixture"
         )
         self.article.refresh_from_db()
         self.assertEqual(

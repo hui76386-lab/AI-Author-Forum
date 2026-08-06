@@ -6,7 +6,7 @@ import tempfile
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -23,15 +23,17 @@ from ai_author_forum.articles.import_services import (
     confirm_article_import,
     preview_article_import,
 )
+from ai_author_forum.journals.editor_services import appoint_journal_editor
 from ai_author_forum.journals.models import (
     ArticleImportJob,
     ArticleImportScope,
     ImportJobStatus,
     Journal,
+    JournalEditorAssignment,
     JournalStatus,
 )
-from ai_author_forum.site_settings.management.commands.seed_roles import (
-    ROLE_DEFINITIONS,
+from ai_author_forum.test_helpers import (
+    grant_business_super_admin,
 )
 
 
@@ -80,6 +82,13 @@ class ArticleImportPermissionMatrixTests(TestCase):
             az_group="P",
             status=JournalStatus.ACTIVE,
         )
+        cls.role_admin = grant_business_super_admin(
+            get_user_model().objects.create_superuser(
+                username="article-import-role-admin",
+                email="article-import-role-admin@example.com",
+                password="test-password",
+            )
+        )
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -89,13 +98,53 @@ class ArticleImportPermissionMatrixTests(TestCase):
         self.addCleanup(self.tempdir.cleanup)
 
     def make_role_user(self, role_code, suffix=""):
-        definition = ROLE_DEFINITIONS[role_code]
+        username = (
+            f"article-import-{role_code}-"
+            f"{suffix or get_user_model().objects.count()}"
+        )
         user = get_user_model().objects.create_user(
-            username=f"article-import-{role_code}-{suffix or get_user_model().objects.count()}",
+            username=username,
+            email=f"{username}@example.com",
+            display_name=username,
             password="test-password",
             is_staff=True,
         )
-        user.groups.add(Group.objects.get(name=definition["display_name"]))
+        if role_code == "super_admin":
+            grant_business_super_admin(user)
+        elif role_code in {
+            "chief_editor",
+            "executive_editor",
+            "associate_editor",
+        }:
+            appoint_journal_editor(
+                actor=self.role_admin,
+                user=user,
+                journal=self.journal,
+                role=role_code,
+                responsibilities=(
+                    [JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE]
+                    if role_code == "associate_editor"
+                    else []
+                ),
+                public_profile={
+                    "public_name": user.display_name,
+                    "public_role_label": {
+                        "chief_editor": "主编辑",
+                        "executive_editor": "常务副编辑",
+                        "associate_editor": "副编辑",
+                    }[role_code],
+                },
+            )
+        elif role_code == "unassigned":
+            user.user_permissions.add(
+                Permission.objects.get(
+                    content_type__app_label="wagtailadmin",
+                    codename="access_admin",
+                )
+            )
+        elif role_code == "technical_superuser":
+            user.is_superuser = True
+            user.save(update_fields=("is_superuser",))
         return get_user_model().objects.get(pk=user.pk)
 
     def make_job(self, *, operator, scope=ArticleImportScope.GLOBAL, journal=None):
@@ -112,25 +161,32 @@ class ArticleImportPermissionMatrixTests(TestCase):
         )
         return job
 
-    def test_all_standard_roles_match_import_permission_and_button_matrix(self):
+    def test_simple_roles_match_import_permission_and_button_matrix(self):
         expected = {
-            "project_lead": True,
             "super_admin": True,
-            "content_manager": False,
-            "reviewer": False,
-            "site_operator": False,
-            "publisher": False,
-            "readonly": False,
+            "chief_editor": True,
+            "executive_editor": True,
+            "associate_editor": True,
+            "unassigned": False,
+            "technical_superuser": False,
         }
         for role_code, allowed in expected.items():
             with self.subTest(role=role_code):
                 user = self.make_role_user(role_code)
                 self.assertEqual(can_import_articles(user), allowed)
                 self.client.force_login(user)
-                response = self.client.get(reverse("article_admin:import"))
+                query = (
+                    {}
+                    if role_code in {"super_admin", "technical_superuser", "unassigned"}
+                    else {
+                        "scope": ArticleImportScope.JOURNAL,
+                        "journal": self.journal.pk,
+                    }
+                )
+                response = self.client.get(reverse("article_admin:import"), query)
                 self.assertEqual(response.status_code, 200 if allowed else 403)
                 template_response = self.client.get(
-                    reverse("article_admin:import_template")
+                    reverse("article_admin:import_template"), query
                 )
                 self.assertEqual(template_response.status_code, 200 if allowed else 403)
 
@@ -141,28 +197,33 @@ class ArticleImportPermissionMatrixTests(TestCase):
                     else:
                         self.assertNotContains(article_list, "一键导入文章")
 
-    def test_non_superuser_global_roles_can_view_other_users_jobs_and_errors(self):
-        owner = self.make_role_user("content_manager", "owner")
-        project_lead = self.make_role_user("project_lead", "lead")
+    def test_only_business_super_admin_can_view_other_users_global_jobs(self):
+        owner = self.make_role_user("unassigned", "owner")
+        technical_superuser = self.make_role_user("technical_superuser", "technical")
         super_admin = self.make_role_user("super_admin", "admin")
         job = self.make_job(operator=owner)
 
-        for user in (project_lead, super_admin):
-            with self.subTest(user=user.username):
-                self.client.force_login(user)
-                response = self.client.get(
-                    reverse("article_admin:import_status"), {"job_id": job.pk}
-                )
-                self.assertEqual(response.status_code, 200)
-                response = self.client.get(
-                    reverse("article_admin:import_errors", args=[job.pk])
-                )
-                self.assertEqual(response.status_code, 200)
-                response.close()
+        self.client.force_login(technical_superuser)
+        self.assertEqual(
+            self.client.get(
+                reverse("article_admin:import_status"), {"job_id": job.pk}
+            ).status_code,
+            403,
+        )
+        self.client.force_login(super_admin)
+        response = self.client.get(
+            reverse("article_admin:import_status"), {"job_id": job.pk}
+        )
+        self.assertEqual(response.status_code, 200)
+        response = self.client.get(
+            reverse("article_admin:import_errors", args=[job.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+        response.close()
 
-    def test_content_manager_cannot_access_article_import_jobs(self):
-        owner = self.make_role_user("content_manager", "owner")
-        other = self.make_role_user("content_manager", "other")
+    def test_unassigned_user_cannot_access_article_import_jobs(self):
+        owner = self.make_role_user("unassigned", "owner")
+        other = self.make_role_user("unassigned", "other")
         job = self.make_job(operator=owner)
         self.client.force_login(other)
 
@@ -190,35 +251,35 @@ class ArticleImportPermissionMatrixTests(TestCase):
         )
 
     def test_only_global_admin_can_force_suspicious_text(self):
-        content_manager = self.make_role_user("content_manager", "content")
-        project_lead = self.make_role_user("project_lead", "lead")
+        associate = self.make_role_user("associate_editor", "content")
+        super_admin = self.make_role_user("super_admin", "admin")
         job = preview_article_import(
             csv_upload(suspicious=True),
             context=ArticleImportContext(scope=ArticleImportScope.GLOBAL),
-            operator=project_lead,
+            operator=super_admin,
         )
 
-        self.assertFalse(can_override_suspicious_article_text(content_manager))
+        self.assertFalse(can_override_suspicious_article_text(associate))
         with self.assertRaises(PermissionDenied):
             confirm_article_import(
                 job,
-                operator=content_manager,
+                operator=associate,
                 allow_suspicious_text=True,
                 override_reason="Verified against trusted source",
             )
 
-        self.assertTrue(can_override_suspicious_article_text(project_lead))
+        self.assertTrue(can_override_suspicious_article_text(super_admin))
         confirmed = confirm_article_import(
             job,
-            operator=project_lead,
+            operator=super_admin,
             allow_suspicious_text=True,
             override_reason="Verified against trusted source",
         )
         self.assertEqual(confirmed.status, ImportJobStatus.PENDING)
-        self.assertEqual(confirmed.confirmed_by, project_lead)
+        self.assertEqual(confirmed.confirmed_by, super_admin)
 
     def test_journal_job_cannot_be_opened_by_removing_or_changing_query_scope(self):
-        owner = self.make_role_user("content_manager", "scope")
+        owner = self.make_role_user("associate_editor", "scope")
         job = self.make_job(
             operator=owner,
             scope=ArticleImportScope.JOURNAL,
@@ -227,28 +288,36 @@ class ArticleImportPermissionMatrixTests(TestCase):
         self.client.force_login(owner)
         import_url = reverse("article_admin:import")
 
-        self.assertEqual(self.client.get(import_url, {"job": job.pk}).status_code, 403)
+        self.assertEqual(self.client.get(import_url, {"job": job.pk}).status_code, 302)
         self.assertEqual(
             self.client.get(
                 import_url, {"job": job.pk, "journal": self.other_journal.pk}
             ).status_code,
-            403,
+            404,
         )
         self.assertEqual(
             self.client.get(
                 import_url, {"job": job.pk, "journal": self.journal.pk}
             ).status_code,
-            403,
+            200,
         )
 
-    def test_content_manager_cannot_view_recent_article_import_jobs(self):
-        content_manager = self.make_role_user("content_manager", "recent")
-        self.make_job(operator=content_manager)
-        self.client.force_login(content_manager)
+    def test_editor_cannot_view_another_editors_recent_import_jobs(self):
+        owner = self.make_role_user("associate_editor", "recent-owner")
+        viewer = self.make_role_user("associate_editor", "recent-viewer")
+        self.make_job(
+            operator=owner,
+            scope=ArticleImportScope.JOURNAL,
+            journal=self.journal,
+        )
+        self.client.force_login(viewer)
 
-        response = self.client.get(reverse("article_admin:import"))
+        response = self.client.get(
+            reverse("article_admin:import"), {"journal": self.journal.pk}
+        )
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context["recent_jobs"]), [])
 
     def test_confirm_view_queues_pending_job_and_start_failure_is_terminal(self):
         owner = self.make_role_user("super_admin", "confirm")

@@ -24,6 +24,7 @@ from ai_author_forum.journals.models import (
     JournalCategory,
     JournalStatus,
 )
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 FIELDS = [
     "journal_slug",
@@ -123,6 +124,7 @@ class ArticleImportBoundaryTests(TestCase):
             email="boundary@example.com",
             password="test",
         )
+        grant_business_super_admin(self.user)
         self.journal = Journal.objects.create(
             name="Boundary Journal",
             slug="boundary-journal",

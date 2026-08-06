@@ -12,9 +12,9 @@
 <div class="placement-v2">
   <nav class="placement-nav" aria-label="投放导航 / Placement navigation">
     <a href="{% url 'placements:index' %}">总览 <span>Overview</span></a>
-    <a href="{% url 'placements:new_single' %}">单篇投放 <span>Single</span></a>
+    {% if can_add_placements %}<a href="{% url 'placements:new_single' %}">单篇投放 <span>Single</span></a>{% endif %}
     <a href="{% url 'placements:journals' %}">子期刊编排 <span>Journal curation</span></a>
-    <a href="{% url 'placements:bulk_new' %}">批量投放 <span>Bulk</span></a>
+    {% if can_add_placements %}<a href="{% url 'placements:bulk_new' %}">批量投放 <span>Bulk</span></a>{% endif %}
     <a href="{% url 'placements:list' %}">投放清单 <span>List</span></a>
     <a href="{% url 'placements:batches' %}">投放批次 <span>Batches</span></a>
   </nav>

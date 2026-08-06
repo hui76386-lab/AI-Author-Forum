@@ -7,3 +7,6 @@ class ImagesConfig(AppConfig):
 
     def ready(self):
         from . import signals  # noqa: F401
+        from .permissions import install_journal_image_permission_policy
+
+        install_journal_image_permission_policy()

@@ -11,7 +11,12 @@ from django.db import IntegrityError, transaction
 from django.test import Client, TestCase
 from wagtail.models import Site
 
-from ai_author_forum.journals.models import Journal, JournalCategory
+from ai_author_forum.journals.editor_services import sync_editor_access_group
+from ai_author_forum.journals.models import (
+    Journal,
+    JournalCategory,
+    JournalEditorAssignment,
+)
 from ai_author_forum.site_settings.models import (
     AuditLog,
     ContentColumnConfig,
@@ -78,6 +83,15 @@ class ManagedNavigationFixtureMixin:
             code="other-research",
             slug="other-research",
         )
+        cls.admin = get_user_model().objects.create_user(
+            username=f"managed-admin-{cls.__name__.lower()}",
+            email=f"managed-admin-{cls.__name__.lower()}@example.com",
+            display_name="Managed navigation administrator",
+            password="password",
+            is_staff=True,
+        )
+        super_group, _ = Group.objects.get_or_create(name="超级管理员")
+        cls.admin.groups.add(super_group)
 
     def create_group(self, nav_set=None, *, code="group", label="Group", order=100):
         return NavigationGroup.objects.create(
@@ -362,6 +376,7 @@ class ManagedNavigationInitializationTests(ManagedNavigationFixtureMixin, TestCa
             template=self.template,
             journal=self.journal,
             overwrite=True,
+            actor=self.admin,
         )
         self.assertNotEqual(replacement.pk, old_id)
         self.assertEqual(
@@ -380,17 +395,17 @@ class ManagedNavigationServiceTests(ManagedNavigationFixtureMixin, TestCase):
         group = self.create_group(code="lifecycle-group")
         item = self.create_item(group, code="lifecycle-item")
 
-        set_navigation_item_visibility(item, visible=False)
+        set_navigation_item_visibility(item, visible=False, actor=self.admin)
         item.refresh_from_db()
         self.assertEqual(item.status, NavigationEntryStatus.HIDDEN)
-        archive_navigation_item(item)
+        archive_navigation_item(item, actor=self.admin)
         item.refresh_from_db()
         self.assertEqual(item.status, NavigationEntryStatus.ARCHIVED)
-        restore_navigation_item(item)
+        restore_navigation_item(item, actor=self.admin)
         item.refresh_from_db()
         self.assertEqual(item.status, NavigationEntryStatus.ACTIVE)
 
-        duplicate = duplicate_navigation_item(item)
+        duplicate = duplicate_navigation_item(item, actor=self.admin)
         self.assertEqual(duplicate.status, NavigationEntryStatus.DRAFT)
         self.assertFalse(duplicate.is_visible)
         self.assertNotEqual(duplicate.code, item.code)
@@ -433,6 +448,7 @@ class ManagedNavigationServiceTests(ManagedNavigationFixtureMixin, TestCase):
                 for group in self.nav_set.groups.all()
             },
             expected_version=version,
+            actor=self.admin,
         )
         self.nav_set.refresh_from_db()
         first_item.refresh_from_db()
@@ -452,6 +468,7 @@ class ManagedNavigationServiceTests(ManagedNavigationFixtureMixin, TestCase):
                     for group in self.nav_set.groups.all()
                 },
                 expected_version=version,
+                actor=self.admin,
             )
 
         current_groups = list(self.nav_set.groups.values_list("pk", flat=True))
@@ -461,6 +478,7 @@ class ManagedNavigationServiceTests(ManagedNavigationFixtureMixin, TestCase):
                 ordered_group_ids=current_groups[:-1],
                 items_by_group={},
                 expected_version=self.nav_set.version,
+                actor=self.admin,
             )
 
     def test_reorder_tree_rejects_item_from_another_navigation_set(self):
@@ -480,6 +498,7 @@ class ManagedNavigationServiceTests(ManagedNavigationFixtureMixin, TestCase):
                 ordered_group_ids=[group.pk for group in groups],
                 items_by_group=items,
                 expected_version=self.nav_set.version,
+                actor=self.admin,
             )
 
     def test_hard_delete_requires_permission_draft_and_no_references(self):
@@ -493,19 +512,13 @@ class ManagedNavigationServiceTests(ManagedNavigationFixtureMixin, TestCase):
         with self.assertRaises(PermissionDenied):
             hard_delete_navigation_item(draft)
 
-        user_model = get_user_model()
-        admin = user_model.objects.create_superuser(
-            username="managed-delete-admin",
-            email="managed-delete@example.com",
-            password="password",
-        )
         draft_id = draft.pk
-        self.assertTrue(hard_delete_navigation_item(draft, actor=admin))
+        self.assertTrue(hard_delete_navigation_item(draft, actor=self.admin))
         self.assertFalse(NavigationItem.objects.filter(pk=draft_id).exists())
 
         active = self.create_item(group, code="delete-active")
         with self.assertRaises(ValidationError):
-            hard_delete_navigation_item(active, actor=admin)
+            hard_delete_navigation_item(active, actor=self.admin)
 
     def test_hard_delete_is_blocked_by_manifest_dependency_reference(self):
         group = self.create_group(code="manifest-delete-group")
@@ -532,14 +545,8 @@ class ManagedNavigationServiceTests(ManagedNavigationFixtureMixin, TestCase):
                 ]
             },
         )
-        admin = get_user_model().objects.create_superuser(
-            username="manifest-delete-admin",
-            email="manifest-delete@example.com",
-            password="password",
-        )
-
         with self.assertRaises(ValidationError):
-            hard_delete_navigation_item(draft, actor=admin)
+            hard_delete_navigation_item(draft, actor=self.admin)
 
         counts = navigation_item_reference_counts(draft)
         self.assertEqual(counts["static_pages"], 1)
@@ -571,12 +578,31 @@ class ManagedNavigationAdminTests(ManagedNavigationFixtureMixin, TestCase):
         cls.user_model = get_user_model()
 
     def make_client(self, role_name):
+        suffix = self.user_model.objects.count()
         user = self.user_model.objects.create_user(
-            username=f"managed-{role_name}-{self.user_model.objects.count()}",
+            username=f"managed-{role_name}-{suffix}",
+            email=f"managed-{suffix}@example.com",
+            display_name=f"Managed user {suffix}",
             password="password",
             is_staff=True,
         )
-        user.groups.add(Group.objects.get(name=role_name))
+        if role_name in {"超级管理员", "项目总负责人"}:
+            user.groups.add(Group.objects.get(name="超级管理员"))
+        else:
+            responsibility = {
+                "站点运营": JournalEditorAssignment.Responsibility.COLUMN_NAVIGATION,
+                "内容管理员": JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE,
+            }[role_name]
+            JournalEditorAssignment.objects.create(
+                user=user,
+                journal=self.journal,
+                role=JournalEditorAssignment.Role.ASSOCIATE_EDITOR,
+                responsibilities=[responsibility],
+                public_name=user.display_name,
+                public_role_label="副编辑",
+                created_by=self.admin,
+            )
+            sync_editor_access_group(user)
         client = Client()
         client.force_login(user)
         return client, user
@@ -592,7 +618,7 @@ class ManagedNavigationAdminTests(ManagedNavigationFixtureMixin, TestCase):
     def test_scope_permissions_match_role_matrix(self):
         operator, _ = self.make_client("\u7ad9\u70b9\u8fd0\u8425")
         self.assertEqual(operator.get(self.managed_url("journal")).status_code, 200)
-        self.assertEqual(operator.get(self.managed_url("main")).status_code, 200)
+        self.assertEqual(operator.get(self.managed_url("main")).status_code, 302)
         self.assertEqual(operator.get(self.managed_url("template")).status_code, 302)
 
         content, _ = self.make_client("\u5185\u5bb9\u7ba1\u7406\u5458")
@@ -600,13 +626,14 @@ class ManagedNavigationAdminTests(ManagedNavigationFixtureMixin, TestCase):
         self.assertEqual(content.get(self.managed_url("main")).status_code, 302)
         self.assertEqual(content.get(self.managed_url("template")).status_code, 302)
 
-        publisher, _ = self.make_client("\u53d1\u5e03\u7ba1\u7406\u5458")
-        self.assertEqual(publisher.get(self.managed_url("template")).status_code, 302)
-
-        readonly, _ = self.make_client("\u53ea\u8bfb\u4eba\u5458")
-        self.assertEqual(readonly.get(self.managed_url("main")).status_code, 200)
-        self.assertEqual(readonly.get(self.managed_url("journal")).status_code, 200)
-        self.assertEqual(readonly.get(self.managed_url("template")).status_code, 200)
+        administrator, _ = self.make_client("超级管理员")
+        self.assertEqual(administrator.get(self.managed_url("main")).status_code, 200)
+        self.assertEqual(
+            administrator.get(self.managed_url("journal")).status_code, 200
+        )
+        self.assertEqual(
+            administrator.get(self.managed_url("template")).status_code, 200
+        )
 
     def test_required_explicit_actions_and_previews_are_rendered(self):
         lead, _ = self.make_client("\u9879\u76ee\u603b\u8d1f\u8d23\u4eba")

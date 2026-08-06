@@ -6,6 +6,10 @@ from django.utils import timezone
 
 from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.journals.models import Journal, JournalStatus
+from ai_author_forum.site_settings.access_control import (
+    filter_accessible_articles,
+    filter_accessible_journals,
+)
 
 from .models import JournalUserPreference
 from .services import PLACEABLE_REVIEW_STATUSES
@@ -27,6 +31,7 @@ def select_journals(*, user, query="", scope="all", page=1, page_size=20):
     queryset = Journal.objects.filter(status=JournalStatus.ACTIVE).order_by(
         "name", "slug"
     )
+    queryset = filter_accessible_journals(user, queryset)
     query = (query or "").strip()
     if query:
         queryset = queryset.filter(
@@ -69,7 +74,7 @@ def journal_payload(journal, *, user):
     }
 
 
-def select_articles(*, query="", journal_slug="", page=1, page_size=20):
+def select_articles(*, user, query="", journal_slug="", page=1, page_size=20):
     """Return eligible articles, prioritising items that are not placed yet.
 
     ``journal_slug`` is kept as the public parameter name for compatibility
@@ -92,6 +97,7 @@ def select_articles(*, query="", journal_slug="", page=1, page_size=20):
         )
         .order_by("current_placement_count", "title", "pk")
     )
+    queryset = filter_accessible_articles(user, queryset)
     query = (query or "").strip()
     if query:
         for term in query.split():
@@ -104,17 +110,14 @@ def select_articles(*, query="", journal_slug="", page=1, page_size=20):
             )
     journal_query = (journal_slug or "").strip()
     if journal_query:
-        matching_journals = Journal.objects.filter(
-            status=JournalStatus.ACTIVE
+        matching_journals = filter_accessible_journals(
+            user, Journal.objects.filter(status=JournalStatus.ACTIVE)
         ).filter(
             Q(slug__iexact=journal_query)
             | Q(name__icontains=journal_query)
             | Q(name_cn__icontains=journal_query)
         )
-        queryset = queryset.filter(
-            Q(primary_journal__in=matching_journals)
-            | Q(related_journals__in=matching_journals)
-        ).distinct()
+        queryset = queryset.filter(primary_journal__in=matching_journals).distinct()
     return _page(queryset, page=page, page_size=page_size)
 
 

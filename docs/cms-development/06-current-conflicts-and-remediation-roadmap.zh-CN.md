@@ -2,7 +2,7 @@
 
 > 初始扫描日期：2026-07-23
 > 本轮代码收口与本地验收日期：2026-07-23
-> 状态说明：本文件只记录工程整改状态；D-01～D-10 仍以 07 文档为准，未被标记为产品已决策。
+> 账号、子期刊编辑角色和两级审核于 2026-08-04 按 08 号任务书收口；其他 D-01～D-10 事项仍以 07 文档为准。
 
 ## 1. 优先级定义
 
@@ -19,13 +19,13 @@
 | P0 | release 可被篡改或在缺少审计时被激活/回滚 | **已修复**：冻结输入、不可变 manifest、全量 inventory/hash 校验、审计失败中止和 current/DB 补偿已实现 | 需在生产文件系统和容器卷上复验原子切换 |
 | P1 | `ArticlePage` 存在 `articles`、`news` 两套实现 | **受控**：新功能只允许 `articles.ArticlePage`；旧模型只读兼容 | 物理退役需另行数据迁移计划 |
 | P1 | `ArticlePlacement` 存在两套实现 | **受控**：正式模型统一为 `placements.ArticlePlacement`，旧模型新增写入被阻断 | 旧表物理删除不在本轮范围 |
-| P1 | Wagtail Workflow 与业务审核组未接通 | **已修复**：Workflow 使用“审核人员”，旧英文组用户迁移并撤权 | 产品仍需确认 D-02、D-03 的最终行为 |
+| P1 | Wagtail Workflow 与子期刊业务任命未接通 | **已修复**：Workflow 固定为初审、终审两任务；初审按有效任命和认领控制，终审仅限本刊主编辑；旧组和直接审核权限撤权 | 正式环境应用前必须先完成显式账号映射和 dry-run 报告 |
 | P1 | 发布/Workflow hook 可能重复触发投放同步 | **已修复**：`placement_sync_request_id` 对 revision 与同步计划做幂等去重 | PostgreSQL 高并发场景仍需联合验收 |
 | P1 | 期刊 slug 变更可能制造孤儿投放 | **已修复为保守策略**：`clean()`/`save()` 均阻断直接修改，仅专用审计迁移可放行 | D-08 仍待产品确认，不代表永久禁止 |
 | P1 | 人工与系统投放覆盖、栏目查询和 limit 语义不稳定 | **已修复为保守策略**：显式 category target、人工覆盖系统、同来源首条、去重后限流 | D-05、D-10 仍待产品确认 |
 | P2 | E2E 可静默复用占用 4173 的旧静态站点 | **已修复**：默认拒绝复用，支持隔离端口和显式 Chromium 路径 | CI 应固定浏览器版本和端口策略 |
 | P2 | 静态发布组合测试耗时较长 | **未完成优化**：正确性测试已通过，但全量 pytest 本机约 16 分钟 | 后续可在不削弱覆盖率的前提下拆分快慢测试 |
-| P2 | PostgreSQL/Redis/Celery/Nginx 联合验收 | **未完成**：当前机器无 Docker 命令 | 必须在具备 Docker 的环境完成，SQLite 不代表生产通过 |
+| P2 | PostgreSQL/Redis/Celery/Nginx 联合验收 | **测试环境已完成**：PostgreSQL 行锁并发、Redis/Celery 实际任务往返、Compose、Nginx、外部 Basic Auth、静态前台、健康检查及回滚恢复演练已通过 | 正式环境仍需按独立发布流程验收，测试结果不代表生产通过 |
 
 ## 3. 已完成的整改顺序
 
@@ -40,7 +40,9 @@
 ### 阶段 B：统一正式模型和审核
 
 - [x] 阻断旧投放模型新增写入；
-- [x] Workflow task group 统一为“审核人员”；
+- [x] Workflow 固定为初审、终审两个任务，并由有效 `JournalEditorAssignment` 判定对象范围；
+- [x] 业务角色收敛为 `super_admin`、`chief_editor`、`executive_editor`、`associate_editor`，旧 Group 不再提供授权；
+- [x] 账号、任命、认领、审核和最后超级管理员保护通过事务、行锁、expected state/revision 和幂等 request id 收口；
 - [x] 投放同步增加稳定 request id 和单次审计语义；
 - [x] 导入与 canonical 草稿转换事务化、幂等化；
 - [ ] 旧模型物理退役，等待单独迁移窗口。
@@ -58,10 +60,10 @@
 - [x] Django check、迁移漂移、Ruff、Black、isort、全量 pytest；
 - [x] 前端生产构建与 23 项 Playwright 固定 HTML 验收；
 - [x] production settings 下 Django deploy check；
-- [ ] PostgreSQL 行锁/并发测试；
-- [ ] Redis/Celery 任务与 broker 健康检查；
-- [ ] Nginx + static-frontend + current 原子切换和回滚；
-- [ ] 完整 Docker Compose 联合验收。
+- [x] PostgreSQL 行锁/并发测试；
+- [x] 测试环境 Redis/Celery Worker ping、broker 投递、任务执行和 result backend 往返；
+- [x] 测试环境 Nginx + static-frontend + current 原子激活及回滚恢复演练；
+- [x] 测试环境 Docker Compose 构建、启动、迁移、静态资源和健康检查；正式环境未执行。
 
 ## 4. 不应立即扩展的范围
 
@@ -73,5 +75,5 @@
 - 复杂推荐算法；
 - 多语言内容树；
 - 120 套独立页面树或独立模板；
-- 细粒度到每个子期刊的独立管理员体系；
+- 08 号任务书之外的子期刊角色或外部审稿人体系；
 - 与当前投放模型平行的新文章或投放模型。

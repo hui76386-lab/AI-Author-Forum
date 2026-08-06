@@ -2,13 +2,13 @@
 
 ## 1. 架构目标
 
-系统基于 Wagtail 二次开发，不重新建设通用 CMS。Wagtail 负责页面、编辑、图片、预览、Workflow、用户组和权限；项目业务模块负责子期刊、文章导入、投放、版位和静态发布。
+系统基于 Wagtail 二次开发，不重新建设通用 CMS。Wagtail 负责页面、编辑、图片、预览和两级 Workflow；项目业务模块负责实名账号、子期刊范围任命、文章导入、初审/终审、投放、版位和静态发布。Group 只承载“超级管理员”业务组和“子期刊编辑基础访问”技术组，子期刊角色及数据范围以 `JournalEditorAssignment` 为准。
 
 ```mermaid
 flowchart LR
     A[导入文件/后台编辑] --> B[journals 导入与子期刊]
     B --> C[articles.ArticlePage 正式文章]
-    C --> D[Wagtail Workflow 审核]
+    C --> D[初审 -> 主编辑终审]
     D --> E[placements.ArticlePlacement 正式投放]
     E --> F[LayoutSlot 版位编排]
     F --> G[static_publish 静态构建]
@@ -25,7 +25,9 @@ flowchart LR
 | 应用 | 正式职责 | 不应承担的职责 |
 | --- | --- | --- |
 | `home` | 主站首页和 News Template 兼容页面 | 文章业务状态、投放关系、静态发布任务 |
+| `users` | 实名账号、账号状态、首次改密、密码重置、超级管理员管理和会话撤销 | 保存子期刊角色、通过 Django superuser 标志绕过业务权限 |
 | `journals` | `Journal`、子期刊配置、导入任务、导入暂存、栏目数据 | 作为正式文章前台来源、替代正式投放模型 |
+| `journals.JournalEditorAssignment` | 主编辑、常务副编辑、副编辑任命、固定职责和独立公开资料 | 作为平台账号、扩展出任务书之外的角色名称 |
 | `articles` | 正式 `ArticlePage`、正文、AI 合著信息、审核记录、文章状态 | 直接生成投放副本、绕过 Workflow 直接上线 |
 | `placements` | 正式 `ArticlePlacement`、`LayoutSlot`、投放规则、排序置顶、生效时间 | 复制文章内容、承担文章审核 |
 | `static_publish` | 静态构建、逐页结果、manifest、发布任务、重试、回滚 | 直接决定文章是否审核通过 |
@@ -99,7 +101,9 @@ static_publish -> articles/placements/site_settings（只读取已确认数据�
 
 ## 6. 代码入口索引
 
-- 正式文章：`ai_author_forum/articles/models.py`、`services.py`、`workflows.py`；
+- 实名账号：`ai_author_forum/users/models.py`、`services.py`、`views.py`；
+- 子期刊任命：`ai_author_forum/journals/models.py`、`editor_services.py`、`access.py`；
+- 正式文章：`ai_author_forum/articles/models.py`、`review_services.py`、`workflows.py`；
 - 子期刊和导入：`ai_author_forum/journals/models.py`、`importers.py`、`management/commands/`；
 - 正式投放：`ai_author_forum/placements/models.py`、`services.py`；
 - 静态发布：`ai_author_forum/static_publish/models.py`、`services.py`、`management/commands/build_static_site.py`；
@@ -115,5 +119,7 @@ static_publish -> articles/placements/site_settings（只读取已确认数据�
 - `placements.ArticlePlacement` 是唯一可新写入的正式投放模型；旧 `journals.ArticlePlacement` 仅保留迁移兼容，普通业务写入会被拒绝。
 - 静态构建先在数据库一致性边界内发现并渲染全部目标，冻结为 `RenderedTargetSnapshot` 的 bytes/error，再离开读取事务写入 staging。PostgreSQL 根事务使用 `REPEATABLE READ, READ WRITE`，避免同一 release 混入两个业务时点的数据。
 - release 的 `manifest.json` 与数据库 `StaticManifest` 均按不可变发布产物处理；激活和回滚前必须校验清单、路径、文件大小、SHA-256、符号链接和数据库元数据一致性。
+- 业务角色收敛为平台级 `super_admin` 和期刊级 `chief_editor`、`executive_editor`、`associate_editor`。前者可维护平台但不能终审；终审只接受文章主属期刊的有效主编辑任命。
+- 审核固定为 `draft -> submitted -> pending_final -> approved` 两级流程，每条 `ArticleReviewRecord` 绑定 revision 且不可更新或删除。终审后的正文或作者声明变化会重置审核。
 
 因此正式数据流固定为：导入暂存 -> canonical 草稿/revision -> 审核 -> 正式投放 -> 冻结构建快照 -> 不可变 manifest -> current 激活。任何兼容模型都不能跨越该链路直接进入前台。

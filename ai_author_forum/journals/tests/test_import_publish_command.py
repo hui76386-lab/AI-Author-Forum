@@ -28,6 +28,10 @@ from ai_author_forum.static_publish.models import (
 )
 from ai_author_forum.static_publish.services import StaticPublisher
 from ai_author_forum.static_publish.tests.providers import TARGETS
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 PROVIDER = "ai_author_forum.static_publish.tests.providers.TestTargetProvider"
 STORAGES = {
@@ -60,6 +64,7 @@ class ImportPublishCommandTests(TestCase):
             email="publisher@example.com",
             password="secret",
         )
+        grant_business_super_admin(self.operator)
         self.package_path = self._build_package()
 
     def _build_package(self):
@@ -111,17 +116,9 @@ class ImportPublishCommandTests(TestCase):
             keywords="AI",
             primary_journal=journal,
             owner=self.operator,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         Page.get_first_root_node().add_child(instance=article)
-        revision = article.save_revision(
-            user=self.operator, bypass_article_permission_check=True
-        )
-        revision.publish(user=self.operator, skip_permission_checks=True)
-        ArticlePage.objects.filter(pk=article.pk).update(
-            review_status=ArticlePage.ReviewStatus.APPROVED
-        )
-        article.refresh_from_db()
+        formally_approve_test_article(article, actor=self.operator)
         slot = LayoutSlot.objects.create(
             code="import-command-home",
             title="Import command home",

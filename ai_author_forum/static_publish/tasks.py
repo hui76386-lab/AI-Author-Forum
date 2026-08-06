@@ -12,8 +12,20 @@ from .services import StaticPublisher
 
 @shared_task(bind=True, autoretry_for=(), track_started=True)
 def run_static_publish(self, job_id):
-    job = StaticPublishJob.objects.get(pk=job_id)
-    StaticPublisher().build(job)
+    job = StaticPublishJob.objects.select_related("triggered_by").get(pk=job_id)
+    publisher = StaticPublisher()
+    try:
+        publisher.build(job)
+    except Exception as exc:
+        job.refresh_from_db()
+        if job.status == StaticPublishJob.Status.PENDING:
+            publisher.mark_worker_preflight_failure(
+                job,
+                action=AuditAction.PUBLISH,
+                error=exc,
+                metadata={"stage": "worker_permission_recheck"},
+            )
+        raise
     return {"job_id": job.pk, "status": job.status, "version": job.version}
 
 
@@ -23,7 +35,11 @@ def run_coalesced_static_publish(self, job_id):
     from .automatic import seconds_until
 
     with transaction.atomic():
-        job = StaticPublishJob.objects.select_for_update().get(pk=job_id)
+        job = (
+            StaticPublishJob.objects.select_related("triggered_by")
+            .select_for_update(of=("self",))
+            .get(pk=job_id)
+        )
         if not job.is_automatic or job.status != StaticPublishJob.Status.PENDING:
             return {"job_id": job.pk, "status": job.status, "skipped": True}
         wait_seconds = seconds_until(job, now=timezone.now())

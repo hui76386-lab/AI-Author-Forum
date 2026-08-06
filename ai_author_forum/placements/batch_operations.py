@@ -9,14 +9,20 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from ai_author_forum.articles.review_services import has_valid_final_approval
 from ai_author_forum.journals.models import Journal, JournalStatus
+from ai_author_forum.site_settings.access_control import is_super_admin
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 
 from .batch_services import snapshot_placement
 from .models import ArticlePlacement, LayoutSlot, PlacementBatch, PlacementBatchItem
 from .publishing import create_batch_publish
 from .selectors import mark_journal_used
-from .services import has_placement_permission, validate_placement_schedule
+from .services import (
+    has_placement_permission,
+    require_placement_scope,
+    validate_placement_schedule,
+)
 
 MAINTENANCE_OPERATIONS = {
     PlacementBatch.Operation.DEACTIVATE,
@@ -50,6 +56,10 @@ def create_maintenance_batch(*, actor, operation, placement_ids, options=None):
         raise ValidationError(
             "One or more selected placements are not manually managed placements."
         )
+    for placement in placements:
+        require_placement_scope(actor, placement)
+        if operation == PlacementBatch.Operation.COPY:
+            require_placement_scope(actor, placement, action="add")
     batch = PlacementBatch.objects.create(
         mode=PlacementBatch.Mode.BULK_MAINTENANCE,
         operation=operation,
@@ -73,7 +83,7 @@ def _ensure_batch_owner(batch, actor):
     if (
         batch.created_by_id
         and batch.created_by_id != actor.pk
-        and not actor.is_superuser
+        and not is_super_admin(actor)
     ):
         raise PermissionDenied
 
@@ -129,6 +139,12 @@ def _ensure_articles_placeable(placements):
             article.ReviewStatus.PUBLISHED,
         }:
             raise ValidationError(f"{article.title}: article is not approved.")
+        if not article.approved_version_id or not has_valid_final_approval(
+            article, article.approved_version
+        ):
+            raise ValidationError(
+                f"{article.title}: current revision has no chief-editor final approval."
+            )
         if (
             not article.primary_journal_id
             or article.primary_journal.status != JournalStatus.ACTIVE
@@ -183,13 +199,15 @@ def _destination(options):
 def _ensure_destination_membership(placements, journal):
     for placement in placements:
         article = placement.article
-        if (
-            article.primary_journal_id != journal.pk
-            and not article.related_journals.filter(pk=journal.pk).exists()
-        ):
+        if article.primary_journal_id != journal.pk:
             raise ValidationError(
                 f"{article.title}: article does not belong to {journal}."
             )
+
+
+def _ensure_placement_scopes(placements, actor):
+    for placement in placements:
+        require_placement_scope(actor, placement)
 
 
 def _check_destination_capacity(
@@ -234,11 +252,17 @@ def precheck_maintenance_batch(batch, *, actor):
         errors.append("This maintenance batch has already been executed.")
     if not placements or len(placements) != len(items):
         return [*errors, "Select one or more manually managed placements."]
+    _ensure_placement_scopes(placements, actor)
     try:
         options = batch.options or {}
         operation = batch.operation
         if operation not in MAINTENANCE_OPERATIONS:
             raise ValidationError("Unsupported maintenance operation.")
+        if operation not in {
+            PlacementBatch.Operation.DEACTIVATE,
+            PlacementBatch.Operation.CANCEL_FUTURE,
+        }:
+            _ensure_articles_placeable(placements)
         if operation in {PlacementBatch.Operation.PIN, PlacementBatch.Operation.UNPIN}:
             _ensure_same_group(placements)
         elif operation == PlacementBatch.Operation.DEACTIVATE:
@@ -333,6 +357,7 @@ def execute_maintenance_batch(batch, *, actor, ip_address=None):
                     "This maintenance batch has already been executed."
                 )
             items, placements = _locked_placements(batch)
+            _ensure_placement_scopes(placements, actor)
             before_by_id = {
                 placement.pk: snapshot_placement(placement) for placement in placements
             }
@@ -341,6 +366,12 @@ def execute_maintenance_batch(batch, *, actor, ip_address=None):
             events = []
             execution_status = PlacementBatchItem.ExecutionStatus.UPDATED
             operation = batch.operation
+
+            if operation not in {
+                PlacementBatch.Operation.DEACTIVATE,
+                PlacementBatch.Operation.CANCEL_FUTURE,
+            }:
+                _ensure_articles_placeable(placements)
 
             # Re-run the draft checks under locks before any mutation.  This is
             # intentionally not delegated to the unlocked precheck function.

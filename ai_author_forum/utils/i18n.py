@@ -309,6 +309,7 @@ UI_TRANSLATIONS[DEFAULT_LANGUAGE].update(
         "articles": "\u6587\u7ae0",
         "audit_scope": "\u5ba1\u8ba1\u8303\u56f4",
         "audit_scope_text": "\u540e\u7eed\u7f16\u8f91\u3001\u6295\u653e\u548c\u9759\u6001\u53d1\u5e03\u52a8\u4f5c\u4f1a\u4fdd\u7559\u5ba1\u8ba1\u8bb0\u5f55\u3002",
+        "author_declaration": "\u4f5c\u8005\u58f0\u660e",
         "author_search": "\u4f5c\u8005\u641c\u7d22",
         "backend_editable_area": "\u540e\u53f0\u53ef\u7f16\u8f91\u533a\u57df",
         "browse_issues": "\u6d4f\u89c8\u671f\u53f7",
@@ -382,6 +383,7 @@ UI_TRANSLATIONS[DEFAULT_LANGUAGE].update(
 UI_TRANSLATIONS[ENGLISH_LANGUAGE].update(
     {
         "all_articles": "All articles",
+        "author_declaration": "Author declaration",
         "issue_detail": "View issue details",
         "issue_navigation": "Issue navigation",
         "more_news": "More news",

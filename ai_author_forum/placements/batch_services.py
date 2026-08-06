@@ -11,6 +11,7 @@ from django.utils import timezone
 from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.images.models import CustomImage
 from ai_author_forum.journals.models import Journal, JournalStatus
+from ai_author_forum.site_settings.access_control import is_super_admin
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 
 from .models import ArticlePlacement, LayoutSlot, PlacementBatch, PlacementBatchItem
@@ -19,6 +20,7 @@ from .selectors import mark_journal_used
 from .services import (
     PLACEABLE_REVIEW_STATUSES,
     has_placement_permission,
+    require_placement_scope,
 )
 
 
@@ -63,13 +65,14 @@ def create_draft(*, actor, mode, operation=PlacementBatch.Operation.CREATE, **va
     )
 
 
+@transaction.atomic
 def update_draft(batch, *, actor, step=None, selected_article_ids=None, **values):
     if batch.is_executed:
         raise ValidationError("Executed batches cannot be changed.")
     if (
         batch.created_by_id
         and batch.created_by_id != actor.pk
-        and not actor.is_superuser
+        and not is_super_admin(actor)
     ):
         raise PermissionDenied
     for name, value in values.items():
@@ -92,11 +95,12 @@ def update_draft(batch, *, actor, step=None, selected_article_ids=None, **values
     batch.full_clean()
     batch.save()
     if selected_article_ids is not None:
-        replace_draft_articles(batch, selected_article_ids)
+        replace_draft_articles(batch, selected_article_ids, actor=actor)
+    require_batch_scope(batch, actor)
     return batch
 
 
-def replace_draft_articles(batch, article_ids):
+def replace_draft_articles(batch, article_ids, *, actor):
     ids = [int(pk) for pk in article_ids]
     if len(ids) != len(set(ids)):
         raise ValidationError("An article can only be selected once per batch.")
@@ -108,6 +112,19 @@ def replace_draft_articles(batch, article_ids):
     )
     if len(articles) != len(ids):
         raise ValidationError("One or more selected articles do not exist.")
+    for article in articles:
+        require_placement_scope(
+            actor,
+            ArticlePlacement(
+                article=article,
+                target_type=batch.target_type,
+                target_slug=batch.target_slug,
+                target_category=batch.target_category,
+                slot=batch.slot,
+                source=ArticlePlacement.Source.MANUAL,
+            ),
+            action="add",
+        )
     by_id = {article.pk: article for article in articles}
     batch.items.exclude(article_id__in=ids).delete()
     existing = {
@@ -149,6 +166,44 @@ def _target_journal(batch):
     return Journal.objects.filter(
         slug=batch.target_slug, status=JournalStatus.ACTIVE
     ).first()
+
+
+def require_batch_scope(batch, actor):
+    if is_super_admin(actor):
+        return
+    items = batch.items.select_related("article", "article__primary_journal")
+    if not items.exists():
+        if batch.target_type != ArticlePlacement.TargetType.JOURNAL:
+            raise PermissionDenied("空白投放草稿必须先选择本刊目标。")
+        journal = _target_journal(batch)
+        if journal is None:
+            raise PermissionDenied("目标子期刊不存在或不可访问。")
+        from ai_author_forum.journals.models import JournalEditorAssignment
+
+        if (
+            not JournalEditorAssignment.objects.effective()
+            .filter(
+                user=actor,
+                journal=journal,
+                role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            )
+            .exists()
+        ):
+            raise PermissionDenied("无权管理该子期刊投放。")
+        return
+    for item in items:
+        require_placement_scope(
+            actor,
+            ArticlePlacement(
+                article=item.article,
+                target_type=batch.target_type,
+                target_slug=batch.target_slug,
+                target_category=batch.target_category,
+                slot=batch.slot,
+                source=ArticlePlacement.Source.MANUAL,
+            ),
+            action="add",
+        )
 
 
 def _image_file_is_available(image):
@@ -427,10 +482,11 @@ def precheck_batch(batch, *, actor):
     if (
         batch.created_by_id
         and batch.created_by_id != actor.pk
-        and not actor.is_superuser
+        and not is_super_admin(actor)
     ):
         raise PermissionDenied
     batch = PlacementBatch.objects.get(pk=batch.pk)
+    require_batch_scope(batch, actor)
     if batch.is_executed:
         return {
             "batch": batch,
@@ -485,10 +541,8 @@ def execute_create_batch(batch, *, actor, ip_address=None):
         raise PermissionDenied
     try:
         with transaction.atomic():
-            batch = (
-                PlacementBatch.objects.select_for_update()
-                .get(pk=batch.pk)
-            )
+            batch = PlacementBatch.objects.select_for_update().get(pk=batch.pk)
+            require_batch_scope(batch, actor)
             if batch.is_executed:
                 raise ValidationError("This batch has already been executed.")
             batch.status = PlacementBatch.Status.EXECUTING

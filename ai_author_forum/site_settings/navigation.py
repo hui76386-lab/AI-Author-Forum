@@ -13,7 +13,10 @@ from ai_author_forum.journals.models import (
     PublicationIssueStatus,
 )
 from ai_author_forum.placements.models import ArticlePlacement
-from ai_author_forum.utils.public_i18n import localized_navigation_label
+from ai_author_forum.site_settings.access_control import (
+    can_manage_journal,
+    is_super_admin,
+)
 from ai_author_forum.site_settings.models import (
     AuditAction,
     AuditLog,
@@ -30,6 +33,7 @@ from ai_author_forum.site_settings.models import (
     NavigationSetStatus,
     NavigationTargetType,
 )
+from ai_author_forum.utils.public_i18n import localized_navigation_label
 
 DEFAULT_TEMPLATE_NAME = "Default journal navigation template"
 DEFAULT_MAIN_NAME = "Main site navigation"
@@ -68,6 +72,21 @@ EDITORIAL_PAGE_TITLES = {
     "podcasts": "Podcasts",
     "videos": "Videos",
 }
+
+
+def _require_navigation_management(actor, nav_set):
+    if is_super_admin(actor):
+        return
+    if (
+        nav_set
+        and nav_set.scope == NavigationScope.JOURNAL
+        and not nav_set.is_template
+        and nav_set.journal_id
+        and can_manage_journal(actor, nav_set.journal, "column_navigation")
+    ):
+        return
+    raise PermissionDenied("无权维护该导航范围。")
+
 
 LEGACY_CORE_COLUMN_PATHS = {
     "ai-article": "/explore-content/ai-article/",
@@ -429,7 +448,9 @@ def ensure_default_journal_navigation_template(
     return nav_set
 
 
-def ensure_navigation_for_journal(journal, *, site=None, actor=None) -> NavigationSet:
+def ensure_navigation_for_journal(
+    journal, *, site=None, actor=None, _system_bootstrap=False
+) -> NavigationSet:
     existing = NavigationSet.objects.filter(
         journal=journal,
         scope=NavigationScope.JOURNAL,
@@ -439,12 +460,24 @@ def ensure_navigation_for_journal(journal, *, site=None, actor=None) -> Navigati
     if existing:
         return existing
     template = ensure_default_journal_navigation_template(site=site, actor=actor)
-    return copy_template_to_journal(template=template, journal=journal, actor=actor)
+    return copy_template_to_journal(
+        template=template,
+        journal=journal,
+        actor=actor,
+        _system_bootstrap=_system_bootstrap,
+    )
 
 
 def copy_template_to_journal(
-    *, template: NavigationSet, journal, actor=None, overwrite=False
+    *,
+    template: NavigationSet,
+    journal,
+    actor=None,
+    overwrite=False,
+    _system_bootstrap=False,
 ) -> NavigationSet:
+    if not _system_bootstrap and not is_super_admin(actor):
+        raise PermissionDenied("只有超级管理员可以复制默认导航模板。")
     if not template.is_template:
         raise ValidationError(
             "Only a default navigation template can be copied to a journal."
@@ -869,6 +902,7 @@ def move_items(group, ordered_item_ids, *, expected_version=None, actor=None):
 def reorder_navigation_tree(
     nav_set, *, ordered_group_ids, items_by_group, expected_version=None, actor=None
 ):
+    _require_navigation_management(actor, nav_set)
     ordered_group_ids = [int(group_id) for group_id in ordered_group_ids]
     normalized_items = {
         int(group_id): [int(item_id) for item_id in item_ids]
@@ -966,6 +1000,7 @@ def _group_snapshot(group):
 
 
 def record_navigation_group_change(group, *, actor=None, before=None, created=False):
+    _require_navigation_management(actor, group.navigation_set)
     group.navigation_set.bump_version(user=actor)
     _record(
         AuditAction.CONFIGURE,
@@ -983,6 +1018,7 @@ def record_navigation_group_change(group, *, actor=None, before=None, created=Fa
 
 def record_navigation_item_change(item, *, actor=None, before=None, created=False):
     nav_set = item.group.navigation_set
+    _require_navigation_management(actor, nav_set)
     # NavigationItem.save already increments the set version for managed entries.
     nav_set.refresh_from_db(fields=["version", "updated_at", "updated_by"])
     if actor is not None and getattr(actor, "is_authenticated", False):
@@ -1004,6 +1040,7 @@ def record_navigation_item_change(item, *, actor=None, before=None, created=Fals
 
 def duplicate_navigation_item(item, *, actor=None):
     nav_set = item.group.navigation_set
+    _require_navigation_management(actor, nav_set)
     base = f"{item.managed_code}-copy"
     code = base
     suffix = 2
@@ -1072,6 +1109,7 @@ def duplicate_navigation_item(item, *, actor=None):
 
 
 def set_navigation_group_visibility(group, *, visible, actor=None):
+    _require_navigation_management(actor, group.navigation_set)
     before = _group_snapshot(group)
     group.is_visible = bool(visible)
     group.status = (
@@ -1094,6 +1132,7 @@ def set_navigation_group_visibility(group, *, visible, actor=None):
 
 
 def set_navigation_item_visibility(item, *, visible, actor=None):
+    _require_navigation_management(actor, item.group.navigation_set)
     if visible and item.status == NavigationEntryStatus.ARCHIVED:
         raise ValidationError(
             "Restore the archived navigation item before enabling it."
@@ -1121,6 +1160,7 @@ def set_navigation_item_visibility(item, *, visible, actor=None):
 
 
 def archive_navigation_item(item, *, actor=None):
+    _require_navigation_management(actor, item.group.navigation_set)
     if item.status == NavigationEntryStatus.ARCHIVED:
         return item
     before = _item_snapshot(item)
@@ -1144,6 +1184,7 @@ def archive_navigation_item(item, *, actor=None):
 
 
 def restore_navigation_item(item, *, actor=None):
+    _require_navigation_management(actor, item.group.navigation_set)
     if item.status != NavigationEntryStatus.ARCHIVED:
         return item
     before = _item_snapshot(item)
@@ -1231,12 +1272,7 @@ def hard_delete_navigation_item(item, *, actor=None):
 
 
 def assert_can_hard_delete_navigation_item(item, *, user=None):
-    if not (
-        getattr(user, "is_superuser", False)
-        or getattr(user, "has_perm", lambda perm: False)(
-            "site_settings.delete_navigation_objects"
-        )
-    ):
+    if not is_super_admin(user):
         raise PermissionDenied(
             "Hard deletion requires high-risk navigation delete permission."
         )

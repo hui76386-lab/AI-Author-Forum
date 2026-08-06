@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from wagtail.models import Page
@@ -5,6 +6,10 @@ from wagtail.models import Page
 from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.journals.models import Journal
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class PlacementTargetValidationTests(TestCase):
@@ -15,6 +20,13 @@ class PlacementTargetValidationTests(TestCase):
             slug="active-journal",
             az_group="A",
             status="active",
+        )
+        cls.role_admin = grant_business_super_admin(
+            get_user_model().objects.create_superuser(
+                username="placement-model-role-admin",
+                email="placement-model-role-admin@example.com",
+                password="test-password",
+            )
         )
         cls.article = cls.create_article(
             title="Source article", slug="source-article", live=True
@@ -46,21 +58,13 @@ class PlacementTargetValidationTests(TestCase):
             authors="Author",
             keywords="AI",
             primary_journal=cls.journal,
-            review_status=(
-                ArticlePage.ReviewStatus.APPROVED
-                if live
-                else ArticlePage.ReviewStatus.DRAFT
-            ),
         )
         Page.get_first_root_node().add_child(instance=page)
         if live:
             revision = page.save_revision(bypass_article_permission_check=True)
             revision.publish(skip_permission_checks=True)
-            ArticlePage.objects.filter(pk=page.pk).update(
-                review_status=ArticlePage.ReviewStatus.APPROVED
-            )
-            page.refresh_from_db()
-        return page
+            formally_approve_test_article(page, actor=cls.role_admin)
+        return ArticlePage.objects.get(pk=page.pk)
 
     def placement(self, *, slot, target_type, target_slug):
         return ArticlePlacement(

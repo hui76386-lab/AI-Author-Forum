@@ -23,6 +23,7 @@ from ai_author_forum.journals.models import (
     StaticArticle,
 )
 from ai_author_forum.placements.models import ArticlePlacement
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 
 def csv_upload(rows, name="articles.csv"):
@@ -41,6 +42,7 @@ class ArticleImportServiceTests(TestCase):
         self.user = get_user_model().objects.create_superuser(
             username="article-import-admin", email="admin@example.com", password="test"
         )
+        grant_business_super_admin(self.user)
         self.journal = Journal.objects.create(
             name="AI Journal",
             slug="ai-journal",

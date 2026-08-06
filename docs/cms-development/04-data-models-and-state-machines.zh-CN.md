@@ -4,6 +4,8 @@
 
 ```mermaid
 erDiagram
+    USER ||--o{ JOURNAL_EDITOR_ASSIGNMENT : appointed
+    JOURNAL ||--o{ JOURNAL_EDITOR_ASSIGNMENT : scopes
     JOURNAL ||--o{ ARTICLE_PAGE : primary_journal
     ARTICLE_PAGE ||--o{ ARTICLE_REVIEW_RECORD : reviews
     ARTICLE_PAGE ||--o{ ARTICLE_PLACEMENT : placements
@@ -19,7 +21,7 @@ erDiagram
 
 正式 `articles.ArticlePage` 目前包含：
 
-- `review_status`：`draft`、`submitted`、`approved`、`rejected`，以及历史兼容值 `published`；
+- `review_status`：`draft`、`submitted`、`pending_final`、`approved`、`rejected`，以及历史兼容值 `published`；
 - `publication_status`：`approved`、`placed`、`built`、`published`、`offline`；
 - `placement_sync_status`：`pending`、`synced`、`failed`；
 - `approved_version`；
@@ -35,6 +37,7 @@ erDiagram
 | --- | --- | --- | --- | --- |
 | `draft` | `approved`/空 | `pending` | `offline` | 否 |
 | `submitted` | `approved`/空 | `pending` | `offline` | 否 |
+| `pending_final` | `approved`/空 | `pending` | `offline` | 否 |
 | `rejected` | 空/历史 | `pending`/`failed` | `offline` | 否 |
 | `approved` | 空 | `pending` | `approved` | 否 |
 | `approved` | 有效 | `synced` | `placed` | 是，进入构建输入 |
@@ -46,17 +49,29 @@ erDiagram
 
 ## 4. 状态迁移约束
 
-- `draft -> submitted`：内容管理员提交，正文必填、主期刊有效、资产校验通过；
-- `submitted -> approved`：审核人员通过，必须绑定审核 revision；
-- `submitted -> rejected`：审核人员驳回，必须有审核意见；
+- `draft -> submitted`：本刊编辑提交，正文、主期刊、栏目和 revision 校验通过；
+- `submitted -> pending_final`：本刊副编辑、常务副编辑或主编辑初审通过，必须绑定同一 revision；
+- `submitted -> draft/rejected`：初审退回或拒绝，必须有审核意见；
+- `pending_final -> approved`：仅本刊有效主编辑终审通过，必须存在同一 revision 的初审通过记录；
+- `pending_final -> draft/rejected`：主编辑终审退回或拒绝，必须有审核意见；
 - `rejected -> draft`：编辑修改后重新编辑；
 - `approved -> placed`：存在至少一个有效正式投放；
 - `placed -> built`：静态构建产生页面并通过页面级检查；
 - `built -> published`：manifest 校验通过且 current 激活成功；
-- `published -> draft`：只有在“已发布内容修改必须重新审核”这一产品决策确认后才允许；
+- `approved/published -> draft`：正文、作者声明或其他审核保护字段变化时必须执行，旧终审 revision 不再作为当前内容来源；
 - 任何状态回退都必须记录原因和审计日志。
 
-## 5. 投放模型语义
+审核动作使用 expected state、expected revision、数据库行锁和幂等 request id。`ArticleReviewRecord` 保存阶段、动作、revision、审核人、当时任命和角色快照，创建后禁止更新或删除。
+
+## 5. 账号与期刊任命模型
+
+- `users.User` 保存实名登录身份、唯一邮箱、显示姓名、单位、职务、账号状态、首次改密标志和账号审计关联；作者不因此获得账号。
+- `JournalEditorAssignment` 只允许 `chief_editor`、`executive_editor`、`associate_editor`；同一启用期刊必须恰好一名有效主编辑，至多一名有效常务副编辑。
+- 副编辑职责只能从 `article_maintenance`、`journal_profile`、`column_navigation`、`issue_management`、`media_assets` 固定集合选择，职责不提高审核级别。
+- 任命公开姓名、单位、角色名称、排序和公开开关与账号资料分开保存；停用使用历史记录，不硬删除。
+- 有效性同时取决于账号正常、任命启用、开始时间已到和结束时间未过。超级管理员不能同时拥有子期刊编辑任命。
+
+## 6. 投放模型语义
 
 正式 `placements.ArticlePlacement` 当前使用 `target_type`、`target_slug`、`target_category` 等标识。期刊投放暂未直接使用 `Journal` 外键，而是字符串 slug。该设计需要补充：
 
@@ -69,7 +84,7 @@ erDiagram
 
 短期可以保留 slug，但必须在 service 层集中解析，不允许后台表单、模板和静态生成器各自实现字符串拼接。
 
-## 6. 数据完整性规则
+## 7. 数据完整性规则
 
 - 正式投放不能指向未审核文章；
 - 静态发布不能读取 `StaticArticle` 作为正式发布源；
@@ -78,8 +93,9 @@ erDiagram
 - 发布 manifest 必须是不可变快照；
 - current 只能指向完整且通过校验的 manifest；
 - 旧模型迁移期间必须禁止新增，或在 `save()`/service 层拒绝写入。
+- 已审核/已发布文章、任命历史、审核记录、审计日志和已激活 manifest 禁止硬删除。
 
-## 7. 数据修复优先级
+## 8. 数据修复优先级
 
 1. 盘点 `StaticArticle` 与正式 `ArticlePage` 的可匹配键；
 2. 为可匹配数据生成正式文章草稿；
@@ -88,9 +104,9 @@ erDiagram
 5. 校验当前 manifest 与数据库状态；
 6. 将旧模型和旧菜单标记为退役。
 
-## 8. 2026-07-23 模型约束与数据修复
+## 9. 2026-07-23 模型约束与数据修复
 
-### 8.1 文章投放同步幂等字段
+### 9.1 文章投放同步幂等字段
 
 `articles.ArticlePage.placement_sync_request_id` 为只读、带索引的 64 字符字段，用于标识某一 revision 和同步计划对应的请求。合法完成状态至少满足：
 
@@ -100,7 +116,7 @@ erDiagram
 
 迁移 `articles/0007_repair_article_approval_and_sync_state.py` 会修复已有 approved/published 文章的审核版本和投放同步字段：存在有效正式投放时标为 synced；找不到 revision 或有效投放时标为 failed 并保留可诊断错误，不把异常状态伪装为成功。
 
-### 8.2 标识与目标完整性
+### 9.2 标识与目标完整性
 
 - `Journal.slug` 在 `clean()` 和 `save()` 两层均禁止直接修改；只有显式、可审计的迁移流程可以临时放行。
 - 新增旧 `journals.ArticlePlacement` 会被拒绝，只允许受控数据迁移代码使用内部兼容开关。

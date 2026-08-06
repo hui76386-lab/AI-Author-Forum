@@ -1,0 +1,79 @@
+{% extends "wagtailadmin/base.html" %}
+
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+  {% include "wagtailadmin/shared/header.html" with title=title icon="group" %}
+  <div class="nice-padding">
+    <p><a href="{% url 'journals_editorial_team_index' %}">返回编辑团队列表</a></p>
+
+    {% if settings_form %}
+      <section>
+        <h2>展示设置</h2>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="settings">
+          {{ settings_form.as_p }}
+          <button class="button" type="submit">保存展示设置</button>
+        </form>
+      </section>
+    {% endif %}
+
+    <section>
+      <h2>当前任命</h2>
+      {% for row in rows %}
+        <div class="w-panel" style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid #d9d9d9;">
+          <h3>{{ row.assignment.get_role_display }}：{{ row.assignment.user.display_name }}（{{ row.assignment.user.email }}）</h3>
+          {% if row.profile_form %}
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="update">
+              <input type="hidden" name="assignment_id" value="{{ row.assignment.pk }}">
+              {{ row.profile_form.as_p }}
+              <button class="button" type="submit">保存公开资料</button>
+            </form>
+          {% else %}
+            <p>{{ row.assignment.public_role_label }}，{{ row.assignment.public_name }}，{{ row.assignment.public_affiliation }}</p>
+          {% endif %}
+          {% if row.replace_form %}
+            <details>
+              <summary>交接角色</summary>
+              <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="replace">
+                <input type="hidden" name="assignment_id" value="{{ row.assignment.pk }}">
+                {{ row.replace_form.as_p }}
+                <button class="button button-secondary" type="submit">确认交接</button>
+              </form>
+            </details>
+          {% endif %}
+          {% if row.end_form %}
+            <details>
+              <summary>结束任命</summary>
+              <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="end">
+                <input type="hidden" name="assignment_id" value="{{ row.assignment.pk }}">
+                {{ row.end_form.as_p }}
+                <button class="button no" type="submit">结束任命</button>
+              </form>
+            </details>
+          {% endif %}
+        </div>
+      {% empty %}
+        <p>当前没有有效任命。</p>
+      {% endfor %}
+    </section>
+
+    {% if appoint_form %}
+      <section>
+        <h2>新增任命</h2>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="appoint">
+          {{ appoint_form.as_p }}
+          <button class="button" type="submit">创建任命</button>
+        </form>
+      </section>
+    {% endif %}
+  </div>
+{% endblock %}

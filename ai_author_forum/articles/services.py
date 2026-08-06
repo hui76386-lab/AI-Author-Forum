@@ -2,16 +2,16 @@ import re
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
-from django.db.models import CharField, DateTimeField, Exists, OuterRef, Q, Subquery
+from django.db.models import CharField, DateTimeField, Exists, OuterRef, Subquery
 from django.db.models.functions import Cast, Coalesce
 from wagtail.models import Page, Revision
 
 from ai_author_forum.utils.i18n import article_type_label
 from ai_author_forum.utils.public_i18n import (
     localized_article_abstract,
+    localized_article_ai_coauthors,
     localized_article_authors,
     localized_article_body,
-    localized_article_ai_coauthors,
     localized_article_keywords,
     localized_article_title,
 )
@@ -167,14 +167,18 @@ def _unique_static_slug(static_article):
     return candidate
 
 
-def get_approved_articles(at=None):
+def get_approved_articles(at=None, *, include_active_release=False):
     """Return reviewed articles that have a currently effective placement."""
-    placements = _available_placements(at).filter(article_id=OuterRef("pk"))
+    placements = _available_placements(
+        at, include_active_release=include_active_release
+    ).filter(article_id=OuterRef("pk"))
     return _approved_article_queryset().filter(Exists(placements))
 
 
-def get_article_context(slug, at=None):
-    article = get_approved_articles(at=at).get(static_slug=slug)
+def get_article_context(slug, at=None, *, include_active_release=False):
+    article = get_approved_articles(
+        at=at, include_active_release=include_active_release
+    ).get(static_slug=slug)
     related_journals = list(article.related_journals.all())
     article_title = localized_article_title(article)
     article_abstract = localized_article_abstract(article)
@@ -184,6 +188,9 @@ def get_article_context(slug, at=None):
     contributors = tuple(article.contributors.all())
     keywords = _split_csv(article_keywords)
     ai_co_authors = _split_csv(article_ai_coauthors)
+    from ai_author_forum.journals.frontend import get_public_editorial_team
+
+    editorial_team = get_public_editorial_team(article.primary_journal, at=at)
 
     from .category_services import get_live_article_categories
 
@@ -213,15 +220,23 @@ def get_article_context(slug, at=None):
         "article_type_label": article_type_label(article.article_type),
         "review_status": article.review_status,
         "review_status_label": article.get_review_status_display(),
+        "author_declaration": article.responsibility_statement,
+        "editorial_team": (
+            editorial_team
+            if article.primary_journal.show_editorial_team_on_article_pages
+            else {
+                "heading": editorial_team["heading"],
+                "groups": [],
+                "has_members": False,
+            }
+        ),
         "ai": {
             "co_authors": ai_co_authors,
             "co_authors_text": article_ai_coauthors,
             "contribution_statement": article.ai_contribution_statement,
             "responsibility_statement": article.responsibility_statement,
             "has_contribution": bool(
-                ai_co_authors
-                or article.ai_contribution_statement
-                or article.responsibility_statement
+                ai_co_authors or article.ai_contribution_statement
             ),
         },
     }
@@ -229,29 +244,28 @@ def get_article_context(slug, at=None):
     return context
 
 
-def get_articles_by_journal(journal_slug, at=None):
+def get_articles_by_journal(journal_slug, at=None, *, include_active_release=False):
     if not journal_slug:
         return _approved_article_queryset().none()
 
     placements = (
-        _available_placements(at)
+        _available_placements(at, include_active_release=include_active_release)
         .for_target("journal", journal_slug)
         .filter(article_id=OuterRef("pk"))
     )
     return (
         _approved_article_queryset()
         .filter(Exists(placements))
-        .filter(
-            Q(primary_journal__slug=journal_slug)
-            | Q(related_journals__slug=journal_slug)
-        )
+        .filter(primary_journal__slug=journal_slug)
         .distinct()
     )
 
 
-def _available_placements(at=None):
+def _available_placements(at=None, *, include_active_release=False):
     from ai_author_forum.placements.models import ArticlePlacement
 
+    if include_active_release:
+        return ArticlePlacement.objects.available_for_static_release(at=at)
     return ArticlePlacement.objects.available(at=at)
 
 

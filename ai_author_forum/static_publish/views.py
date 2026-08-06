@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
+from ai_author_forum.site_settings.access_control import is_super_admin
 from ai_author_forum.site_settings.models import (
     AuditAction,
     AuditStatus,
@@ -36,10 +37,12 @@ from .tasks import retry_static_publish, rollback_static_publish, run_static_pub
 
 
 def _can_publish(user):
-    return user.is_superuser or (
-        user.has_perm("static_publish.publish_static_site")
-        and user.has_perm("static_publish.publish_category_pages")
-    )
+    return is_super_admin(user)
+
+
+def _require_publish_access(user):
+    if not _can_publish(user):
+        raise PermissionDenied
 
 
 def _filtered_jobs(form):
@@ -93,6 +96,7 @@ def _filtered_jobs(form):
 @permission_required("static_publish.view_staticpublishjob", raise_exception=True)
 @require_http_methods(["GET", "POST"])
 def publish_center(request):
+    _require_publish_access(request.user)
     publish_form = PublishForm(request.POST or None, prefix="publish")
     filter_form = PublishJobFilterForm(request.GET or None)
     rollback_select_form = RollbackSelectForm(prefix="rollback")
@@ -151,6 +155,7 @@ def publish_center(request):
 
 @permission_required("static_publish.view_staticpublishjob", raise_exception=True)
 def job_detail(request, job_id):
+    _require_publish_access(request.user)
     job = get_object_or_404(
         StaticPublishJob.objects.select_related("triggered_by", "retry_of"), pk=job_id
     )
@@ -192,8 +197,7 @@ def job_detail(request, job_id):
 @permission_required("static_publish.view_staticpublishjob", raise_exception=True)
 @require_POST
 def approve_pending_job(request, job_id):
-    if not _can_publish(request.user):
-        raise PermissionDenied
+    _require_publish_access(request.user)
 
     with transaction.atomic():
         job = get_object_or_404(StaticPublishJob.objects.select_for_update(), pk=job_id)
@@ -249,6 +253,7 @@ def approve_pending_job(request, job_id):
 @permission_required("static_publish.view_staticpublishjob", raise_exception=True)
 @require_GET
 def job_status(request, job_id):
+    _require_publish_access(request.user)
     job = get_object_or_404(StaticPublishJob, pk=job_id)
     counts = {choice: 0 for choice, _label in StaticPublishTarget.Status.choices}
     for row in job.targets.values("status").annotate(total=Count("pk")):
@@ -292,6 +297,7 @@ def job_status(request, job_id):
 @permission_required("static_publish.retry_category_publish", raise_exception=True)
 @require_POST
 def retry_job(request, job_id):
+    _require_publish_access(request.user)
     failed_job = get_object_or_404(StaticPublishJob, pk=job_id)
     raw_selected_ids = [value for value in request.POST.getlist("target_ids") if value]
     try:
@@ -327,11 +333,7 @@ def retry_job(request, job_id):
         actor=request.user,
         paths=paths,
         target_ids=target_ids,
-        scope=(
-            StaticPublishJob.Scope.RETRY
-            if paths
-            else StaticPublishJob.Scope.FULL
-        ),
+        scope=(StaticPublishJob.Scope.RETRY if paths else StaticPublishJob.Scope.FULL),
     )
     try:
         task_result = retry_static_publish.delay(retry_job_record.pk, request.user.pk)
@@ -349,6 +351,7 @@ def retry_job(request, job_id):
 @permission_required("static_publish.rollback_category_publish", raise_exception=True)
 @require_GET
 def rollback_preview(request):
+    _require_publish_access(request.user)
     select_form = RollbackSelectForm(request.GET, prefix="rollback")
     if not select_form.is_valid():
         messages.error(request, "请选择有效的历史版本。")
@@ -372,6 +375,7 @@ def rollback_preview(request):
 @permission_required("static_publish.rollback_category_publish", raise_exception=True)
 @require_POST
 def rollback_release(request):
+    _require_publish_access(request.user)
     form = RollbackForm(request.POST, prefix="rollback")
     if not form.is_valid():
         messages.error(request, "请选择有效版本并填写至少 5 个字符的回滚原因。")

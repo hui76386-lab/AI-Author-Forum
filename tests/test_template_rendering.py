@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.template.loader import get_template
 from django.test import SimpleTestCase, TestCase
 from wagtail.models import Site
@@ -11,6 +12,10 @@ from ai_author_forum.journals.models import Journal
 from ai_author_forum.news.models import NewsListingPage
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.standardpages.models import StandardPage
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class TemplateCompilationTests(SimpleTestCase):
@@ -64,6 +69,15 @@ class FrontendTemplateRenderingTests(TestCase):
             slug="rendered-journal",
             az_group="R",
         )
+        cls.admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="template-admin",
+                email="template-admin@example.com",
+                display_name="Template Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
         cls.article = ArticlePage(
             title="Rendered canonical article",
             slug="rendered-canonical-article",
@@ -74,10 +88,11 @@ class FrontendTemplateRenderingTests(TestCase):
             article_type=ArticlePage.ArticleType.NEWS,
             primary_journal=cls.journal,
             keywords="rendered",
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         cls.home.add_child(instance=cls.article)
         cls.article.save_revision().publish()
+        formally_approve_test_article(cls.article, actor=cls.admin)
+        cls.article.refresh_from_db()
         ArticlePlacement.objects.create(
             article=cls.article,
             slot=LayoutSlot.objects.get(code="section_article_list"),

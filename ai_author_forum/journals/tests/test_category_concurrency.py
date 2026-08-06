@@ -2,6 +2,7 @@ import threading
 from queue import Queue
 from unittest import skipUnless
 
+from django.contrib.auth import get_user_model
 from django.db import close_old_connections, connection, connections
 from django.test import TransactionTestCase
 
@@ -11,6 +12,7 @@ from ai_author_forum.journals.category_services import (
     move_category,
 )
 from ai_author_forum.journals.models import Journal, JournalCategory
+from ai_author_forum.test_helpers import create_test_user, grant_business_super_admin
 
 
 @skipUnless(
@@ -18,9 +20,10 @@ from ai_author_forum.journals.models import Journal, JournalCategory
     "PostgreSQL is required to verify row locks and concurrent constraints.",
 )
 class PostgreSQLCategoryConcurrencyTests(TransactionTestCase):
-    reset_sequences = True
-
     def setUp(self):
+        self.admin = grant_business_super_admin(
+            create_test_user("concurrent-category-admin")
+        )
         self.journal = Journal.objects.create(
             name="Concurrent Journal", slug="concurrent-journal", az_group="C"
         )
@@ -51,11 +54,13 @@ class PostgreSQLCategoryConcurrencyTests(TransactionTestCase):
 
     def test_concurrent_same_parent_slug_allows_only_one_create(self):
         journal_id = self.journal.pk
+        actor_id = self.admin.pk
 
         def create(code):
             def worker():
                 journal = Journal.objects.get(pk=journal_id)
                 return create_category(
+                    actor=get_user_model().objects.get(pk=actor_id),
                     journal=journal,
                     data={"name": code, "code": code, "slug": "same-slug"},
                     request_id=f"concurrent-create-{code}",
@@ -82,32 +87,39 @@ class PostgreSQLCategoryConcurrencyTests(TransactionTestCase):
 
     def test_concurrent_moves_use_expected_version_without_path_drift(self):
         source = create_category(
+            actor=self.admin,
             journal=self.journal,
             data={"name": "Source", "code": "SOURCE", "slug": "source"},
         ).category
         target_a = create_category(
+            actor=self.admin,
             journal=self.journal,
             data={"name": "Target A", "code": "TARGET-A", "slug": "target-a"},
         ).category
         target_b = create_category(
+            actor=self.admin,
             journal=self.journal,
             data={"name": "Target B", "code": "TARGET-B", "slug": "target-b"},
         ).category
         moving = create_category(
+            actor=self.admin,
             journal=self.journal,
             parent=source,
             data={"name": "Moving", "code": "MOVING", "slug": "moving"},
         ).category
         descendant = create_category(
+            actor=self.admin,
             journal=self.journal,
             parent=moving,
             data={"name": "Leaf", "code": "LEAF", "slug": "leaf"},
         ).category
         expected_version = moving.version
+        actor_id = self.admin.pk
 
         def move(new_parent_id, request_id):
             def worker():
                 return move_category(
+                    actor=get_user_model().objects.get(pk=actor_id),
                     category_id=moving.pk,
                     new_parent_id=new_parent_id,
                     expected_version=expected_version,

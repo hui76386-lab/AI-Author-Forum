@@ -79,16 +79,36 @@ class LayoutSlot(models.Model):
 
 
 class ArticlePlacementQuerySet(models.QuerySet):
-    def available(self, at=None):
+    def _available(self, *, at, include_active_release):
+        from ai_author_forum.articles.models import ArticleReviewRecord
         from ai_author_forum.journals.models import JournalStatus
 
-        at = at or timezone.now()
+        final_approval = ArticleReviewRecord.objects.filter(
+            article_id=models.OuterRef("article_id"),
+            action=ArticleReviewRecord.Action.FINAL_APPROVE,
+            revision_id=models.OuterRef("article__approved_version_id"),
+        )
+        queryset = self.annotate(has_final_approval=models.Exists(final_approval))
+        approval_filter = Q(has_final_approval=True)
+        if include_active_release:
+            from ai_author_forum.static_publish.models import StaticManifest
+
+            active_versions = StaticManifest.objects.filter(is_active=True).values(
+                "version"
+            )
+            approval_filter |= Q(
+                article__publication_status="published",
+                article__published_version__in=active_versions,
+                article__latest_revision_id=F("article__approved_version_id"),
+            )
         return (
-            self.filter(
+            queryset.filter(
+                approval_filter,
                 is_active=True,
                 slot__is_active=True,
                 article__primary_journal__status=JournalStatus.ACTIVE,
                 article__review_status__in=("approved", "published"),
+                article__approved_version__isnull=False,
             )
             .filter(
                 Q(starts_at__isnull=True) | Q(starts_at__lte=at),
@@ -97,7 +117,6 @@ class ArticlePlacementQuerySet(models.QuerySet):
             .filter(
                 ~Q(target_type="journal")
                 | Q(article__primary_journal__slug=F("target_slug"))
-                | Q(article__related_journals__slug=F("target_slug"))
             )
             .filter(
                 ~Q(target_type="category")
@@ -105,6 +124,18 @@ class ArticlePlacementQuerySet(models.QuerySet):
             )
             .distinct()
         )
+
+    def available(self, at=None):
+        """Return placements backed by a current chief-editor final approval."""
+        return self._available(at=at or timezone.now(), include_active_release=False)
+
+    def available_for_static_release(self, at=None):
+        """Keep unchanged content from the active immutable release visible.
+
+        The carry-forward branch never admits a new article: it requires the exact
+        approved revision to already be present in the active manifest version.
+        """
+        return self._available(at=at or timezone.now(), include_active_release=True)
 
     def for_target(self, target_type, target_slug=""):
         return self.filter(
@@ -333,6 +364,10 @@ class ArticlePlacement(models.Model):
             )
 
         if self.article_id:
+            from ai_author_forum.articles.review_services import (
+                has_valid_final_approval,
+            )
+
             allowed_statuses = {
                 self.article.ReviewStatus.APPROVED,
                 self.article.ReviewStatus.PUBLISHED,
@@ -341,12 +376,15 @@ class ArticlePlacement(models.Model):
                 raise ValidationError(
                     {"article": "Only approved articles can be placed."}
                 )
+            if not self.article.approved_version_id or not has_valid_final_approval(
+                self.article, self.article.approved_version
+            ):
+                raise ValidationError(
+                    {"article": "文章缺少同 revision 的主编辑终审通过记录。"}
+                )
             if self.target_type == self.TargetType.JOURNAL and self.target_slug:
                 belongs_to_target = (
                     self.article.primary_journal.slug == self.target_slug
-                    or self.article.related_journals.filter(
-                        slug=self.target_slug
-                    ).exists()
                 )
                 if not belongs_to_target:
                     raise ValidationError(
@@ -544,7 +582,9 @@ class PlacementBatch(models.Model):
     batch_number = models.CharField(max_length=48, unique=True, editable=False)
     mode = models.CharField(max_length=24, choices=Mode.choices)
     operation = models.CharField(max_length=24, choices=Operation.choices)
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.DRAFT
+    )
     current_step = models.CharField(max_length=24, default="article")
     strict_mode = models.BooleanField(default=True)
     target_type = models.CharField(
@@ -607,8 +647,12 @@ class PlacementBatch(models.Model):
     class Meta:
         ordering = ("-updated_at", "-created_at")
         indexes = (
-            models.Index(fields=("status", "updated_at"), name="placement_batch_status_idx"),
-            models.Index(fields=("created_by", "updated_at"), name="placement_batch_actor_idx"),
+            models.Index(
+                fields=("status", "updated_at"), name="placement_batch_status_idx"
+            ),
+            models.Index(
+                fields=("created_by", "updated_at"), name="placement_batch_actor_idx"
+            ),
         )
 
     def __str__(self):
@@ -619,30 +663,49 @@ class PlacementBatch(models.Model):
         # A failed preflight is still a draft: users must be able to fix it,
         # re-run validation, or delete it.  Execution failures set executed_at
         # explicitly so the immutable command history remains distinguishable.
-        return self.status in {
-            self.Status.SUCCEEDED,
-            self.Status.CANCELLED,
-        } or self.executed_at is not None
+        return (
+            self.status
+            in {
+                self.Status.SUCCEEDED,
+                self.Status.CANCELLED,
+            }
+            or self.executed_at is not None
+        )
 
     def clean(self):
         super().clean()
         self.target_slug = normalize_target_slug(self.target_slug)
         if self.ends_at and self.starts_at and self.ends_at <= self.starts_at:
-            raise ValidationError({"ends_at": "End time must be later than start time."})
+            raise ValidationError(
+                {"ends_at": "End time must be later than start time."}
+            )
         if self.mode == self.Mode.BULK_CREATE and not self.strict_mode:
-            raise ValidationError({"strict_mode": "Bulk placement always uses strict mode."})
-        if self.target_type == ArticlePlacement.TargetType.MAIN_SITE and self.target_slug:
-            raise ValidationError({"target_slug": "Main-site target must not have a slug."})
+            raise ValidationError(
+                {"strict_mode": "Bulk placement always uses strict mode."}
+            )
+        if (
+            self.target_type == ArticlePlacement.TargetType.MAIN_SITE
+            and self.target_slug
+        ):
+            raise ValidationError(
+                {"target_slug": "Main-site target must not have a slug."}
+            )
         if self.target_type == ArticlePlacement.TargetType.CATEGORY:
             if not self.target_category_id:
-                raise ValidationError({"target_category": "Category target requires a category."})
+                raise ValidationError(
+                    {"target_category": "Category target requires a category."}
+                )
         elif self.target_category_id:
-            raise ValidationError({"target_category": "Only category targets may use a category."})
+            raise ValidationError(
+                {"target_category": "Only category targets may use a category."}
+            )
 
     def save(self, *args, **kwargs):
         self.target_slug = normalize_target_slug(self.target_slug)
         if not self.batch_number:
-            self.batch_number = f"PB-{timezone.now():%Y%m%d}-{uuid.uuid4().hex[:8].upper()}"
+            self.batch_number = (
+                f"PB-{timezone.now():%Y%m%d}-{uuid.uuid4().hex[:8].upper()}"
+            )
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -683,7 +746,9 @@ class PlacementBatchItem(models.Model):
     )
     sort_order = models.PositiveIntegerField(default=0)
     validation_status = models.CharField(
-        max_length=12, choices=ValidationStatus.choices, default=ValidationStatus.PENDING
+        max_length=12,
+        choices=ValidationStatus.choices,
+        default=ValidationStatus.PENDING,
     )
     execution_status = models.CharField(
         max_length=12, choices=ExecutionStatus.choices, default=ExecutionStatus.PENDING
@@ -718,7 +783,9 @@ class JournalUserPreference(models.Model):
     """Per-user journal favourites and recency.  It never changes Journal."""
 
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="journal_preferences"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="journal_preferences",
     )
     journal = models.ForeignKey(
         "journals.Journal", on_delete=models.CASCADE, related_name="user_preferences"
@@ -729,13 +796,18 @@ class JournalUserPreference(models.Model):
 
     class Meta:
         constraints = (
-            models.UniqueConstraint(fields=("user", "journal"), name="placement_user_journal_pref"),
+            models.UniqueConstraint(
+                fields=("user", "journal"), name="placement_user_journal_pref"
+            ),
         )
         indexes = (
-            models.Index(fields=("user", "is_favorite"), name="placement_pref_favorite_idx"),
-            models.Index(fields=("user", "last_used_at"), name="placement_pref_recent_idx"),
+            models.Index(
+                fields=("user", "is_favorite"), name="placement_pref_favorite_idx"
+            ),
+            models.Index(
+                fields=("user", "last_used_at"), name="placement_pref_recent_idx"
+            ),
         )
 
     def __str__(self):
         return f"{self.user} / {self.journal}"
-

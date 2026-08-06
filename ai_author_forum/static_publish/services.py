@@ -28,6 +28,7 @@ from ai_author_forum.articles.publication import (
     record_article_build_success,
     sync_articles_to_active_manifest,
 )
+from ai_author_forum.site_settings.access_control import is_super_admin
 from ai_author_forum.site_settings.models import AuditAction, AuditStatus
 from ai_author_forum.site_settings.services import record_audit_event
 from ai_author_forum.static_publish.category_services import (
@@ -92,11 +93,18 @@ class AssetReferenceParser(HTMLParser):
 
 
 def require_static_permission(user, permission):
-    # ``None`` denotes an internal/system invocation (management command/tests).
-    if user is None:
+    if not is_super_admin(user):
+        raise PermissionDenied("Only an active super administrator may publish.")
+
+
+def require_publish_job_permission(job):
+    if is_super_admin(job.triggered_by):
         return
-    if not (user.is_superuser or user.has_perm(permission)):
-        raise PermissionDenied
+    from ai_author_forum.placements.publishing import (
+        require_automatic_placement_publish_job,
+    )
+
+    require_automatic_placement_publish_job(job)
 
 
 def create_publish_job(*, scope, paths, actor):
@@ -286,6 +294,7 @@ class StaticPublisher:
         self.lock = FileLock(str(self.root / ".publish.lock"), timeout=0)
 
     def build(self, job, *, audit_action=AuditAction.PUBLISH, audit_context=None):
+        require_publish_job_permission(job)
         self.root.mkdir(parents=True, exist_ok=True)
         try:
             with self.lock:

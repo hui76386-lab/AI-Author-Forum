@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 
 from ai_author_forum.journals.models import JournalCategory, JournalCategoryStatus
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 from ..admin_services import prepare_article_admin_row
 from ..bulk_services import execute_bulk_article_action
@@ -59,6 +60,7 @@ class ArticleSubmissionCategoryFlowTests(ArticlePageWorkflowTests):
             email="category-options-superuser@example.com",
             password="test-password",
         )
+        grant_business_super_admin(superuser)
         self.client.force_login(superuser)
 
         response = self.client.get(
@@ -149,7 +151,6 @@ class ArticleSubmissionCategoryFlowTests(ArticlePageWorkflowTests):
         template = Path("templates/wagtailadmin/articles/list.html").read_text(
             encoding="utf-8"
         )
-
         self.assertIn(
             'if (event.submitter && !event.submitter.hasAttribute("data-bulk-submit")) return;',
             template,

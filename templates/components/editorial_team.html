@@ -1,0 +1,17 @@
+{% if editorial_team.has_members %}
+<section class="c-editorial-team" aria-labelledby="editorial-team-heading">
+  <h2 id="editorial-team-heading">{{ editorial_team.heading }}</h2>
+  <dl>
+    {% for group in editorial_team.groups %}
+      <div>
+        <dt>{{ group.label }}</dt>
+        <dd>
+          {% for member in group.members %}
+            <span><strong>{{ member.public_name }}</strong>{% if member.public_affiliation %}<small>{{ member.public_affiliation }}</small>{% endif %}</span>
+          {% endfor %}
+        </dd>
+      </div>
+    {% endfor %}
+  </dl>
+</section>
+{% endif %}

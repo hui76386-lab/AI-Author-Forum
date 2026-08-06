@@ -87,6 +87,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "ai_author_forum.users.middleware.CredentialRateLimitMiddleware",
+    "ai_author_forum.users.middleware.RequiredPasswordChangeMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "ai_author_forum.site_settings.middleware.AdminNavigationPreviewFrameOptionsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -389,7 +391,18 @@ STATIC_PUBLISH_AUTO_DEBOUNCE_SECONDS = int(
 )
 
 # Placement workflow V2 is opt-in during the compatibility window.
-PLACEMENTS_V2_ENABLED = os.environ.get("PLACEMENTS_V2_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+PLACEMENTS_V2_ENABLED = os.environ.get("PLACEMENTS_V2_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+SIMPLE_JOURNAL_RBAC_ENABLED = os.environ.get(
+    "SIMPLE_JOURNAL_RBAC_ENABLED", "false"
+).lower() in {"1", "true", "yes", "on"}
+SIMPLE_JOURNAL_RBAC_SHADOW_MODE = os.environ.get(
+    "SIMPLE_JOURNAL_RBAC_SHADOW_MODE", "true"
+).lower() in {"1", "true", "yes", "on"}
 PLACEMENTS_BATCH_MAX_ITEMS = int(os.environ.get("PLACEMENTS_BATCH_MAX_ITEMS", "100"))
 
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")

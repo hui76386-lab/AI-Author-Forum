@@ -34,6 +34,7 @@
 | [06-当前冲突与整改路线](./06-current-conflicts-and-remediation-roadmap.zh-CN.md) | 记录本次扫描发现的问题、优先级、影响和整改顺序 |
 | [07-待确认需求与验收标准](./07-open-decisions-and-acceptance-criteria.zh-CN.md) | 记录尚未明确的业务决策和模块验收标准 |
 | [08-账号、子期刊编辑角色与审核开发任务书](./08-account-and-editorial-access-development-spec.zh-CN.md) | 定义超级管理员、主编辑、常务副编辑、副编辑、账号创建、两级审核、编辑团队和作者声明 |
+| [简化账号与子期刊角色迁移和回滚手册](../operations/simple-role-migration-and-rollback.zh-CN.md) | 说明显式映射、dry-run、幂等应用、旧授权快照和不删除新业务记录的回滚步骤 |
 | [远程中间件接入与生产部署](../remote-middleware.zh-CN.md) | 说明远程 PostgreSQL、Redis、Celery 的配置、隔离、本地 overlay 和验收 |
 
 ## 3. 权威来源与优先级
@@ -50,7 +51,7 @@
 
 ## 4. 当前实现基线
 
-当前工程已完成本轮 P0/P1 收口：导入会事务性进入唯一正式 `ArticlePage` 草稿；审核组统一为“审核人员”；正式投放统一使用 `placements.ArticlePlacement`；投放同步具备 revision/计划级幂等；静态构建使用冻结输入快照，并在激活、重试和回滚时强制执行不可变 manifest、文件完整性和审计一致性。旧模型仍仅作为只读/迁移兼容边界保留，尚未物理删除。
+当前工程已完成本轮 P0/P1 收口：导入会事务性进入唯一正式 `ArticlePage` 草稿；账号和权限统一为平台超级管理员及按期刊任命的主编辑、常务副编辑、副编辑；Workflow 固定为初审和主编辑终审；正式投放统一使用 `placements.ArticlePlacement`；投放同步具备 revision/计划级幂等；静态构建使用冻结输入快照，并在激活、重试和回滚时强制执行不可变 manifest、文件完整性和审计一致性。旧角色、旧模型仍仅作为迁移或只读兼容边界保留，不再提供业务授权，尚未物理删除。
 
 当前数据库审计快照：
 
@@ -77,6 +78,7 @@
 - `journals.StaticArticle` 只作为导入暂存或兼容源；不能绕过审核直接被当作正式前台文章。
 - `news.ArticlePage`、`journals.ArticlePlacement` 等旧模型不得新增业务引用，迁移前只允许只读兼容。
 - 文章“审核通过”不等于“前台发布”；必须存在有效投放，并经过静态构建和 manifest 激活。
+- 初审和终审必须通过统一 service、有效 `JournalEditorAssignment` 和固定 revision 判定；旧 Group、直接审核 permission 和 `is_superuser` 不得旁路主编辑终审。
 - 所有导入、审核、投放同步、静态发布、重试、回滚等高风险操作必须写入 `AuditLog`。
 - 前台生产请求不能依赖文章数据库实时查询，只读取已激活的静态目录。
 - 新增后台入口必须先确定归属、菜单位置、权限 codename、角色可见范围和审计要求。

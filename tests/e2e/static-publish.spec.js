@@ -10,15 +10,23 @@ const acceptance = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../../.e2e/acceptance.json"), "utf8"),
 );
 
+function englishPath(pagePath) {
+  const url = new URL(pagePath, "https://acceptance.invalid");
+  if (!url.pathname.startsWith("/en/")) {
+    url.pathname = url.pathname === "/" ? "/en/" : `/en${url.pathname}`;
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 const formalPages = [
   {
     path: "/",
     title: /Home|AI Author Forum/,
-    content: "Deterministic static frontend acceptance release",
+    content: "Static acceptance home headline",
   },
   {
     path: "/journals/",
-    title: /Journals by discipline/,
+    title: /Journals A-Z/,
     content: "Acceptance Journal",
   },
   {
@@ -33,7 +41,7 @@ const formalPages = [
   },
   {
     path: acceptance.content_column_path,
-    title: new RegExp(acceptance.long_item_label),
+    title: /Content unavailable in English/,
     content: "Static acceptance content column headline",
   },
   {
@@ -86,7 +94,9 @@ const formalPages = [
 
 
 test("static search finds a placed article without a database", async ({ page }) => {
-  await page.goto("/search/?q=Static%20acceptance", { waitUntil: "networkidle" });
+  await page.goto(englishPath("/search/?q=Static%20acceptance"), {
+    waitUntil: "networkidle",
+  });
   await expect(page.getByRole("link", { name: "Static acceptance article" })).toBeVisible();
   await expect(page.locator("[data-result-count]")).toContainText("1");
   await expect(page.locator("[data-search-recommendations]")).toBeHidden();
@@ -114,7 +124,9 @@ for (const formalPage of formalPages) {
       failedRequests.push(`${request.url()} ${request.failure()?.errorText || "failed"}`);
     });
 
-    const response = await page.goto(formalPage.path, { waitUntil: "networkidle" });
+    const response = await page.goto(englishPath(formalPage.path), {
+      waitUntil: "networkidle",
+    });
     expect(response).not.toBeNull();
     expect(response.status()).toBe(200);
     await expect(page.locator("html")).toHaveAttribute("lang", /.+/);
@@ -150,7 +162,7 @@ for (const formalPage of formalPages) {
 }
 
 test("main-site desktop navigation has controlled dropdown lengths", async ({ page }) => {
-  await page.goto("/", { waitUntil: "networkidle" });
+  await page.goto(englishPath("/"), { waitUntil: "networkidle" });
   const navigation = page.locator('[data-managed-navigation-scope="main_site"]');
   const groups = navigation.locator("[data-navigation-group]");
   await expect(groups).toHaveCount(acceptance.main_navigation_group_lengths.length);
@@ -170,17 +182,24 @@ test("main-site desktop navigation has controlled dropdown lengths", async ({ pa
 });
 
 test("journal navigation shows the long English group and long Chinese item", async ({ page }) => {
-  await page.goto("/journals/acceptance-journal/", { waitUntil: "networkidle" });
+  await page.goto(englishPath("/journals/acceptance-journal/"), {
+    waitUntil: "networkidle",
+  });
   const navigation = page.locator('[data-managed-navigation-scope="journal"]');
   await expect(navigation.getByText(acceptance.long_group_label, { exact: true })).toBeVisible();
-  const firstGroupButton = navigation.locator("[data-nav-button]").first();
+
+  await page.goto("/journals/acceptance-journal/", { waitUntil: "networkidle" });
+  const chineseNavigation = page.locator('[data-managed-navigation-scope="journal"]');
+  const firstGroupButton = chineseNavigation.locator("[data-nav-button]").first();
   await firstGroupButton.click();
-  await expect(navigation.getByText(acceptance.long_item_label, { exact: true })).toBeVisible();
+  await expect(
+    chineseNavigation.getByText("研究文章", { exact: true }),
+  ).toBeVisible();
   await expect(page).toHaveScreenshot("journal-long-navigation.png");
 });
 
 test("second journal has a distinct empty navigation and article state", async ({ page }) => {
-  await page.goto(acceptance.empty_journal_path, { waitUntil: "networkidle" });
+  await page.goto(englishPath(acceptance.empty_journal_path), { waitUntil: "networkidle" });
   const navigation = page.locator('[data-managed-navigation-scope="journal"]');
   await expect(navigation.locator("[data-navigation-group]")).toHaveCount(0);
   await expect(navigation.locator("[data-navigation-empty-state]")).toBeVisible();
@@ -188,7 +207,7 @@ test("second journal has a distinct empty navigation and article state", async (
 });
 
 test("content column uses fixed filters and only placed articles", async ({ page }) => {
-  await page.goto(acceptance.content_column_path, { waitUntil: "networkidle" });
+  await page.goto(englishPath(acceptance.content_column_path), { waitUntil: "networkidle" });
   await expect(page.locator(".c-column-filters")).toBeVisible();
   await expect(page.locator("[data-column-filter='type']")).toBeVisible();
   await expect(page.locator("[data-column-filter='year']")).toBeVisible();
@@ -197,7 +216,7 @@ test("content column uses fixed filters and only placed articles", async ({ page
 });
 
 test("content column without placements shows the controlled empty state", async ({ page }) => {
-  await page.goto(acceptance.empty_column_path, { waitUntil: "networkidle" });
+  await page.goto(englishPath(acceptance.empty_column_path), { waitUntil: "networkidle" });
   await expect(page.locator("[data-placement-article]")).toHaveCount(0);
   await expect(page.locator(".c-empty-state")).toHaveText(
     "No placed articles are currently available in this column.",
@@ -205,11 +224,13 @@ test("content column without placements shows the controlled empty state", async
 });
 
 test("current issue and journal article detail both use journal navigation", async ({ page }) => {
-  await page.goto(acceptance.current_issue_path, { waitUntil: "networkidle" });
+  await page.goto(englishPath(acceptance.current_issue_path), { waitUntil: "networkidle" });
   await expect(page.locator('[data-managed-navigation-scope="journal"]')).toBeVisible();
   await expect(page.getByText("Static acceptance article", { exact: true })).toBeVisible();
 
-  await page.goto("/articles/static-acceptance-article/", { waitUntil: "networkidle" });
+  await page.goto(englishPath("/articles/static-acceptance-article/"), {
+    waitUntil: "networkidle",
+  });
   await expect(page.locator('[data-managed-navigation-scope="journal"]')).toBeVisible();
 });
 
@@ -217,7 +238,7 @@ test("mobile navigation collapses and opens as an accordion without horizontal o
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/", { waitUntil: "networkidle" });
+  await page.goto(englishPath("/"), { waitUntil: "networkidle" });
 
   const toggle = page.locator("[data-primary-nav-toggle]");
   const navigation = page.locator("#primary-navigation");
@@ -239,6 +260,21 @@ test("mobile navigation collapses and opens as an accordion without horizontal o
     documentWidth: document.documentElement.scrollWidth,
   }));
   expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewportWidth);
+
+  const mobileLayout = await page.evaluate(() => {
+    const logo = document.querySelector(".c-logo");
+    const columns = [...document.querySelectorAll(".c-three-column > *")];
+    const columnRects = columns.map((column) => column.getBoundingClientRect());
+    return {
+      logoFits:
+        logo.scrollWidth <= logo.clientWidth && logo.scrollHeight <= logo.clientHeight,
+      columnsDoNotOverlap: columnRects.every(
+        (rect, index) => index === 0 || rect.top >= columnRects[index - 1].bottom,
+      ),
+    };
+  });
+  expect(mobileLayout.logoFits).toBe(true);
+  expect(mobileLayout.columnsDoNotOverlap).toBe(true);
   await expect(page).toHaveScreenshot("mobile-main-navigation.png", { fullPage: true });
 });
 
@@ -272,7 +308,7 @@ test("manifest records every formal page, zero failures, and media references", 
 test("active section content is restored from the first release after rollback", async ({
   page,
 }) => {
-  const response = await page.goto("/sections/news/", {
+  const response = await page.goto(englishPath("/sections/news/"), {
     waitUntil: "networkidle",
   });
   expect(response.status()).toBe(200);
@@ -281,19 +317,21 @@ test("active section content is restored from the first release after rollback",
 });
 
 test("legacy core-column path returns a real HTTP 301", async ({ request }) => {
-  const response = await request.get("/explore-content/news/", { maxRedirects: 0 });
+  const response = await request.get(englishPath("/explore-content/news/"), {
+    maxRedirects: 0,
+  });
   expect(response.status()).toBe(301);
-  expect(response.headers().location).toBe("/sections/news/");
+  expect(response.headers().location).toBe(englishPath("/sections/news/"));
 });
 
 test("navigation and static filters are keyboard operable", async ({ page }) => {
-  await page.goto("/", { waitUntil: "networkidle" });
+  await page.goto(englishPath("/"), { waitUntil: "networkidle" });
   const firstNavigationButton = page.locator("[data-nav-button]").first();
   await firstNavigationButton.focus();
   await page.keyboard.press("Enter");
   await expect(firstNavigationButton).toHaveAttribute("aria-expanded", "true");
 
-  await page.goto(acceptance.content_column_path, { waitUntil: "networkidle" });
+  await page.goto(englishPath(acceptance.content_column_path), { waitUntil: "networkidle" });
   const yearFilter = page.locator("[data-column-filter='year']");
   await yearFilter.focus();
   await page.keyboard.press("End");
@@ -303,7 +341,7 @@ test("navigation and static filters are keyboard operable", async ({ page }) => 
 test("core content and static filter paths remain available without JavaScript", async ({ browser }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
-  await page.goto(acceptance.content_column_path, { waitUntil: "load" });
+  await page.goto(englishPath(acceptance.content_column_path), { waitUntil: "load" });
   await expect(page.getByText("Static acceptance content column headline", { exact: true })).toBeVisible();
   await expect(page.locator(".c-column-filters__fallback a[href*='/type/news/']")).toBeVisible();
   await expect(page.locator(".c-column-filters__fallback a[href*='/year/2026/']")).toBeVisible();
@@ -316,32 +354,37 @@ test("legacy category path returns a real HTTP 301 before following the redirect
 }) => {
   expect(acceptance.database_disconnected).toBe(true);
   expect(fs.existsSync(path.join(__dirname, "../../.e2e/db.sqlite3"))).toBe(false);
-  expect(fs.existsSync(acceptance.offline_database_path)).toBe(true);
+  expect(
+    fs.existsSync(path.join(__dirname, "../..", acceptance.offline_database_path)),
+  ).toBe(true);
 
-  const directResponse = await request.get(acceptance.redirect_path, {
+  const directResponse = await request.get(englishPath(acceptance.redirect_path), {
     maxRedirects: 0,
   });
   expect(directResponse.status()).toBe(301);
-  expect(directResponse.headers().location).toBe(acceptance.redirect_to);
+  expect(directResponse.headers().location).toBe(englishPath(acceptance.redirect_to));
 
-  const followedResponse = await page.goto(acceptance.redirect_path, {
+  const followedResponse = await page.goto(englishPath(acceptance.redirect_path), {
     waitUntil: "networkidle",
   });
   expect(followedResponse.status()).toBe(200);
-  expect(new URL(page.url()).pathname).toBe(acceptance.redirect_to);
+  expect(new URL(page.url()).pathname).toBe(englishPath(acceptance.redirect_to));
   await expect(page.getByText("Machine Intelligence", { exact: false }).first()).toBeVisible();
 });
 
 test("managed journal hero keeps fallback media, quick links, and nested navigation", async ({
   page,
 }) => {
-  const response = await page.goto("/journals/acceptance-journal/", {
+  const response = await page.goto(englishPath("/journals/acceptance-journal/"), {
     waitUntil: "networkidle",
   });
   expect(response.status()).toBe(200);
-  await expect(page.locator(".c-hero__media")).toHaveAttribute("style", /hero-visual\.png/);
-  await expect(page.locator(".c-journal-hero__links a")).toHaveCount(6);
+  await expect(page.locator(".c-journal-home__hero-media")).toHaveAttribute(
+    "style",
+    /hero-visual\.png/,
+  );
+  await expect(page.locator(".c-journal-home__quick-links a")).toHaveCount(6);
   await expect(
-    page.locator(".c-topic-navigation__children a", { hasText: "Neural Networks" }),
+    page.locator(".c-journal-home__subtopic", { hasText: "Neural Networks" }),
   ).toBeVisible();
 });

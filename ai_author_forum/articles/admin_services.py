@@ -43,8 +43,7 @@ def prepare_article_admin_row(article, *, user, request=None):
         "place": (
             _reverse("placements:new_single")
             + f"?article={article.pk}&journal={article.primary_journal.slug}"
-            if article.primary_journal_id
-            and article.primary_journal.status == "active"
+            if article.primary_journal_id and article.primary_journal.status == "active"
             else ""
         ),
     }

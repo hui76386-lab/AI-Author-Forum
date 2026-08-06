@@ -5,6 +5,7 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 from django.utils.text import slugify
 from wagtail.admin.panels import FieldPanel, MultiFieldPanel
 from wagtail.fields import RichTextField, StreamField
@@ -174,6 +175,8 @@ class Journal(models.Model):
     )
     target_article_count = models.PositiveSmallIntegerField(default=100)
     notes = models.TextField(blank=True)
+    show_editorial_team_on_article_pages = models.BooleanField(default=True)
+    editorial_team_heading = models.CharField(max_length=80, default="编辑团队")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -212,6 +215,8 @@ class Journal(models.Model):
                 FieldPanel("cover_image"),
                 FieldPanel("metrics_image"),
                 FieldPanel("target_article_count"),
+                FieldPanel("show_editorial_team_on_article_pages"),
+                FieldPanel("editorial_team_heading"),
             ],
             heading="Journal resources",
         ),
@@ -280,6 +285,185 @@ class Journal(models.Model):
 
     def __str__(self):
         return self.name_cn or self.name or self.slug
+
+
+class JournalEditorAssignmentQuerySet(models.QuerySet):
+    def effective(self, *, at=None):
+        at = at or timezone.now()
+        return self.filter(
+            is_active=True,
+            user__is_active=True,
+            user__account_status="active",
+            journal__status=JournalStatus.ACTIVE,
+        ).filter(
+            Q(starts_at__isnull=True) | Q(starts_at__lte=at),
+            Q(ends_at__isnull=True) | Q(ends_at__gt=at),
+        )
+
+
+class JournalEditorAssignment(models.Model):
+    class Role(models.TextChoices):
+        CHIEF_EDITOR = "chief_editor", "主编辑"
+        EXECUTIVE_EDITOR = "executive_editor", "常务副编辑"
+        ASSOCIATE_EDITOR = "associate_editor", "副编辑"
+
+    class Responsibility(models.TextChoices):
+        ARTICLE_MAINTENANCE = "article_maintenance", "文章维护"
+        JOURNAL_PROFILE = "journal_profile", "期刊资料"
+        COLUMN_NAVIGATION = "column_navigation", "栏目与导航"
+        ISSUE_MANAGEMENT = "issue_management", "期次管理"
+        MEDIA_ASSETS = "media_assets", "图片与素材"
+
+    DEFAULT_PUBLIC_ROLE_LABELS = {
+        Role.CHIEF_EDITOR: "主编",
+        Role.EXECUTIVE_EDITOR: "执行主编",
+        Role.ASSOCIATE_EDITOR: "副主编",
+    }
+    ALLOWED_PUBLIC_ROLE_LABELS = {
+        Role.CHIEF_EDITOR: {"主编", "主编辑"},
+        Role.EXECUTIVE_EDITOR: {"执行主编", "常务副编辑"},
+        Role.ASSOCIATE_EDITOR: {"副主编", "副编辑"},
+    }
+    ALL_RESPONSIBILITIES = tuple(value for value, _label in Responsibility.choices)
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="journal_editor_assignments",
+    )
+    journal = models.ForeignKey(
+        Journal,
+        on_delete=models.PROTECT,
+        related_name="editor_assignments",
+    )
+    role = models.CharField(max_length=24, choices=Role.choices)
+    responsibilities = models.JSONField(default=list, blank=True)
+    public_name = models.CharField(max_length=255)
+    public_affiliation = models.CharField(max_length=500, blank=True)
+    public_role_label = models.CharField(max_length=40)
+    display_order = models.PositiveIntegerField(default=0)
+    show_publicly = models.BooleanField(default=True)
+    starts_at = models.DateTimeField(null=True, blank=True, default=timezone.now)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_journal_editor_assignments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    ended_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="ended_journal_editor_assignments",
+    )
+    ended_at = models.DateTimeField(null=True, blank=True)
+    end_reason = models.TextField(blank=True)
+    replaced_by_assignment = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="replaced_assignments",
+    )
+
+    objects = JournalEditorAssignmentQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["journal_id", "role", "display_order", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["journal"],
+                condition=Q(is_active=True, role="chief_editor"),
+                name="journals_one_active_chief_editor",
+            ),
+            models.UniqueConstraint(
+                fields=["journal"],
+                condition=Q(is_active=True, role="executive_editor"),
+                name="journals_one_active_executive_editor",
+            ),
+            models.UniqueConstraint(
+                fields=["user", "journal", "role"],
+                condition=Q(is_active=True),
+                name="journals_unique_active_editor_role",
+            ),
+            models.CheckConstraint(
+                condition=Q(ends_at__isnull=True)
+                | Q(starts_at__isnull=True)
+                | Q(ends_at__gt=models.F("starts_at")),
+                name="journals_editor_assignment_dates_valid",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        responsibilities = list(dict.fromkeys(self.responsibilities or []))
+        invalid = set(responsibilities) - set(self.ALL_RESPONSIBILITIES)
+        if invalid:
+            raise ValidationError(
+                {
+                    "responsibilities": f"Unsupported responsibilities: {', '.join(sorted(invalid))}"
+                }
+            )
+        if self.role == self.Role.ASSOCIATE_EDITOR and not responsibilities:
+            raise ValidationError({"responsibilities": "副编辑至少需要一项维护职责。"})
+        if self.role in {self.Role.CHIEF_EDITOR, self.Role.EXECUTIVE_EDITOR}:
+            responsibilities = list(self.ALL_RESPONSIBILITIES)
+        self.responsibilities = responsibilities
+        allowed_labels = self.ALLOWED_PUBLIC_ROLE_LABELS.get(self.role, set())
+        if self.public_role_label not in allowed_labels:
+            raise ValidationError(
+                {"public_role_label": "前台角色名称与任命角色不匹配。"}
+            )
+        if self.ends_at and self.starts_at and self.ends_at <= self.starts_at:
+            raise ValidationError({"ends_at": "任期结束时间必须晚于开始时间。"})
+        if self.user_id and self.journal_id and self.role:
+            overlapping = (
+                type(self)
+                .objects.filter(
+                    user_id=self.user_id,
+                    journal_id=self.journal_id,
+                    role=self.role,
+                )
+                .exclude(pk=self.pk)
+            )
+            if self.ends_at is not None:
+                overlapping = overlapping.filter(
+                    Q(starts_at__isnull=True) | Q(starts_at__lt=self.ends_at)
+                )
+            if self.starts_at is not None:
+                overlapping = overlapping.filter(
+                    Q(ends_at__isnull=True) | Q(ends_at__gt=self.starts_at)
+                )
+            if overlapping.exists():
+                raise ValidationError(
+                    {"starts_at": "同一用户、期刊和角色的任期不能重叠。"}
+                )
+
+    def save(self, *args, **kwargs):
+        if not self.public_name:
+            self.public_name = self.user.display_name
+        if not self.public_role_label:
+            self.public_role_label = self.DEFAULT_PUBLIC_ROLE_LABELS[self.role]
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def is_effective(self, *, at=None):
+        at = at or timezone.now()
+        return bool(
+            self.is_active
+            and self.user.is_active
+            and self.user.account_status == "active"
+            and self.journal.status == JournalStatus.ACTIVE
+            and (self.starts_at is None or self.starts_at <= at)
+            and (self.ends_at is None or self.ends_at > at)
+        )
+
+    def __str__(self):
+        return f"{self.journal}: {self.public_name} ({self.get_role_display()})"
 
 
 class PublicationIssueScope(models.TextChoices):
@@ -462,7 +646,7 @@ class IssueArticle(models.Model):
         super().clean()
         if not self.article_id or not self.issue_id:
             return
-        from ai_author_forum.articles.models import ArticlePage
+        from ai_author_forum.articles.models import ArticlePage, ArticleReviewRecord
 
         errors = {}
         if self.article.review_status not in {
@@ -470,15 +654,23 @@ class IssueArticle(models.Model):
             ArticlePage.ReviewStatus.PUBLISHED,
         }:
             errors["article"] = "Only reviewed articles can be added to an issue."
+        elif (
+            not self.article.approved_version_id
+            or not ArticleReviewRecord.objects.filter(
+                article=self.article,
+                stage=ArticleReviewRecord.Stage.FINAL,
+                action=ArticleReviewRecord.Action.FINAL_APPROVE,
+                revision_id=self.article.approved_version_id,
+            ).exists()
+        ):
+            errors["article"] = (
+                "Article lacks a final approval for its approved revision."
+            )
         if self.issue.scope == PublicationIssueScope.JOURNAL:
             journal_id = self.issue.journal_id
-            belongs = self.article.primary_journal_id == journal_id
-            if not belongs:
-                belongs = self.article.related_journals.filter(pk=journal_id).exists()
-            if not belongs:
+            if self.article.primary_journal_id != journal_id:
                 errors["article"] = (
-                    "A journal issue can only contain articles owned by or related "
-                    "to that journal."
+                    "A journal issue can only contain articles owned by that journal."
                 )
         if errors:
             raise ValidationError(errors)

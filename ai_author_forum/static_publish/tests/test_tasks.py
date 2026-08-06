@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -7,12 +8,21 @@ from django.test import TestCase
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 
 from ..models import StaticPublishJob
-from ..tasks import retry_static_publish, rollback_static_publish, run_static_publish
+from ..tasks import (
+    retry_static_publish,
+    rollback_static_publish,
+    run_coalesced_static_publish,
+    run_static_publish,
+)
 
 
 class StaticPublishTaskTests(TestCase):
     def setUp(self):
-        self.user = get_user_model().objects.create_user("task-publisher")
+        self.user = get_user_model().objects.create_user(
+            "task-publisher",
+            email="task-publisher@example.com",
+            display_name="Task Publisher",
+        )
 
     @patch("ai_author_forum.static_publish.tasks.StaticPublisher")
     def test_run_static_publish_builds_existing_job(self, publisher_class):
@@ -32,6 +42,32 @@ class StaticPublishTaskTests(TestCase):
                 "job_id": job.pk,
                 "status": StaticPublishJob.Status.PENDING,
                 "version": "release-full",
+            },
+        )
+
+    @patch(
+        "ai_author_forum.static_publish.tasks.StaticPublishJob.objects.select_related"
+    )
+    def test_coalesced_task_locks_only_the_publish_job_table(self, select_related):
+        queryset = select_related.return_value
+        locked_queryset = queryset.select_for_update.return_value
+        locked_queryset.get.return_value = SimpleNamespace(
+            pk=17,
+            is_automatic=False,
+            status=StaticPublishJob.Status.SUCCEEDED,
+        )
+
+        result = run_coalesced_static_publish.run(17)
+
+        select_related.assert_called_once_with("triggered_by")
+        queryset.select_for_update.assert_called_once_with(of=("self",))
+        locked_queryset.get.assert_called_once_with(pk=17)
+        self.assertEqual(
+            result,
+            {
+                "job_id": 17,
+                "status": StaticPublishJob.Status.SUCCEEDED,
+                "skipped": True,
             },
         )
 

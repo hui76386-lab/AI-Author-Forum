@@ -38,7 +38,7 @@
     <td>{{ placement.starts_at|default:'立即 / Now' }} — {{ placement.ends_at|default:'长期 / Open ended' }}</td>
     <td>{{ placement.latest_publish_status|default:'未创建 / Not started' }}</td>
   </tr>{% empty %}<tr><td colspan="8">没有符合条件的投放 / No placements found.</td></tr>{% endfor %}</tbody></table>
-  <div class="sticky-actions"><label>批量操作 / Batch action <select name="operation"><option value="deactivate">停用 / Deactivate</option><option value="reactivate">重新启用 / Reactivate</option><option value="update_schedule">修改时间 / Update schedule</option><option value="pin">置顶 / Pin</option><option value="unpin">取消置顶 / Unpin</option><option value="move">移动版位 / Move</option><option value="copy">复制到子期刊 / Copy</option><option value="cancel_future">取消未来投放 / Cancel future</option><option value="republish">重新发布 / Republish</option></select></label><label>原因 / Reason <input name="reason"></label><button class="button button-primary">复核操作 / Review action</button></div>
+  <div class="sticky-actions"><label>批量操作 / Batch action <select name="operation"><option value="deactivate">停用 / Deactivate</option><option value="reactivate">重新启用 / Reactivate</option><option value="update_schedule">修改时间 / Update schedule</option><option value="pin">置顶 / Pin</option><option value="unpin">取消置顶 / Unpin</option><option value="move">移动版位 / Move</option>{% if can_add_placements %}<option value="copy">复制到子期刊 / Copy</option>{% endif %}<option value="cancel_future">取消未来投放 / Cancel future</option><option value="republish">重新发布 / Republish</option></select></label><label>原因 / Reason <input name="reason"></label><button class="button button-primary">复核操作 / Review action</button></div>
 </form>
 {% include "placements/admin/v2/pagination.html" %}
 {% endblock %}

@@ -5,26 +5,25 @@
   {% include "wagtailadmin/shared/header.html" with title=title icon="date" %}
   <div class="nice-padding">
     <p>
-      <a class="button bicolor button--icon" href="{{ add_url }}">{% icon name="plus" wrapped=1 %}New issue draft</a>
+      {% if can_add_issue %}<a class="button bicolor button--icon" href="{{ add_url }}">{% icon name="plus" wrapped=1 %}New issue draft</a>{% endif %}
       <a class="button button-secondary" href="{{ issue_articles_url }}">Manage table of contents</a>
-      <a class="button button-secondary" href="{{ add_issue_article_url }}">Add article to issue</a>
     </p>
     <table class="listing">
       <thead><tr><th>Issue</th><th>Scope</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         {% for issue in issues %}
           <tr>
-            <td><a href="{% url edit_url_name issue.pk %}">{{ issue.title }}</a>{% if issue.is_current %} <strong>Current</strong>{% endif %}</td>
+            <td>{% if issue.can_edit_draft %}<a href="{% url edit_url_name issue.pk %}">{{ issue.title }}</a>{% else %}{{ issue.title }}{% endif %}{% if issue.is_current %} <strong>Current</strong>{% endif %}</td>
             <td>{{ issue.journal|default:"Main site" }}</td>
             <td>{{ issue.publication_date }}</td>
             <td>{{ issue.get_status_display }}</td>
             <td>
               <form method="post">
                 {% csrf_token %}<input type="hidden" name="issue_id" value="{{ issue.pk }}">
-                {% if can_publish and issue.status == "draft" %}<button class="button button-small" name="action" value="publish">Publish</button>{% endif %}
-                {% if can_publish and issue.status != "archived" %}<button class="button button-small" name="action" value="archive">Archive</button>{% endif %}
-                {% if can_set_current and issue.status == "published" and not issue.is_current %}<button class="button button-small" name="action" value="set_current">Set current</button>{% endif %}
-                {% if can_rollback and issue.status != "draft" %}<button class="button button-small button-secondary" name="action" value="rollback">Rollback</button>{% endif %}
+                {% if issue.can_publish and issue.status == "draft" %}<button class="button button-small" name="action" value="publish">Publish</button>{% endif %}
+                {% if issue.can_archive and issue.status != "archived" %}<button class="button button-small" name="action" value="archive">Archive</button>{% endif %}
+                {% if issue.can_set_current and issue.status == "published" and not issue.is_current %}<button class="button button-small" name="action" value="set_current">Set current</button>{% endif %}
+                {% if issue.can_rollback and issue.status != "draft" %}<button class="button button-small button-secondary" name="action" value="rollback">Rollback</button>{% endif %}
               </form>
             </td>
           </tr>

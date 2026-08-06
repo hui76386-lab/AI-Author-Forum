@@ -13,6 +13,7 @@ from ai_author_forum.journals.models import (
     JournalImportJob,
 )
 from ai_author_forum.journals.services import import_package
+from ai_author_forum.site_settings.access_control import is_super_admin
 from ai_author_forum.static_publish.models import StaticPublishJob
 from ai_author_forum.static_publish.services import StaticPublisher
 
@@ -75,7 +76,7 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         operator = self._get_operator(options.get("operator_id"))
         if options["allow_suspicious_text"]:
-            if operator is None or not operator.is_superuser:
+            if operator is None or not is_super_admin(operator):
                 raise CommandError(
                     "Only a superuser may import suspicious text unchanged."
                 )

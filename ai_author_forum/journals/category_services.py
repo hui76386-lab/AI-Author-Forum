@@ -6,6 +6,10 @@ from typing import Any
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 
+from ai_author_forum.site_settings.access_control import (
+    can_manage_journal,
+    is_super_admin,
+)
 from ai_author_forum.site_settings.models import AuditAction, AuditStatus
 from ai_author_forum.site_settings.services import record_audit_event
 
@@ -70,10 +74,19 @@ def get_category_navigation(*, journal):
     )
 
 
-def _require_permission(actor, permission):
-    if actor is None or getattr(actor, "is_superuser", False):
+def _require_permission(actor, permission, *, journal=None):
+    """Enforce the journal-scoped column/navigation responsibility.
+
+    Django model permissions remain a technical menu hint only; business
+    authorization is always derived from the active assignment.
+    """
+    if is_super_admin(actor):
         return
-    if not actor.has_perm(permission):
+    if journal is None or not can_manage_journal(
+        actor,
+        journal,
+        "column_navigation",
+    ):
         raise PermissionDenied(permission)
 
 
@@ -109,7 +122,7 @@ def _audit(*, actor, category, request_id, operation, before=None, after=None, *
 
 
 def create_category(*, journal, parent=None, data, actor=None, request_id=""):
-    _require_permission(actor, "journals.add_journalcategory")
+    _require_permission(actor, "journals.add_journalcategory", journal=journal)
     with transaction.atomic():
         JournalCategory.objects.select_for_update().filter(journal=journal).count()
         if (
@@ -176,16 +189,24 @@ def create_category(*, journal, parent=None, data, actor=None, request_id=""):
 
 
 def update_category(*, category_id, changes, actor=None, request_id=""):
-    _require_permission(actor, "journals.change_journalcategory")
     with transaction.atomic():
         category = (
             JournalCategory.objects.select_for_update(of=("self",))
             .select_related("journal", "parent")
             .get(pk=category_id)
         )
+        _require_permission(
+            actor,
+            "journals.change_journalcategory",
+            journal=category.journal,
+        )
         before = _snapshot(category)
         if "code" in changes and changes["code"] != category.code:
-            _require_permission(actor, "journals.migrate_category_references")
+            _require_permission(
+                actor,
+                "journals.migrate_category_references",
+                journal=category.journal,
+            )
         if "parent" in changes or "parent_id" in changes:
             raise CategoryError(
                 "CATEGORY_MOVE_SERVICE_REQUIRED",
@@ -247,9 +268,13 @@ def update_category(*, category_id, changes, actor=None, request_id=""):
 
 
 def preview_category_move(*, category_id, new_parent_id=None, actor=None):
-    _require_permission(actor, "journals.move_journalcategory")
     category = JournalCategory.objects.select_related("journal", "parent").get(
         pk=category_id
+    )
+    _require_permission(
+        actor,
+        "journals.move_journalcategory",
+        journal=category.journal,
     )
     parent = (
         JournalCategory.objects.select_related("journal").get(pk=new_parent_id)
@@ -294,12 +319,16 @@ def preview_category_move(*, category_id, new_parent_id=None, actor=None):
 def move_category(
     *, category_id, new_parent_id=None, actor=None, request_id="", expected_version=None
 ):
-    _require_permission(actor, "journals.move_journalcategory")
     with transaction.atomic():
         category = (
             JournalCategory.objects.select_for_update(of=("self",))
             .select_related("journal", "parent")
             .get(pk=category_id)
+        )
+        _require_permission(
+            actor,
+            "journals.move_journalcategory",
+            journal=category.journal,
         )
         if expected_version is not None and category.version != expected_version:
             raise CategoryError(
@@ -371,15 +400,23 @@ def move_category(
 def change_category_status(
     *, category_id, new_status, actor=None, request_id="", reason=""
 ):
-    _require_permission(actor, "journals.change_category_status")
-    if new_status == JournalCategoryStatus.ARCHIVED:
-        _require_permission(actor, "journals.archive_journalcategory")
     with transaction.atomic():
         category = (
             JournalCategory.objects.select_for_update(of=("self",))
             .select_related("journal", "parent")
             .get(pk=category_id)
         )
+        _require_permission(
+            actor,
+            "journals.change_category_status",
+            journal=category.journal,
+        )
+        if new_status == JournalCategoryStatus.ARCHIVED:
+            _require_permission(
+                actor,
+                "journals.archive_journalcategory",
+                journal=category.journal,
+            )
         before = _snapshot(category)
         category.status = new_status
         if new_status != JournalCategoryStatus.ACTIVE:
@@ -470,9 +507,13 @@ def _path_matches_category(category, full_path):
 
 def preview_category_update(*, category_id, changes, actor=None):
     """Return path/reference impact before a slug-changing update."""
-    _require_permission(actor, "journals.change_journalcategory")
     category = JournalCategory.objects.select_related("journal", "parent").get(
         pk=category_id
+    )
+    _require_permission(
+        actor,
+        "journals.change_journalcategory",
+        journal=category.journal,
     )
     new_slug = str(changes.get("slug", category.slug)).strip().strip("/")
     if new_slug == category.slug:
@@ -525,12 +566,16 @@ def reorder_category(
     request_id="",
 ):
     """Reorder only within one sibling set; used by buttons and controlled drag/drop."""
-    _require_permission(actor, "journals.move_journalcategory")
     with transaction.atomic():
         category = (
             JournalCategory.objects.select_for_update()
             .select_related("journal")
             .get(pk=category_id)
+        )
+        _require_permission(
+            actor,
+            "journals.move_journalcategory",
+            journal=category.journal,
         )
         siblings = list(
             JournalCategory.objects.select_for_update()
@@ -602,7 +647,6 @@ def reorder_category(
 def batch_change_category_status(
     *, category_ids, new_status, actor=None, request_id="", reason=""
 ):
-    _require_permission(actor, "journals.change_category_status")
     ids = list(dict.fromkeys(int(value) for value in category_ids))
     if not ids or len(ids) > 100:
         raise CategoryError("CATEGORY_BATCH_SIZE", "批量操作必须选择 1 至 100 个栏目。")
@@ -614,6 +658,11 @@ def batch_change_category_status(
     journal_ids = {item.journal_id for item in categories}
     if len(journal_ids) != 1:
         raise CategoryError("CATEGORY_BATCH_CROSS_JOURNAL", "批量操作不能跨子期刊。")
+    _require_permission(
+        actor,
+        "journals.change_category_status",
+        journal=categories[0].journal,
+    )
     results = []
     with transaction.atomic():
         for category in categories:

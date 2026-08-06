@@ -3,13 +3,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.home.models import HomePage
-from ai_author_forum.journals.models import Journal
+from ai_author_forum.journals.editor_services import appoint_journal_editor
+from ai_author_forum.journals.models import Journal, JournalEditorAssignment
 from ai_author_forum.news.models import NewsListingPage
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.placements.services import save_manual_placement
@@ -25,6 +25,10 @@ from ai_author_forum.static_publish.models import (
 )
 from ai_author_forum.static_publish.services import PublishLocked
 from ai_author_forum.static_publish.tasks import run_coalesced_static_publish
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 @override_settings(
@@ -87,6 +91,7 @@ class AutomaticPlacementPublishTests(TestCase):
             email="automatic@example.com",
             password="test",
         )
+        grant_business_super_admin(user)
         home = HomePage.objects.first()
         listing = NewsListingPage(title="News", slug="automatic-news")
         home.add_child(instance=listing)
@@ -106,12 +111,13 @@ class AutomaticPlacementPublishTests(TestCase):
             body=[{"type": "paragraph", "value": "Automatic article body."}],
             authors="Editor",
             article_type=ArticlePage.ArticleType.AI_ARTICLE,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
             primary_journal=journal,
             keywords="ai",
         )
         listing.add_child(instance=article)
         article.save_revision().publish()
+        formally_approve_test_article(article, actor=user)
+        article.refresh_from_db()
         slot = LayoutSlot.objects.get(code="home_featured")
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -289,24 +295,22 @@ class AutomaticPlacementPublishTests(TestCase):
                 self.assertTrue(job.summary["requires_publisher_approval"])
 
     @patch("ai_author_forum.placements.services.queue_placement_publish")
-    def test_content_admin_save_creates_pending_publisher_job_without_queueing(
-        self, queue
-    ):
+    def test_chief_editor_save_queues_scoped_automatic_publish(self, queue):
         user = get_user_model().objects.create_user(
             username="content-placement-admin",
             email="content-placement@example.com",
+            display_name="Content Placement Admin",
             password="test",
             is_staff=True,
         )
-        user.user_permissions.add(
-            Permission.objects.get(
-                content_type__app_label="placements",
-                codename="manage_manual_categoryplacement",
-            ),
-            Permission.objects.get(
-                content_type__app_label="placements",
-                codename="add_articleplacement",
-            ),
+        role_admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="content-placement-role-admin",
+                email="content-placement-role-admin@example.com",
+                display_name="Content Placement Role Admin",
+                password="test",
+                is_staff=True,
+            )
         )
         home = HomePage.objects.first()
         listing = NewsListingPage(title="Pending News", slug="pending-news")
@@ -318,6 +322,17 @@ class AutomaticPlacementPublishTests(TestCase):
             az_group="P",
             status="active",
         )
+        appoint_journal_editor(
+            actor=role_admin,
+            user=user,
+            journal=journal,
+            role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            responsibilities=(),
+            public_profile={
+                "public_name": user.display_name,
+                "public_role_label": "主编",
+            },
+        )
         article = ArticlePage(
             title="Pending placement article",
             slug="pending-placement-article",
@@ -326,29 +341,23 @@ class AutomaticPlacementPublishTests(TestCase):
             body=[{"type": "paragraph", "value": "Pending placement body."}],
             authors="Editor",
             article_type=ArticlePage.ArticleType.AI_ARTICLE,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
             primary_journal=journal,
             keywords="ai",
         )
         listing.add_child(instance=article)
         article.save_revision().publish()
+        formally_approve_test_article(article, actor=role_admin)
+        article.refresh_from_db()
 
         placement = save_manual_placement(
             ArticlePlacement(
-                slot=LayoutSlot.objects.get(code="home_featured"),
+                slot=LayoutSlot.objects.get(code="journal_featured"),
                 article=article,
+                target_type=ArticlePlacement.TargetType.JOURNAL,
+                target_slug=journal.slug,
             ),
             actor=user,
         )
 
-        queue.assert_not_called()
-        job = placement.pending_publish_job
-        self.assertEqual(job.status, StaticPublishJob.Status.PENDING)
-        self.assertFalse(job.is_automatic)
-        self.assertEqual(job.triggered_by, user)
-        self.assertTrue(job.summary["requires_publisher_approval"])
-        self.assertEqual(job.summary["placement_ids"], [placement.pk])
-        self.assertCountEqual(
-            job.requested_paths,
-            ["/", "/articles/pending-placement-article/", "/search/"],
-        )
+        queue.assert_called_once()
+        self.assertIsNone(placement.pending_publish_job)

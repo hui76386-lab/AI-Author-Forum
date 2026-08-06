@@ -1,0 +1,23 @@
+{% extends "wagtailadmin/base.html" %}
+{% load i18n %}
+
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+  {% include "wagtailadmin/shared/header.html" with title=title icon="group" %}
+  <div class="nice-padding">
+    <table class="listing">
+      <thead><tr><th>子期刊</th><th>状态</th><th></th></tr></thead>
+      <tbody>
+        {% for journal in journals %}
+          <tr>
+            <td>{{ journal }}</td>
+            <td>{{ journal.get_status_display }}</td>
+            <td><a class="button button-small" href="{% url 'journals_editorial_team' journal.pk %}">编辑团队</a></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3">没有可访问的子期刊。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

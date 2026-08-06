@@ -12,6 +12,11 @@ from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
 from ai_author_forum.journals.models import Journal, JournalCategory
+from ai_author_forum.site_settings.access_control import (
+    can_manage_journal,
+    filter_accessible_journals,
+    is_super_admin,
+)
 from ai_author_forum.static_publish.models import StaticPublishJob
 from ai_author_forum.static_publish.tasks import run_static_publish
 
@@ -147,8 +152,12 @@ MODE_PERMISSIONS = {
 }
 
 
-def _has(user, permission):
-    return user.is_superuser or user.has_perm(permission)
+def _has(user, permission, journal=None):
+    if is_super_admin(user):
+        return True
+    return bool(
+        journal is not None and can_manage_journal(user, journal, "column_navigation")
+    )
 
 
 def _mode(request):
@@ -156,13 +165,24 @@ def _mode(request):
     return value if value in MODE_PERMISSIONS else "main"
 
 
-def _can_view(user, mode):
-    permissions = MODE_PERMISSIONS[mode]
-    return _has(user, permissions["view"]) or _has(user, permissions["manage"])
+def _can_view(user, mode, journal=None):
+    if is_super_admin(user):
+        return True
+    return (
+        mode == "journal"
+        and journal is not None
+        and bool(can_manage_journal(user, journal, "column_navigation"))
+    )
 
 
-def _can_manage(user, mode):
-    return _has(user, MODE_PERMISSIONS[mode]["manage"])
+def _can_manage(user, mode, journal=None):
+    if is_super_admin(user):
+        return True
+    return (
+        mode == "journal"
+        and journal is not None
+        and bool(can_manage_journal(user, journal, "column_navigation"))
+    )
 
 
 def _navigation_set_for_request(request, mode, *, journals):
@@ -227,10 +247,11 @@ def _handle_post(request, mode, nav_set):
         except (TypeError, ValueError) as exc:
             return JsonResponse({"ok": False, "error": str(exc)}, status=400)
     operation = request.POST.get("operation", "") or payload.get("operation", "")
-    can_manage = _can_manage(request.user, mode)
+    journal = getattr(nav_set, "journal", None)
+    can_manage = _can_manage(request.user, mode, journal)
     if operation == "reorder_tree":
         if not can_manage or not _has(
-            request.user, "site_settings.move_navigationitem"
+            request.user, "site_settings.move_navigationitem", journal
         ):
             raise PermissionDenied
         try:
@@ -354,7 +375,12 @@ def _handle_post(request, mode, nav_set):
 
     if operation == "save_content_config":
         if not (
-            can_manage or _has(request.user, "site_settings.change_contentcolumnconfig")
+            can_manage
+            or _has(
+                request.user,
+                "site_settings.change_contentcolumnconfig",
+                journal,
+            )
         ):
             raise PermissionDenied
         item = get_object_or_404(
@@ -469,10 +495,7 @@ def _handle_post(request, mode, nav_set):
             raise ValidationError(
                 "Template copy is only available for a selected journal."
             )
-        if not (
-            _can_manage(request.user, "journal")
-            and _has(request.user, "site_settings.manage_navigation_template")
-        ):
+        if not (is_super_admin(request.user)):
             raise PermissionDenied
         template = ensure_default_journal_navigation_template(actor=request.user)
         impact = navigation_change_impact(nav_set)
@@ -503,11 +526,7 @@ def _handle_post(request, mode, nav_set):
         return redirect(_redirect_url(mode, new_set))
 
     if operation == "publish_changes":
-        if not (
-            _has(request.user, "site_settings.publish_navigation_changes")
-            and _has(request.user, "static_publish.publish_static_site")
-            and _has(request.user, "static_publish.publish_category_pages")
-        ):
+        if not (is_super_admin(request.user)):
             raise PermissionDenied
         impact = navigation_change_impact(nav_set)
         job = StaticPublishJob.objects.create(
@@ -670,9 +689,17 @@ def _form_context(request, nav_set, *, mode, can_manage):
 @require_http_methods(["GET", "POST"])
 def managed_navigation_admin(request):
     mode = _mode(request)
-    if not _can_view(request.user, mode):
+    journals = filter_accessible_journals(
+        request.user, Journal.objects.filter(status="active")
+    ).order_by("name", "pk")
+    selected_journal = None
+    if mode == "journal":
+        journal_id = request.POST.get("journal") or request.GET.get("journal")
+        selected_journal = (
+            journals.filter(pk=journal_id).first() if journal_id else journals.first()
+        )
+    if not _can_view(request.user, mode, selected_journal):
         raise PermissionDenied
-    journals = Journal.objects.filter(status="active").order_by("name", "pk")
     try:
         nav_set = _navigation_set_for_request(request, mode, journals=journals)
     except ValidationError as exc:
@@ -686,7 +713,10 @@ def managed_navigation_admin(request):
             messages.error(request, _validation_message(exc))
         if response is not None:
             return response
-    can_manage = nav_set is not None and _can_manage(request.user, mode)
+    navigation_journal = getattr(nav_set, "journal", None)
+    can_manage = nav_set is not None and _can_manage(
+        request.user, mode, navigation_journal
+    )
     context = {
         "mode": mode,
         "mode_label": {
@@ -697,19 +727,16 @@ def managed_navigation_admin(request):
         "journals": journals,
         "navigation_set": nav_set,
         "can_manage": can_manage,
-        "can_edit_content": can_manage
-        or _has(request.user, "site_settings.change_contentcolumnconfig"),
+        "can_edit_content": can_manage,
         "can_reorder": can_manage
-        and _has(request.user, "site_settings.move_navigationitem"),
-        "can_publish": (
-            _has(request.user, "site_settings.publish_navigation_changes")
-            and _has(request.user, "static_publish.publish_static_site")
-            and _has(request.user, "static_publish.publish_category_pages")
+        and _has(
+            request.user,
+            "site_settings.move_navigationitem",
+            navigation_journal,
         ),
+        "can_publish": is_super_admin(request.user),
         "can_copy_template": (
-            mode == "journal"
-            and can_manage
-            and _has(request.user, "site_settings.manage_navigation_template")
+            mode == "journal" and can_manage and is_super_admin(request.user)
         ),
         "confirmation": getattr(request, "_navigation_confirmation", None),
         "target_types": NavigationTargetType.choices,

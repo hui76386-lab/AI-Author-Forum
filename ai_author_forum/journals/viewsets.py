@@ -10,6 +10,10 @@ from django.urls import path, reverse
 
 from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.placements.models import ArticlePlacement
+from ai_author_forum.site_settings.access_control import (
+    can_manage_journal,
+    filter_accessible_journals,
+)
 from ai_author_forum.site_settings.admin_views import PermissionedModuleViewSet
 from ai_author_forum.site_settings.permissions import get_admin_permission_context
 from ai_author_forum.static_publish.models import StaticManifest
@@ -93,7 +97,7 @@ class JournalsViewSet(PermissionedModuleViewSet):
         if not self.has_access(request):
             raise PermissionDenied
 
-        base = Journal.objects.annotate(
+        base = filter_accessible_journals(request.user, Journal.objects.all()).annotate(
             article_count=Count(
                 "primary_articles",
                 filter=Q(
@@ -105,7 +109,9 @@ class JournalsViewSet(PermissionedModuleViewSet):
                 distinct=True,
             )
         )
-        totals = Journal.objects.aggregate(
+        totals = filter_accessible_journals(
+            request.user, Journal.objects.all()
+        ).aggregate(
             total=Count("pk"),
             active=Count("pk", filter=Q(status=JournalStatus.ACTIVE)),
         )
@@ -142,7 +148,14 @@ class JournalsViewSet(PermissionedModuleViewSet):
         page_obj = paginator.get_page(request.GET.get("p"))
         _manifest, manifest_paths = _active_manifest_snapshot()
         flags = get_admin_permission_context(request.user)
-        can_change = flags["can_change_journal"]
+        can_change = any(
+            can_manage_journal(
+                request.user,
+                journal,
+                "journal_profile",
+            )
+            for journal in page_obj.object_list
+        )
         for journal in page_obj.object_list:
             static_state = _journal_static_state(journal, manifest_paths)
             journal.is_static_published = static_state["is_published"]
@@ -158,11 +171,8 @@ class JournalsViewSet(PermissionedModuleViewSet):
                 journal.status,
                 journal.get_status_display(),
             )
-            if can_change:
-                journal.admin_edit_url = reverse(
-                    "wagtailsnippets_journals_journal:edit",
-                    args=[journal.pk],
-                )
+            if can_manage_journal(request.user, journal, "journal_profile"):
+                journal.admin_edit_url = reverse("journals_profile", args=[journal.pk])
 
         preserved = request.GET.copy()
         preserved.pop("p", None)
@@ -199,7 +209,10 @@ class JournalsViewSet(PermissionedModuleViewSet):
         if not self.has_access(request):
             raise PermissionDenied
 
-        journal = get_object_or_404(Journal, pk=journal_id)
+        journal = get_object_or_404(
+            filter_accessible_journals(request.user, Journal.objects.all()),
+            pk=journal_id,
+        )
         flags = get_admin_permission_context(request.user)
         manifest, manifest_paths = _active_manifest_snapshot()
         static_state = _journal_static_state(journal, manifest_paths)
@@ -215,13 +228,11 @@ class JournalsViewSet(PermissionedModuleViewSet):
 
         actions = {
             "edit": (
-                reverse(
-                    "wagtailsnippets_journals_journal:edit",
-                    args=[journal.pk],
-                )
-                if flags["can_change_journal"]
+                reverse("journals_profile", args=[journal.pk])
+                if can_manage_journal(request.user, journal, "journal_profile")
                 else ""
             ),
+            "editorial_team": reverse("journals_editorial_team", args=[journal.pk]),
             "articles": (
                 f"{reverse('article_admin:index')}?primary_journal={journal.pk}"
                 if flags["can_view_articles"] or flags["can_edit_article"]

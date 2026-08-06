@@ -1,19 +1,24 @@
 ﻿from __future__ import annotations
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 from wagtail.models import Page
 
 from ai_author_forum.articles.models import ArticlePage
-from ai_author_forum.journals.models import Journal, JournalCategory
-from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
-from ai_author_forum.site_settings.management.commands.seed_roles import (
-    ROLE_DEFINITIONS,
+from ai_author_forum.journals.editor_services import appoint_journal_editor
+from ai_author_forum.journals.models import (
+    Journal,
+    JournalCategory,
+    JournalEditorAssignment,
 )
+from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.static_publish.models import StaticManifest, StaticPublishJob
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class JournalAdminWorkspaceTests(TestCase):
@@ -26,6 +31,7 @@ class JournalAdminWorkspaceTests(TestCase):
             password="test-password",
             email="admin@example.com",
         )
+        grant_business_super_admin(cls.superuser)
         cls.journal = Journal.objects.create(
             name="AI Research",
             name_cn="人工智能研究",
@@ -107,40 +113,49 @@ class JournalAdminWorkspaceTests(TestCase):
             authors="Author",
             keywords="AI",
             primary_journal=journal,
-            review_status=(
-                ArticlePage.ReviewStatus.APPROVED
-                if approved
-                else ArticlePage.ReviewStatus.DRAFT
-            ),
         )
         Page.get_first_root_node().add_child(instance=article)
         if approved:
-            revision = article.save_revision(bypass_article_permission_check=True)
-            revision.publish(skip_permission_checks=True)
-            ArticlePage.objects.filter(pk=article.pk).update(
-                review_status=ArticlePage.ReviewStatus.APPROVED
-            )
-            article.refresh_from_db()
+            formally_approve_test_article(article, actor=cls.superuser)
         return article
 
     def make_role_user(self, role_code):
-        definition = ROLE_DEFINITIONS[role_code]
+        username = f"workspace-{role_code}"
         user = self.user_model.objects.create_user(
-            username=f"workspace-{role_code}",
+            username=username,
+            email=f"{username}@example.com",
+            display_name=username,
             password="test-password",
             is_staff=True,
         )
-        user.groups.add(Group.objects.get(name=definition["display_name"]))
+        if role_code == "associate_editor":
+            appoint_journal_editor(
+                actor=self.superuser,
+                user=user,
+                journal=self.journal,
+                role=JournalEditorAssignment.Role.ASSOCIATE_EDITOR,
+                responsibilities=[
+                    JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE
+                ],
+                public_profile={
+                    "public_name": user.display_name,
+                    "public_role_label": "副编辑",
+                },
+            )
         return user
 
-    def test_user_without_journal_access_is_redirected_out_of_module(self):
-        self.client.force_login(self.make_role_user("reviewer"))
+    def test_user_without_journal_access_cannot_enter_admin_module(self):
+        self.client.force_login(self.make_role_user("unassigned"))
 
         response = self.client.get(
             reverse("journals:workspace", args=[self.journal.pk])
         )
 
-        self.assertRedirects(response, "/admin/", fetch_redirect_response=False)
+        self.assertRedirects(
+            response,
+            f"/admin/login/?next={reverse('journals:workspace', args=[self.journal.pk])}",
+            fetch_redirect_response=False,
+        )
 
     def test_workspace_shows_master_object_metrics_and_relationship_rule(self):
         self.client.force_login(self.superuser)
@@ -179,15 +194,15 @@ class JournalAdminWorkspaceTests(TestCase):
             f"{reverse('placements:index')}?target=journal:{self.journal.slug}",
         )
 
-    def test_site_operator_workspace_hides_category_management_without_permission(self):
-        self.client.force_login(self.make_role_user("site_operator"))
+    def test_associate_workspace_hides_global_only_actions(self):
+        self.client.force_login(self.make_role_user("associate_editor"))
 
         response = self.client.get(
             reverse("journals:workspace", args=[self.journal.pk])
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["actions"]["categories"], "")
+        self.assertEqual(response.context["actions"]["static_publish"], "")
         self.assertNotContains(
             response,
             f"{reverse('journals_category_admin')}?journal={self.journal.pk}",
@@ -216,22 +231,18 @@ class JournalAdminWorkspaceTests(TestCase):
         )
         self.assertContains(
             response,
-            reverse(
-                "wagtailsnippets_journals_journal:edit",
-                args=[self.journal.pk],
-            ),
+            reverse("journals_profile", args=[self.journal.pk]),
         )
 
-    def test_site_operator_sees_only_authorized_journal_actions(self):
+    def test_removed_site_operator_name_grants_no_authority(self):
         self.client.force_login(self.make_role_user("site_operator"))
 
         response = self.client.get(
             reverse("journals:workspace", args=[self.journal.pk])
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.context["actions"]["edit"])
-        self.assertEqual(response.context["actions"]["articles"], "")
-        self.assertEqual(response.context["actions"]["categories"], "")
-        self.assertEqual(response.context["actions"]["placements"], "")
-        self.assertEqual(response.context["actions"]["static_publish"], "")
+        self.assertRedirects(
+            response,
+            f"/admin/login/?next={reverse('journals:workspace', args=[self.journal.pk])}",
+            fetch_redirect_response=False,
+        )

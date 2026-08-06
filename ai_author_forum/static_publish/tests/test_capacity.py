@@ -1,5 +1,6 @@
 from time import perf_counter
 
+from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
@@ -12,9 +13,21 @@ from ai_author_forum.journals.category_services import (
 )
 from ai_author_forum.journals.models import Journal, JournalCategory
 from ai_author_forum.static_publish.providers import WagtailPageTargetProvider
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 
 class StaticPublishCapacityTests(TestCase):
+    def setUp(self):
+        self.admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="capacity-admin",
+                email="capacity-admin@example.com",
+                display_name="Capacity Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
+
     @staticmethod
     def _journals(count):
         return Journal.objects.bulk_create(
@@ -130,6 +143,7 @@ class StaticPublishCapacityTests(TestCase):
         with self.assertRaises(CategoryError) as caught:
             create_category(
                 journal=journal,
+                actor=self.admin,
                 data={
                     "name": "Over limit",
                     "code": "OVER-LIMIT",

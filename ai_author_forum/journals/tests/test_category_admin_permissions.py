@@ -1,7 +1,7 @@
 ﻿from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Group, Permission
 from django.core.management import call_command
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -11,9 +11,11 @@ from ai_author_forum.articles.models import ArticleCategoryAssignment, ArticlePa
 from ai_author_forum.journals.models import Journal, JournalCategory
 from ai_author_forum.placements.category_services import sync_category_placements
 from ai_author_forum.placements.models import ArticlePlacement
-from ai_author_forum.site_settings.management.commands.seed_roles import (
-    ROLE_DEFINITIONS,
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
 )
+from ai_author_forum.users.services import SUPER_ADMIN_GROUP_NAME
 
 
 class CategoryAdminPermissionTests(TestCase):
@@ -44,16 +46,16 @@ class CategoryAdminPermissionTests(TestCase):
         )
 
     def user_for(self, role_code):
+        username = f"{role_code}-{get_user_model().objects.count()}"
         user = get_user_model().objects.create_user(
-            username=f"{role_code}-{get_user_model().objects.count()}",
+            username=username,
+            email=f"{username}@example.com",
+            display_name=username,
             password="test",
             is_staff=True,
         )
-        user.groups.add(
-            *user.groups.model.objects.filter(
-                name=ROLE_DEFINITIONS[role_code]["display_name"]
-            )
-        )
+        if role_code == "super_admin":
+            user.groups.add(Group.objects.get(name=SUPER_ADMIN_GROUP_NAME))
         return user
 
     def test_without_selected_journal_does_not_load_any_category_tree(self):
@@ -159,7 +161,7 @@ class CategoryAdminPermissionTests(TestCase):
 
         response = client.get(reverse("journals_category_admin"))
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], "/admin/")
+        self.assertTrue(response.headers["Location"].startswith("/admin/login/"))
 
         response = client.post(
             reverse("journals_category_admin"),
@@ -177,7 +179,7 @@ class CategoryAdminPermissionTests(TestCase):
             },
         )
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], "/admin/")
+        self.assertTrue(response.headers["Location"].startswith("/admin/login/"))
         self.assertFalse(JournalCategory.objects.filter(code="CREATED").exists())
 
     def test_content_manager_cannot_move_or_change_status(self):
@@ -204,7 +206,7 @@ class CategoryAdminPermissionTests(TestCase):
             },
         )
         self.assertEqual(move.status_code, 302)
-        self.assertEqual(move.headers["Location"], "/admin/")
+        self.assertTrue(move.headers["Location"].startswith("/admin/login/"))
         status = client.post(
             reverse("journals_category_admin"),
             {
@@ -216,7 +218,7 @@ class CategoryAdminPermissionTests(TestCase):
             },
         )
         self.assertEqual(status.status_code, 302)
-        self.assertEqual(status.headers["Location"], "/admin/")
+        self.assertTrue(status.headers["Location"].startswith("/admin/login/"))
         self.root.refresh_from_db()
         self.assertIsNone(self.root.parent_id)
         self.assertEqual(self.root.status, "active")
@@ -228,6 +230,7 @@ class CategoryAdminPermissionTests(TestCase):
         user = get_user_model().objects.create_superuser(
             "empty-template-admin", "empty-template@example.com", "test"
         )
+        grant_business_super_admin(user)
         client = Client()
         client.force_login(user)
 
@@ -247,6 +250,7 @@ class CategoryAdminPermissionTests(TestCase):
         user = get_user_model().objects.create_superuser(
             "template-admin", "template@example.com", "test"
         )
+        grant_business_super_admin(user)
         client = Client()
         client.force_login(user)
 
@@ -313,12 +317,13 @@ class CategoryAdminPermissionTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], "/admin/")
+        self.assertTrue(response.headers["Location"].startswith("/admin/login/"))
 
     def test_superuser_move_requires_confirmation_before_write(self):
         user = get_user_model().objects.create_superuser(
             "root-admin", "root@example.com", "test"
         )
+        grant_business_super_admin(user)
         client = Client()
         client.force_login(user)
         payload = {
@@ -345,6 +350,7 @@ class CategorySelectorAndSystemPlacementAdminTests(TestCase):
         self.user = get_user_model().objects.create_superuser(
             "selector-admin", "selector@example.com", "test"
         )
+        grant_business_super_admin(self.user)
         self.journal = Journal.objects.create(
             name="Selector Journal", slug="selector-journal", az_group="S"
         )
@@ -397,19 +403,12 @@ class CategorySelectorAndSystemPlacementAdminTests(TestCase):
             authors="Author",
             keywords="AI",
             primary_journal=self.journal,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         Page.get_first_root_node().add_child(instance=article)
         ArticleCategoryAssignment.objects.create(
             article=article, category=self.active, is_primary=True
         )
-        revision = article.save_revision(
-            user=self.user, bypass_article_permission_check=True
-        )
-        revision.publish(user=self.user, skip_permission_checks=True)
-        ArticlePage.objects.filter(pk=article.pk).update(
-            review_status=ArticlePage.ReviewStatus.APPROVED
-        )
+        formally_approve_test_article(article, actor=self.user)
         sync_category_placements(article_id=article.pk, actor=self.user)
         article.refresh_from_db()
         return article
@@ -426,7 +425,11 @@ class CategorySelectorAndSystemPlacementAdminTests(TestCase):
 
     def test_category_options_reject_user_without_article_access(self):
         unauthorized = get_user_model().objects.create_user(
-            "selector-unauthorized", password="test", is_staff=True
+            "selector-unauthorized",
+            email="selector-unauthorized@example.com",
+            display_name="Selector Unauthorized",
+            password="test",
+            is_staff=True,
         )
         unauthorized.user_permissions.add(
             Permission.objects.get(
@@ -438,13 +441,16 @@ class CategorySelectorAndSystemPlacementAdminTests(TestCase):
         response = client.get(
             reverse("article_admin:category_options"), {"journal": self.journal.pk}
         )
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], "/admin/")
+        self.assertEqual(response.status_code, 404)
 
-    def test_system_placement_page_is_readonly_and_retry_is_separately_protected(self):
+    def test_system_placement_page_is_super_admin_only(self):
         article = self.create_live_article()
         viewer = get_user_model().objects.create_user(
-            "placement-viewer", password="test", is_staff=True
+            "placement-viewer",
+            email="placement-viewer@example.com",
+            display_name="Placement Viewer",
+            password="test",
+            is_staff=True,
         )
         viewer.user_permissions.add(
             Permission.objects.get(
@@ -458,10 +464,8 @@ class CategorySelectorAndSystemPlacementAdminTests(TestCase):
         client = Client()
         client.force_login(viewer)
         page = client.get(reverse("system-category-placements:index"))
-        self.assertEqual(page.status_code, 200)
-        self.assertContains(page, article.title)
-        self.assertNotContains(page, "重新同步此文章")
-        self.assertContains(page, "只读")
+        self.assertEqual(page.status_code, 302)
+        self.assertEqual(page.headers["Location"], "/admin/")
         denied = client.post(
             reverse("system-category-placements:index"), {"article_id": article.pk}
         )
@@ -473,10 +477,11 @@ class CategorySelectorAndSystemPlacementAdminTests(TestCase):
                 codename="retry_categoryplacement_sync",
             )
         )
-        allowed = client.post(
+        still_denied = client.post(
             reverse("system-category-placements:index"), {"article_id": article.pk}
         )
-        self.assertEqual(allowed.status_code, 302)
+        self.assertEqual(still_denied.status_code, 302)
+        self.assertEqual(still_denied.headers["Location"], "/admin/")
         self.assertEqual(
             ArticlePlacement.objects.filter(
                 article=article, source="system", target_category=self.active

@@ -905,7 +905,17 @@ class AuditStatus(models.TextChoices):
     STARTED = "started", "进行中"
 
 
+class AuditLogQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("审计日志创建后不可修改。")
+
+    def delete(self):
+        raise ValidationError("审计日志创建后不可删除。")
+
+
 class AuditLog(models.Model):
+    objects = AuditLogQuerySet.as_manager()
+
     action = models.CharField(
         max_length=32,
         choices=AuditAction.choices,
@@ -974,10 +984,14 @@ class AuditLog(models.Model):
         request_id: str = "",
         ip_address: str | None = None,
     ) -> AuditLog:
+        metadata = dict(metadata or {})
         if target is not None:
             target_type = target_type or target.__class__.__name__
             target_id = target_id or str(getattr(target, "pk", ""))
             target_label = target_label or str(target)
+            journal_id = cls._target_journal_id(target)
+            if journal_id is not None:
+                metadata.setdefault("journal_id", journal_id)
         return cls.objects.create(
             action=action,
             status=status,
@@ -986,7 +1000,29 @@ class AuditLog(models.Model):
             target_id=target_id,
             target_label=target_label,
             message=message,
-            metadata=metadata or {},
+            metadata=metadata,
             request_id=request_id,
             ip_address=ip_address,
         )
+
+    @staticmethod
+    def _target_journal_id(target):
+        for candidate in (
+            target,
+            getattr(target, "article", None),
+            getattr(target, "issue", None),
+            getattr(target, "category", None),
+            getattr(target, "target_category", None),
+            getattr(target, "target_journal", None),
+        ):
+            if candidate is None:
+                continue
+            journal_id = getattr(candidate, "journal_id", None)
+            if journal_id is not None:
+                return journal_id
+            journal_id = getattr(candidate, "primary_journal_id", None)
+            if journal_id is not None:
+                return journal_id
+        if target.__class__.__name__ == "Journal":
+            return getattr(target, "pk", None)
+        return None

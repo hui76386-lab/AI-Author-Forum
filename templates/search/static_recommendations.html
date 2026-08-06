@@ -26,7 +26,7 @@
   <form action="{{ '/search/'|localized_url }}" method="get" role="search" data-search-form>
     <div class="c-search-form">
       <label>{% ui_text 'search_terms' 'Search terms' %}<input name="q" type="search" autocomplete="off" placeholder="{% ui_text 'title_keyword_author_journal' 'Title, keyword, author, or journal' %}"></label>
-      <label>{% ui_text 'journal' 'Journal' %}<select name="journal"><option value="">{% ui_text 'all_journals' 'All journals' %}</option>{% for journal in header_journals %}<option value="{{ journal.slug }}">{{ journal.name }}</option>{% endfor %}</select></label>
+      <label>{% ui_text 'journal' 'Journal' %}<select name="journal"><option value="">{% ui_text 'all_journals' 'All journals' %}</option>{% for journal in header_journals %}<option value="{{ journal.slug }}">{{ journal|localized_journal_name }}</option>{% endfor %}</select></label>
       <button type="submit">{% ui_text 'search' 'Search' %}</button>
     </div>
     <details class="c-search-advanced">

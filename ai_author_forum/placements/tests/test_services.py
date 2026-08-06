@@ -1,6 +1,7 @@
 from datetime import timedelta
 from types import SimpleNamespace
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
@@ -14,6 +15,10 @@ from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.placements.services import (
     get_home_page_placement_context,
     get_slot_items,
+)
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
 )
 
 
@@ -39,6 +44,13 @@ class PlacementServiceTests(TestCase):
         cls.slot = LayoutSlot.objects.get(code="home_featured")
         cls.slot.max_items = 3
         cls.slot.save()
+        cls.role_admin = grant_business_super_admin(
+            get_user_model().objects.create_superuser(
+                username="placement-service-role-admin",
+                email="placement-service-role-admin@example.com",
+                password="test-password",
+            )
+        )
 
         cls.article_a = cls.create_article("Article A", "article-a")
         cls.article_b = cls.create_article("Article B", "article-b")
@@ -53,14 +65,14 @@ class PlacementServiceTests(TestCase):
             body=[{"type": "paragraph", "value": f"{title} body."}],
             authors="Editor",
             article_type=ArticlePage.ArticleType.AI_ARTICLE,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
             primary_journal=cls.journal,
             keywords="ai",
             static_slug=slug,
         )
         cls.news_listing.add_child(instance=article)
         article.save_revision().publish()
-        return article
+        formally_approve_test_article(article, actor=cls.role_admin)
+        return ArticlePage.objects.get(pk=article.pk)
 
     def test_get_slot_items_returns_active_live_items_in_display_order(self):
         last_normal = ArticlePlacement.objects.create(

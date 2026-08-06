@@ -13,9 +13,14 @@ from ai_author_forum.journals.models import (
     Journal,
     JournalCategory,
     JournalCategoryStatus,
+    JournalEditorAssignment,
     JournalStatus,
 )
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
+from ai_author_forum.site_settings.access_control import (
+    filter_accessible_articles,
+    filter_accessible_journals,
+)
 from ai_author_forum.static_publish.models import (
     StaticManifest,
     StaticPublishJob,
@@ -59,7 +64,8 @@ def _section(code, title, description, metrics, *, items=()):
 
 def _content_section(user):
     recent_from = timezone.localdate() - timedelta(days=RECENT_DAYS)
-    stats = ArticlePage.objects.aggregate(
+    articles = filter_accessible_articles(user, ArticlePage.objects.all())
+    stats = articles.aggregate(
         drafts=Count(
             "pk",
             filter=Q(owner_id=user.pk, review_status=ArticlePage.ReviewStatus.DRAFT),
@@ -87,7 +93,7 @@ def _content_section(user):
         ),
     )
     recent_items = list(
-        ArticlePage.objects.filter(owner_id=user.pk)
+        articles.filter(owner_id=user.pk)
         .order_by("-latest_revision_created_at", "-pk")
         .values("pk", "title", "latest_revision_created_at")[:5]
     )
@@ -147,9 +153,10 @@ def _review_section(user):
     recent_from = timezone.localdate() - timedelta(days=RECENT_DAYS)
     submissions = ArticleReviewRecord.objects.filter(
         article_id=OuterRef("pk"),
-        action=ArticleReviewRecord.Action.SUBMITTED,
+        action=ArticleReviewRecord.Action.SUBMIT,
     ).order_by("-created_at", "-pk")
-    article_stats = ArticlePage.objects.annotate(
+    articles = filter_accessible_articles(user, ArticlePage.objects.all())
+    article_stats = articles.annotate(
         submitted_at=Subquery(submissions.values("created_at")[:1])
     ).aggregate(
         pending=Count(
@@ -165,19 +172,29 @@ def _review_section(user):
         ),
     )
     review_stats = ArticleReviewRecord.objects.filter(
+        article__in=articles,
         reviewer_id=user.pk,
         action__in=(
-            ArticleReviewRecord.Action.APPROVED,
-            ArticleReviewRecord.Action.REJECTED,
+            ArticleReviewRecord.Action.INITIAL_APPROVE,
+            ArticleReviewRecord.Action.INITIAL_RETURN,
+            ArticleReviewRecord.Action.INITIAL_REJECT,
+            ArticleReviewRecord.Action.FINAL_APPROVE,
+            ArticleReviewRecord.Action.FINAL_RETURN,
+            ArticleReviewRecord.Action.FINAL_REJECT,
         ),
         created_at__date__gte=recent_from,
     ).aggregate(recent=Count("pk"))
     recent_items = list(
         ArticleReviewRecord.objects.filter(
+            article__in=articles,
             reviewer_id=user.pk,
             action__in=(
-                ArticleReviewRecord.Action.APPROVED,
-                ArticleReviewRecord.Action.REJECTED,
+                ArticleReviewRecord.Action.INITIAL_APPROVE,
+                ArticleReviewRecord.Action.INITIAL_RETURN,
+                ArticleReviewRecord.Action.INITIAL_REJECT,
+                ArticleReviewRecord.Action.FINAL_APPROVE,
+                ArticleReviewRecord.Action.FINAL_RETURN,
+                ArticleReviewRecord.Action.FINAL_REJECT,
             ),
         )
         .order_by("-created_at", "-pk")
@@ -224,10 +241,168 @@ def _review_section(user):
     )
 
 
-def _operations_section(flags):
+def _editor_role_section(user):
+    assignments = list(
+        JournalEditorAssignment.objects.effective()
+        .filter(user=user)
+        .select_related("journal")
+    )
+    if not assignments:
+        return None
+    articles = filter_accessible_articles(user, ArticlePage.objects.all())
+    chief_journal_ids = {
+        item.journal_id
+        for item in assignments
+        if item.role == JournalEditorAssignment.Role.CHIEF_EDITOR
+    }
+    executive_journal_ids = {
+        item.journal_id
+        for item in assignments
+        if item.role == JournalEditorAssignment.Role.EXECUTIVE_EDITOR
+    }
     metrics = []
+    if chief_journal_ids:
+        chief_articles = articles.filter(primary_journal_id__in=chief_journal_ids)
+        metrics.extend(
+            [
+                _metric(
+                    "本刊待初审",
+                    chief_articles.filter(
+                        review_status=ArticlePage.ReviewStatus.SUBMITTED
+                    ).count(),
+                    _url(
+                        "article_admin:pending",
+                        review_status=ArticlePage.ReviewStatus.SUBMITTED,
+                    ),
+                ),
+                _metric(
+                    "本刊待终审",
+                    chief_articles.filter(
+                        review_status=ArticlePage.ReviewStatus.PENDING_FINAL
+                    ).count(),
+                    reverse("article_admin:final"),
+                    tone="warning",
+                ),
+                _metric(
+                    "编辑负载",
+                    chief_articles.filter(
+                        review_status=ArticlePage.ReviewStatus.SUBMITTED,
+                        assigned_initial_editor__isnull=False,
+                    ).count(),
+                    _url("article_admin:pending", assigned="yes"),
+                    description="已分配且尚未完成的初审任务",
+                ),
+                _metric(
+                    "未设置职责的副编辑",
+                    sum(
+                        1
+                        for item in JournalEditorAssignment.objects.effective().filter(
+                            journal_id__in=chief_journal_ids,
+                            role=JournalEditorAssignment.Role.ASSOCIATE_EDITOR,
+                        )
+                        if not (item.responsibilities or [])
+                    ),
+                    reverse("journals_editorial_team_index"),
+                    tone="warning",
+                ),
+            ]
+        )
+    if executive_journal_ids:
+        executive_articles = articles.filter(
+            primary_journal_id__in=executive_journal_ids
+        )
+        returned_ids = ArticleReviewRecord.objects.filter(
+            article__in=executive_articles,
+            action__in=(
+                ArticleReviewRecord.Action.INITIAL_RETURN,
+                ArticleReviewRecord.Action.FINAL_RETURN,
+            ),
+        ).values("article_id")
+        metrics.extend(
+            [
+                _metric(
+                    "常务副编辑待初审",
+                    executive_articles.filter(
+                        review_status=ArticlePage.ReviewStatus.SUBMITTED
+                    ).count(),
+                    reverse("article_admin:pending"),
+                ),
+                _metric(
+                    "退修文章",
+                    executive_articles.filter(
+                        pk__in=returned_ids,
+                        review_status=ArticlePage.ReviewStatus.DRAFT,
+                    ).count(),
+                    _url(
+                        "article_admin:index",
+                        review_status=ArticlePage.ReviewStatus.DRAFT,
+                    ),
+                    tone="warning",
+                ),
+                _metric(
+                    "日常维护待办",
+                    executive_articles.filter(
+                        review_status=ArticlePage.ReviewStatus.DRAFT
+                    ).count(),
+                    _url(
+                        "article_admin:index",
+                        review_status=ArticlePage.ReviewStatus.DRAFT,
+                    ),
+                ),
+            ]
+        )
+    associate_assignments = [
+        item
+        for item in assignments
+        if item.role == JournalEditorAssignment.Role.ASSOCIATE_EDITOR
+    ]
+    if associate_assignments and not (chief_journal_ids or executive_journal_ids):
+        responsibility_codes = {
+            code
+            for item in associate_assignments
+            for code in (item.responsibilities or [])
+        }
+        responsibility_labels = dict(JournalEditorAssignment.Responsibility.choices)
+        metrics.extend(
+            [
+                _metric(
+                    "本刊可访问文章",
+                    articles.count(),
+                    reverse("article_admin:index"),
+                ),
+                _metric(
+                    "我的初审待办",
+                    articles.filter(
+                        review_status=ArticlePage.ReviewStatus.SUBMITTED,
+                        assigned_initial_editor=user,
+                    ).count(),
+                    _url("article_admin:pending", assigned_to=user.pk),
+                ),
+                _metric(
+                    "已分配职责",
+                    len(responsibility_codes),
+                    reverse("journals:index"),
+                    description="、".join(
+                        responsibility_labels[code]
+                        for code in JournalEditorAssignment.ALL_RESPONSIBILITIES
+                        if code in responsibility_codes
+                    ),
+                ),
+            ]
+        )
+    return _section(
+        "editor-role",
+        "编辑职责工作台",
+        "只汇总当前有效任命所属子期刊的任务。",
+        metrics,
+    )
+
+
+def _operations_section(user, flags):
+    metrics = []
+    journals = filter_accessible_journals(user, Journal.objects.all())
     if flags["can_view_journals"]:
-        journal_stats = Journal.objects.aggregate(
+        journal_stats = journals.aggregate(
             active=Count("pk", filter=Q(status=JournalStatus.ACTIVE)),
             paused=Count("pk", filter=Q(status=JournalStatus.PAUSED)),
         )
@@ -252,6 +427,7 @@ def _operations_section(flags):
                 JournalCategoryStatus.ARCHIVED,
             )
             category_anomalies = JournalCategory.objects.filter(
+                journal__in=journals,
                 status__in=anomaly_statuses,
             ).count()
             metrics.append(
@@ -270,7 +446,8 @@ def _operations_section(flags):
         now = timezone.now()
         expires_before = now + timedelta(days=RECENT_DAYS)
         manual_placements = ArticlePlacement.objects.filter(
-            source=ArticlePlacement.Source.MANUAL
+            source=ArticlePlacement.Source.MANUAL,
+            article__primary_journal__in=journals,
         )
         placement_stats = manual_placements.aggregate(
             expiring=Count(
@@ -477,17 +654,11 @@ def _workflow_steps(user, flags, sections):
         "当前活动版本",
         "活动版本",
     )
-    can_journals = user.is_superuser or user.has_perm("site_settings.access_journals")
-    can_articles = user.is_superuser or user.has_perm("site_settings.access_articles")
-    can_review = user.is_superuser or user.has_perm(
-        "site_settings.access_article_review"
-    )
-    can_placements = user.is_superuser or user.has_perm(
-        "site_settings.access_placements"
-    )
-    can_publish = user.is_superuser or user.has_perm(
-        "site_settings.access_static_publish"
-    )
+    can_journals = flags["can_view_journals"]
+    can_articles = flags["can_view_articles"]
+    can_review = flags["can_view_article_review"]
+    can_placements = flags["can_view_placements"]
+    can_publish = flags["can_view_static_publish"]
 
     return [
         _step(
@@ -543,7 +714,7 @@ def _workspace_link(label, url, description=""):
 
 def _workspace_cards(user, flags):
     cards = []
-    can_journals = user.is_superuser or user.has_perm("site_settings.access_journals")
+    can_journals = flags["can_view_journals"]
     if can_journals:
         cards.append(
             _workspace_card(
@@ -557,7 +728,44 @@ def _workspace_cards(user, flags):
                             "\u680f\u76ee\u7ba1\u7406",
                             reverse("journals_category_admin"),
                         )
-                        if flags["can_view_journal_categories"]
+                        if flags["can_manage_journal_categories"]
+                        else None
+                    ),
+                    (
+                        _workspace_link(
+                            "期刊资料",
+                            reverse("journals:index"),
+                        )
+                        if flags["can_manage_journal_profile"]
+                        else None
+                    ),
+                    (
+                        _workspace_link(
+                            "期刊导航",
+                            _url("managed_navigation_admin", mode="journal"),
+                        )
+                        if flags["can_manage_journal_categories"]
+                        else None
+                    ),
+                    (
+                        _workspace_link(
+                            "期次管理",
+                            reverse("journals_publication_issue_admin"),
+                        )
+                        if flags["can_manage_issues"]
+                        else None
+                    ),
+                    (
+                        _workspace_link(
+                            "编辑团队",
+                            reverse("journals_editorial_team_index"),
+                        )
+                        if flags["can_manage_editorial_team"]
+                        else None
+                    ),
+                    (
+                        _workspace_link("图片与素材", reverse("wagtailimages:index"))
+                        if flags["can_manage_media_assets"]
                         else None
                     ),
                     (
@@ -571,10 +779,8 @@ def _workspace_cards(user, flags):
                 ],
             )
         )
-    can_articles = user.is_superuser or user.has_perm("site_settings.access_articles")
-    can_review = user.is_superuser or user.has_perm(
-        "site_settings.access_article_review"
-    )
+    can_articles = flags["can_view_articles"]
+    can_review = flags["can_view_article_review"]
     if can_articles or can_review:
         cards.append(
             _workspace_card(
@@ -595,10 +801,8 @@ def _workspace_cards(user, flags):
                 ],
             )
         )
-    can_placements = user.is_superuser or user.has_perm(
-        "site_settings.access_placements"
-    )
-    can_slots = user.is_superuser or user.has_perm("site_settings.access_slots")
+    can_placements = flags["can_view_placements"]
+    can_slots = flags["can_view_slots"]
     if can_placements or can_slots:
         cards.append(
             _workspace_card(
@@ -619,9 +823,7 @@ def _workspace_cards(user, flags):
                 ],
             )
         )
-    can_publish = user.is_superuser or user.has_perm(
-        "site_settings.access_static_publish"
-    )
+    can_publish = flags["can_view_static_publish"]
     if can_publish:
         cards.append(
             _workspace_card(
@@ -690,12 +892,25 @@ def get_role_dashboard_context(user):
     flags = get_admin_permission_context(user)
     sections = []
 
+    editor_role = _editor_role_section(user)
+    if editor_role and editor_role["metrics"]:
+        sections.append(editor_role)
+
     if flags["can_edit_article"]:
         sections.append(_content_section(user))
     if flags["can_review_article"]:
         sections.append(_review_section(user))
-    if flags["can_change_journal"] or flags["can_manage_placement"]:
-        operations = _operations_section(flags)
+    if any(
+        flags[name]
+        for name in (
+            "can_change_journal",
+            "can_manage_placement",
+            "can_manage_journal_profile",
+            "can_manage_journal_categories",
+            "can_manage_issues",
+        )
+    ):
+        operations = _operations_section(user, flags)
         if operations["metrics"]:
             sections.append(operations)
     if any(

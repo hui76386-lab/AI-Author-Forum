@@ -66,14 +66,27 @@
   </div>
 </section>
 
-<form method="post" action="{{ execute_url }}">
+<form id="placement-review-form" method="post" action="{{ execute_url }}">
   {% csrf_token %}
   <div class="sticky-actions">
     <a class="button button-secondary" href="{{ back_url }}{% if not result.ok %}#display-image{% endif %}">{% if result.ok %}返回修改设置{% else %}返回处理问题{% endif %}</a>
     <a class="button button-secondary" href="{% url 'placements:batches' %}?status=draft">保存并退出</a>
-    <button class="button button-primary" type="submit" {% if not result.ok %}disabled aria-disabled="true"{% endif %}>确认严格投放</button>
+    <button class="button button-primary" type="submit" data-submitting-label="正在投放..." {% if not result.ok %}disabled aria-disabled="true"{% endif %}>确认严格投放</button>
   </div>
 </form>
+
+<script>
+(() => {
+  const form = document.getElementById('placement-review-form');
+  const submitButton = form && form.querySelector('button[type="submit"]');
+  if (!form || !submitButton) return;
+  form.addEventListener('submit', () => {
+    submitButton.disabled = true;
+    submitButton.setAttribute('aria-disabled', 'true');
+    submitButton.textContent = submitButton.dataset.submittingLabel;
+  }, { once: true });
+})();
+</script>
 
 <style>
 .placement-v2 .review-context { display: flex; flex-wrap: wrap; gap: .55rem 1.1rem; margin: 0 0 1.1rem; color: var(--placement-muted); font-size: .85rem; }

@@ -18,7 +18,6 @@ from django.utils.translation import get_language
 
 from .i18n import ENGLISH_LANGUAGE, normalize_language
 
-
 ARTICLE_THEME_TRANSLATIONS = {
     "Research Foundations and Open Questions": "研究基础与开放问题",
     "Benchmark Design for Reliable Progress": "面向可靠进展的基准设计",
@@ -99,6 +98,8 @@ NAVIGATION_ITEM_TRANSLATIONS = {
     "contact": "联系我们",
     "definition-of-a-co-author-to-the-ai": "AI 共同作者定义",
     "responsibility-of-the-co-author": "共同作者责任",
+    "how-ai-authored-articles-produced": "AI 署名文章如何产生",
+    "readers-responsibility": "读者责任",
     "research-articles": "研究文章",
     "news-and-comment": "新闻与评论",
     "journal-information": "期刊信息",
@@ -113,21 +114,57 @@ STATIC_GROUP_TRANSLATIONS = {
 
 STATIC_PAGE_TRANSLATIONS = {
     "forum-staff": ("论坛团队", "负责论坛运营、编辑支持、期刊接入与出版支持的团队。"),
-    "about-the-editors": ("关于编辑", "介绍编辑职责、评审协调、决策边界与利益冲突处理。"),
-    "research-cross-forum-editorial-team": ("跨论坛研究编辑团队", "负责协调参与期刊之间的研究标准与编辑一致性。"),
-    "forum-information": ("论坛信息", "AI Author Forum 由一个主站和多个期刊主页组成，使用统一模板并输出固定静态 HTML。"),
+    "about-the-editors": (
+        "关于编辑",
+        "介绍编辑职责、评审协调、决策边界与利益冲突处理。",
+    ),
+    "research-cross-forum-editorial-team": (
+        "跨论坛研究编辑团队",
+        "负责协调参与期刊之间的研究标准与编辑一致性。",
+    ),
+    "forum-information": (
+        "论坛信息",
+        "AI Author Forum 由一个主站和多个期刊主页组成，使用统一模板并输出固定静态 HTML。",
+    ),
     "forum-metrics": ("论坛指标", "展示经编辑审核的文章、期刊、出版与读者指标快照。"),
-    "our-publishing-models": ("我们的出版模式", "说明 AI 署名和 AI 辅助内容如何从草稿经过审核、批准、投放、静态构建后发布。"),
-    "editorial-values-statement": ("编辑价值声明", "论坛坚持透明、负责、诚信，并优先保证读者能够清楚理解证据与结论。"),
-    "editorial-policies": ("编辑政策", "涵盖投稿、评审、AI 使用披露、纠错、撤稿、图像、数据与引用完整性。"),
-    "journalistic-principles": ("新闻原则", "强调事实准确、来源透明、观点与分析清晰标注，以及及时纠正错误。"),
-    "development-of-the-forum": ("论坛发展", "记录论坛的建设目标、期刊接入、内容管理和静态发布流程。"),
+    "our-publishing-models": (
+        "我们的出版模式",
+        "说明 AI 署名和 AI 辅助内容如何从草稿经过审核、批准、投放、静态构建后发布。",
+    ),
+    "editorial-values-statement": (
+        "编辑价值声明",
+        "论坛坚持透明、负责、诚信，并优先保证读者能够清楚理解证据与结论。",
+    ),
+    "editorial-policies": (
+        "编辑政策",
+        "涵盖投稿、评审、AI 使用披露、纠错、撤稿、图像、数据与引用完整性。",
+    ),
+    "journalistic-principles": (
+        "新闻原则",
+        "强调事实准确、来源透明、观点与分析清晰标注，以及及时纠正错误。",
+    ),
+    "development-of-the-forum": (
+        "论坛发展",
+        "记录论坛的建设目标、期刊接入、内容管理和静态发布流程。",
+    ),
     "awards": ("奖项", "用于展示经核验的奖项、认证和社区认可信息。"),
     "contact": ("联系我们", "提供编辑、出版、期刊接入和静态内容修正的联系渠道。"),
-    "definition-of-a-co-author-to-the-ai": ("AI 共同作者定义", "说明 AI 共同作者的作用边界、标注方式、人工责任与披露要求。"),
-    "responsibility-of-the-co-author": ("共同作者责任", "说明 AI 参与学术工作时，人类共同作者仍对准确性、伦理、原创性、引用质量和读者指引负责。"),
-    "how-ai-authored-articles-produced": ("AI 署名文章如何产生", "介绍 AI 参与的文章如何经过人工核验、编辑审核、责任披露与受控发布。"),
-    "readers-responsibility": ("读者责任", "帮助读者理解 AI 参与情况、评估证据质量，并在发现问题时使用反馈与纠错渠道。"),
+    "definition-of-a-co-author-to-the-ai": (
+        "AI 共同作者定义",
+        "说明 AI 共同作者的作用边界、标注方式、人工责任与披露要求。",
+    ),
+    "responsibility-of-the-co-author": (
+        "共同作者责任",
+        "说明 AI 参与学术工作时，人类共同作者仍对准确性、伦理、原创性、引用质量和读者指引负责。",
+    ),
+    "how-ai-authored-articles-produced": (
+        "AI 署名文章如何产生",
+        "介绍 AI 参与的文章如何经过人工核验、编辑审核、责任披露与受控发布。",
+    ),
+    "readers-responsibility": (
+        "读者责任",
+        "帮助读者理解 AI 参与情况、评估证据质量，并在发现问题时使用反馈与纠错渠道。",
+    ),
 }
 
 STATIC_SECTION_TRANSLATIONS = {
@@ -226,12 +263,16 @@ def is_english(language_code=None):
     return normalize_language(language_code or get_language()) == ENGLISH_LANGUAGE
 
 
-def localized_navigation_label(value, *, group=False, language_code=None, fallback=None):
+def localized_navigation_label(
+    value, *, group=False, language_code=None, fallback=None
+):
     label = str(fallback or value or "")
     if is_english(language_code):
         return label
     key = str(value or label).strip().lower().replace("_", "-")
-    translations = NAVIGATION_GROUP_TRANSLATIONS if group else NAVIGATION_ITEM_TRANSLATIONS
+    translations = (
+        NAVIGATION_GROUP_TRANSLATIONS if group else NAVIGATION_ITEM_TRANSLATIONS
+    )
     return translations.get(key, label)
 
 
@@ -307,9 +348,7 @@ def localized_discipline_name(group, language_code=None):
 
 def localized_page_title(page, language_code=None):
     title = str(
-        getattr(page, "listing_title", "")
-        or getattr(page, "title", page)
-        or ""
+        getattr(page, "listing_title", "") or getattr(page, "title", page) or ""
     )
     if is_english(language_code):
         return title
@@ -330,7 +369,9 @@ def localized_journal_description(journal, language_code=None):
         return source
     name = str(getattr(journal, "name_cn", "") or getattr(journal, "name", "") or "")
     focus = localized_journal_focus(journal)
-    return f"{name}聚焦于{focus}，关注可复现的方法、可靠的证据以及从研究到应用的实际影响。"
+    return (
+        f"{name}聚焦于{focus}，关注可复现的方法、可靠的证据以及从研究到应用的实际影响。"
+    )
 
 
 def localized_journal_intro(journal, language_code=None):
@@ -370,9 +411,7 @@ def _article_theme(article):
 def _article_journal_name(article):
     journal = getattr(article, "primary_journal", None)
     return str(
-        getattr(journal, "name_cn", "")
-        or getattr(journal, "name", "")
-        or "该期刊"
+        getattr(journal, "name_cn", "") or getattr(journal, "name", "") or "该期刊"
     )
 
 
@@ -381,7 +420,9 @@ def localized_article_title(article, language_code=None):
     if is_english(language_code):
         return source
     if _batch_article_parts(article):
-        theme = ARTICLE_THEME_TRANSLATIONS.get(_article_theme(article), _article_theme(article))
+        theme = ARTICLE_THEME_TRANSLATIONS.get(
+            _article_theme(article), _article_theme(article)
+        )
         return f"{theme}：{_article_journal_name(article)}测试研究"
     return {
         "hello-word": "你好，世界",
@@ -395,11 +436,15 @@ def localized_article_abstract(article, language_code=None):
     if is_english(language_code):
         return source
     if _batch_article_parts(article):
-        theme = ARTICLE_THEME_TRANSLATIONS.get(_article_theme(article), _article_theme(article))
+        theme = ARTICLE_THEME_TRANSLATIONS.get(
+            _article_theme(article), _article_theme(article)
+        )
         return f"这是一篇确定性的导入测试文章，面向{_article_journal_name(article)}，考察{theme}，属于该期刊的研究范围。"
-    return {"hello-word": "你好。", "hello-hhh": "Huixi 测试内容。", "codehuixi": "Code Huixi 测试内容。"}.get(
-        getattr(article, "static_slug", ""), source
-    )
+    return {
+        "hello-word": "你好。",
+        "hello-hhh": "Huixi 测试内容。",
+        "codehuixi": "Code Huixi 测试内容。",
+    }.get(getattr(article, "static_slug", ""), source)
 
 
 def localized_article_authors(article, language_code=None):
@@ -415,7 +460,11 @@ def localized_article_ai_coauthors(article, language_code=None):
     source = str(getattr(article, "ai_co_authors", "") or "")
     if is_english(language_code):
         return source
-    return "AI Author Forum 测试助手" if source == "AI Author Forum Test Assistant" else source
+    return (
+        "AI Author Forum 测试助手"
+        if source == "AI Author Forum Test Assistant"
+        else source
+    )
 
 
 def localized_article_keywords(article, language_code=None):
@@ -434,7 +483,11 @@ def localized_article_keywords(article, language_code=None):
             value = _article_journal_name(article)
         values.append(ARTICLE_KEYWORD_TRANSLATIONS.get(value.lower(), value))
     if batch_parts:
-        values = [value for value in values if value.lower() not in {"import test", "导入测试"}]
+        values = [
+            value
+            for value in values
+            if value.lower() not in {"import test", "导入测试"}
+        ]
     return ", ".join(values)
 
 
@@ -444,15 +497,32 @@ def localized_article_body(article, language_code=None):
     if not _batch_article_parts(article):
         return getattr(article, "body", ())
     journal_name = _article_journal_name(article)
-    theme = ARTICLE_THEME_TRANSLATIONS.get(_article_theme(article), _article_theme(article))
+    theme = ARTICLE_THEME_TRANSLATIONS.get(
+        _article_theme(article), _article_theme(article)
+    )
     focus = localized_journal_focus(getattr(article, "primary_journal", None))
     number = _batch_article_parts(article)[1]
     blocks = (
-        ("概述", f"本文考察<strong>{escape(theme)}</strong>在{escape(journal_name)}中的应用。该期刊聚焦于{escape(focus)}，本讨论用于验证完整的内容导入、审核与投放流程。"),
-        ("研究背景", f"该领域的当前研究需要将清晰的问题定义与可测量的证据结合起来。对于{escape(journal_name)}而言，这意味着记录关键假设、选择具有代表性的任务，并说明结论在不同数据集、模型家族和部署环境下可能如何变化。"),
-        ("方法与评估", "可靠的研究应结合受控实验、透明基线、消融分析和定性检查。评估还应报告不确定性、已知局限、资源成本，以及研究结论预期能够泛化的条件。"),
-        ("运营考量", "投入生产后还需要监控、版本管理、治理和事件响应。团队应保留可复现的成果，并从数据准备到模型发布及部署后复核，持续维护可追溯的决策记录。"),
-        ("结论", f"第 {number} 章提供确定性的、面向期刊的测试内容。文章先以草稿形式导入，再经过正式提交、审核和受控投放进入期刊最新文章栏目。"),
+        (
+            "概述",
+            f"本文考察<strong>{escape(theme)}</strong>在{escape(journal_name)}中的应用。该期刊聚焦于{escape(focus)}，本讨论用于验证完整的内容导入、审核与投放流程。",
+        ),
+        (
+            "研究背景",
+            f"该领域的当前研究需要将清晰的问题定义与可测量的证据结合起来。对于{escape(journal_name)}而言，这意味着记录关键假设、选择具有代表性的任务，并说明结论在不同数据集、模型家族和部署环境下可能如何变化。",
+        ),
+        (
+            "方法与评估",
+            "可靠的研究应结合受控实验、透明基线、消融分析和定性检查。评估还应报告不确定性、已知局限、资源成本，以及研究结论预期能够泛化的条件。",
+        ),
+        (
+            "运营考量",
+            "投入生产后还需要监控、版本管理、治理和事件响应。团队应保留可复现的成果，并从数据准备到模型发布及部署后复核，持续维护可追溯的决策记录。",
+        ),
+        (
+            "结论",
+            f"第 {number} 章提供确定性的、面向期刊的测试内容。文章先以草稿形式导入，再经过正式提交、审核和受控投放进入期刊最新文章栏目。",
+        ),
     )
     return tuple(
         item

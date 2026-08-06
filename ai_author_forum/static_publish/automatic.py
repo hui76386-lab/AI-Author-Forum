@@ -81,6 +81,8 @@ def create_pending_placement_publish(
                     if event.get("placement_id") is not None
                 }
             ),
+            "publish_events": events,
+            "authorized_paths": paths,
         },
     )
 
@@ -107,8 +109,14 @@ def _queue_placement_publish(events, *, actor_id, reason):
         }
     )
 
-    # A partial unique index guarantees that concurrent web workers still share
-    # one pending batch.  Retry once if another worker wins the create race.
+    coalesce_key = (
+        f"{PLACEMENT_CHANGE_COALESCE_KEY}:{actor_id}"
+        if actor_id is not None
+        else PLACEMENT_CHANGE_COALESCE_KEY
+    )
+    # A partial unique index guarantees that concurrent web workers for the same
+    # actor still share one pending batch without mixing journal-editor scopes.
+    # Retry once if another worker wins the create race.
     for attempt in range(2):
         try:
             with transaction.atomic():
@@ -117,7 +125,7 @@ def _queue_placement_publish(events, *, actor_id, reason):
                     .filter(
                         is_automatic=True,
                         status=StaticPublishJob.Status.PENDING,
-                        coalesce_key=PLACEMENT_CHANGE_COALESCE_KEY,
+                        coalesce_key=coalesce_key,
                     )
                     .first()
                 )
@@ -127,7 +135,7 @@ def _queue_placement_publish(events, *, actor_id, reason):
                         scope=StaticPublishJob.Scope.SELECTIVE,
                         requested_paths=paths,
                         is_automatic=True,
-                        coalesce_key=PLACEMENT_CHANGE_COALESCE_KEY,
+                        coalesce_key=coalesce_key,
                         scheduled_at=scheduled_at,
                         triggered_by_id=actor_id,
                         summary={
@@ -135,6 +143,8 @@ def _queue_placement_publish(events, *, actor_id, reason):
                             "reason": reason,
                             "change_count": len(events),
                             "placement_ids": placement_ids,
+                            "publish_events": events,
+                            "authorized_paths": paths,
                         },
                     )
                 else:
@@ -147,9 +157,32 @@ def _queue_placement_publish(events, *, actor_id, reason):
                     summary["placement_ids"] = sorted(
                         set(summary.get("placement_ids", [])) | set(placement_ids)
                     )
+                    known_events = {
+                        (
+                            event.get("placement_id"),
+                            event.get("article_id"),
+                            event.get("target_type"),
+                            event.get("target_slug"),
+                            event.get("target_category_id"),
+                            event.get("is_active"),
+                        ): event
+                        for event in summary.get("publish_events", [])
+                    }
+                    for event in events:
+                        key = (
+                            event.get("placement_id"),
+                            event.get("article_id"),
+                            event.get("target_type"),
+                            event.get("target_slug"),
+                            event.get("target_category_id"),
+                            event.get("is_active"),
+                        )
+                        known_events[key] = event
+                    summary["publish_events"] = list(known_events.values())
                     job.requested_paths = sorted(
                         set(job.requested_paths or []) | set(paths)
                     )
+                    summary["authorized_paths"] = job.requested_paths
                     job.scheduled_at = scheduled_at
                     job.summary = summary
                     job.save(

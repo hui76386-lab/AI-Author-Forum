@@ -88,6 +88,7 @@ python manage.py seed_journal_demo_data --publish-static-site --operator-id 1
 - `文章管理`：`articles` 内容入口，需要 `site_settings.access_articles`。
 - `文章审核`：`articles` 审核入口，需要 `site_settings.access_article_review`。
 - `投放管理`：`placements` 投放入口，需要 `site_settings.access_placements`。
+- `账号管理`：`/admin/accounts/`，仅有效超级管理员可创建、暂停、停用、重置账号和维护任命。
 - `版位编排`：受控版位入口，需要 `site_settings.access_slots`。
 - `静态发布`：`static_publish` 发布入口，需要 `site_settings.access_static_publish`。
 - `设置 > 主站配置`：Wagtail Site Settings 中维护站点名称、Logo、SEO、默认图片和静态输出根目录。
@@ -97,18 +98,16 @@ python manage.py seed_journal_demo_data --publish-static-site --operator-id 1
 
 ## 标准角色
 
-`seed_roles` 会创建以下 Wagtail 用户组：
+`seed_roles` 只创建业务组“超级管理员”和技术组“子期刊编辑基础访问”。子期刊编辑的业务角色不使用 Group 表示，而由 `journals.JournalEditorAssignment` 按期刊保存。
 
-| 角色 | 菜单与能力边界 |
-| --- | --- |
-| 超级管理员 | 全局配置、用户权限、发布和回滚 |
-| 内容管理员 | 文章编辑、栏目编辑、文章投放和预览 |
-| 审核人员 | 文章审核、驳回和审核意见 |
-| 站点运营 | 子期刊资料、素材和 SEO 配置 |
-| 发布管理员 | 静态生成、发布、重试和回滚 |
-| 只读人员 | 查看配置、发布记录和审计日志 |
+| 业务角色 | 编码 | 范围与能力边界 |
+| --- | --- | --- |
+| 超级管理员 | `super_admin` | 全平台账号、配置、投放、静态发布和回滚；不能执行文章终审 |
+| 主编辑 | `chief_editor` | 被任命子期刊的团队、内容、初审、终审和投放 |
+| 常务副编辑 | `executive_editor` | 被任命子期刊的日常维护、分派、初审和投放；不能终审 |
+| 副编辑 | `associate_editor` | 被任命子期刊的初审及所分配的固定维护职责；不能终审 |
 
-角色组只定义权限，不自动把用户加入组；用户需要由超级管理员在 Wagtail 用户管理中分配用户组，并设置为可登录后台的用户。
+超级管理员通过 `/admin/accounts/new/` 创建实名账号并分配任命。主编辑、常务副编辑和副编辑自动加入“子期刊编辑基础访问”技术组，但数据范围始终由有效 `JournalEditorAssignment` 和统一权限 service 决定；禁止通过直接修改 Group 成员关系授予子期刊业务角色。
 
 ## 跨模块接口
 

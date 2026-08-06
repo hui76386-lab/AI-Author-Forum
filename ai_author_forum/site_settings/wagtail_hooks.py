@@ -1,7 +1,8 @@
+from django.db import models
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from wagtail import hooks
-from wagtail.admin.views.generic.models import IndexView
+from wagtail.admin.views.generic.models import IndexView, InspectView
 from wagtail.admin.viewsets import ViewSetGroup
 from wagtail.admin.viewsets.model import ModelViewSet
 
@@ -12,8 +13,8 @@ from .admin_navigation import (
     construct_business_settings_menu,
 )
 from .admin_views import (
+    AuditLogPermissionPolicy,
     CoreNavigationPermissionPolicy,
-    ReadOnlyModelPermissionPolicy,
     ScopeNavigationPermissionPolicy,
     content_readiness_admin,
     site_settings_summary,
@@ -243,6 +244,42 @@ class ContentColumnConfigViewSet(ModelViewSet):
     ]
 
 
+def filter_accessible_audit_logs(user, queryset):
+    from ai_author_forum.journals.models import JournalEditorAssignment
+    from ai_author_forum.site_settings.access_control import is_super_admin
+
+    if is_super_admin(user):
+        return queryset
+    assignments = JournalEditorAssignment.objects.effective().filter(user=user)
+    chief_journal_ids = assignments.filter(
+        role=JournalEditorAssignment.Role.CHIEF_EDITOR
+    ).values("journal_id")
+    return queryset.filter(
+        models.Q(actor=user) | models.Q(metadata__journal_id__in=chief_journal_ids)
+    ).distinct()
+
+
+class AuditLogIndexView(IndexView):
+    def get_base_queryset(self):
+        return filter_accessible_audit_logs(
+            self.request.user,
+            super().get_base_queryset(),
+        )
+
+
+class AuditLogInspectView(InspectView):
+    def get_object(self, queryset=None):
+        from django.shortcuts import get_object_or_404
+
+        return get_object_or_404(
+            filter_accessible_audit_logs(
+                self.request.user,
+                self.model._default_manager.all(),
+            ),
+            pk=self.pk,
+        )
+
+
 class AuditLogViewSet(ModelViewSet):
     model = AuditLog
     menu_label = admin_text("site_settings.audit_logs")
@@ -251,6 +288,8 @@ class AuditLogViewSet(ModelViewSet):
     menu_order = 300
     add_to_settings_menu = True
     inspect_view_enabled = True
+    index_view_class = AuditLogIndexView
+    inspect_view_class = AuditLogInspectView
     copy_view_enabled = False
     list_display = ["created_at", "action", "status", "actor", "target_label"]
     list_filter = ["action", "status", "created_at"]
@@ -272,7 +311,7 @@ class AuditLogViewSet(ModelViewSet):
 
     @property
     def permission_policy(self):
-        return ReadOnlyModelPermissionPolicy(self.model)
+        return AuditLogPermissionPolicy(self.model)
 
 
 class NavigationAuditLogViewSet(AuditLogViewSet):

@@ -177,6 +177,7 @@ def get_articles_for_category(
     publication_time=None,
     page=1,
     page_size=20,
+    include_active_release=False,
 ):
     from ai_author_forum.placements.models import ArticlePlacement
 
@@ -195,9 +196,13 @@ def get_articles_for_category(
         if include_descendants
         else [category.pk]
     )
+    placement_queryset = (
+        ArticlePlacement.objects.available_for_static_release(at=publication_time)
+        if include_active_release
+        else ArticlePlacement.objects.available(at=publication_time)
+    )
     placements = (
-        ArticlePlacement.objects.available(at=publication_time)
-        .filter(
+        placement_queryset.filter(
             target_type=ArticlePlacement.TargetType.CATEGORY,
             target_category_id__in=category_ids,
             source=ArticlePlacement.Source.SYSTEM,

@@ -31,6 +31,10 @@ from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.static_publish.models import StaticPublishJob
 from ai_author_forum.static_publish.providers import WagtailPageTargetProvider
 from ai_author_forum.static_publish.services import StaticPublisher
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 FIELDS = [
     "journal_slug",
@@ -96,6 +100,7 @@ class ArticleImportIntegrationTests(TestCase):
             email="integration@example.com",
             password="test",
         )
+        grant_business_super_admin(self.user)
         self.journal = Journal.objects.create(
             name="Integration Journal",
             slug="integration-journal",
@@ -184,11 +189,7 @@ class ArticleImportIntegrationTests(TestCase):
         page = ArticlePage.objects.get(static_slug="integrated-article")
         article_url = f"/articles/{page.static_slug}/"
 
-        page.submit_for_review(self.user, comment="Ready for review")
-        page.refresh_from_db()
-        self.assertEqual(page.review_status, ArticlePage.ReviewStatus.SUBMITTED)
-        page.approve(self.user, comment="Approved after review")
-        page.refresh_from_db()
+        formally_approve_test_article(page, actor=self.user)
         self.assertEqual(page.review_status, ArticlePage.ReviewStatus.APPROVED)
         self.assertEqual(ArticlePlacement.objects.count(), 0)
         self.assertEqual(StaticPublishJob.objects.count(), 0)
@@ -236,9 +237,7 @@ class ArticleImportIntegrationTests(TestCase):
     ):
         self.import_article(slug="reviewed-reimport")
         page = ArticlePage.objects.get(static_slug="reviewed-reimport")
-        page.submit_for_review(self.user)
-        page.approve(self.user)
-        page.refresh_from_db()
+        formally_approve_test_article(page, actor=self.user)
         self.assertEqual(page.review_status, ArticlePage.ReviewStatus.APPROVED)
 
         second_job = self.import_article(slug="reviewed-reimport")

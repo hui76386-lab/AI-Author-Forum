@@ -1,10 +1,20 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Max, Q
+from django.db.models import Exists, Max, OuterRef, Q
 
-from ai_author_forum.articles.models import ArticlePage
+from ai_author_forum.articles.models import ArticlePage, ArticleReviewRecord
 from ai_author_forum.articles.services import get_approved_articles
-from ai_author_forum.journals.models import Journal, JournalStatus
+from ai_author_forum.journals.models import (
+    Journal,
+    JournalEditorAssignment,
+    JournalStatus,
+)
+from ai_author_forum.site_settings.access_control import (
+    can_maintain_placement_target,
+    can_manage_placement_target,
+    get_journal_editor_assignment,
+    is_super_admin,
+)
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 from ai_author_forum.static_publish.automatic import (
     create_pending_placement_publish,
@@ -12,6 +22,7 @@ from ai_author_forum.static_publish.automatic import (
 )
 
 from .models import ArticlePlacement, LayoutSlot, normalize_target_slug
+from .publishing import can_publish_automatically
 
 PLACEABLE_REVIEW_STATUSES = (
     ArticlePage.ReviewStatus.APPROVED,
@@ -45,11 +56,59 @@ class SlotItemList(list):
 
 def has_placement_permission(user, action):
     """Enforce manual-placement permissions consistently in UI and services."""
-    if user is not None and user.is_superuser:
+    if is_super_admin(user):
         return True
-    if user is None or not user.has_perm("placements.manage_manual_categoryplacement"):
+    if not user or not user.is_active:
         return False
-    return user.has_perm(f"placements.{action}_articleplacement")
+    assignments = JournalEditorAssignment.objects.effective().filter(user=user)
+    if action == "add":
+        return assignments.filter(
+            role=JournalEditorAssignment.Role.CHIEF_EDITOR
+        ).exists()
+    return any(
+        assignment.role
+        in {
+            JournalEditorAssignment.Role.CHIEF_EDITOR,
+            JournalEditorAssignment.Role.EXECUTIVE_EDITOR,
+        }
+        or (
+            assignment.role == JournalEditorAssignment.Role.ASSOCIATE_EDITOR
+            and JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE
+            in (assignment.responsibilities or [])
+        )
+        for assignment in assignments
+    )
+
+
+def _placement_target(placement):
+    if placement.target_type == ArticlePlacement.TargetType.JOURNAL:
+        return Journal.objects.filter(slug=placement.target_slug).first()
+    if placement.target_type == ArticlePlacement.TargetType.CATEGORY:
+        return placement.target_category
+    if placement.target_type == ArticlePlacement.TargetType.ARTICLE:
+        return ArticlePage.objects.filter(static_slug=placement.target_slug).first()
+    return None
+
+
+def require_placement_scope(actor, placement, *, action="change"):
+    target = _placement_target(placement)
+    checker = (
+        can_manage_placement_target
+        if action == "add"
+        else can_maintain_placement_target
+    )
+    if not checker(actor, placement.article, placement.target_type, target):
+        raise PermissionDenied("无权操作该投放目标。")
+    if action != "add" and not is_super_admin(actor):
+        assignment = get_journal_editor_assignment(
+            actor, placement.article.primary_journal
+        )
+        if (
+            assignment
+            and assignment.role != JournalEditorAssignment.Role.CHIEF_EDITOR
+            and (not placement.pk or placement.article.last_static_published_at is None)
+        ):
+            raise PermissionDenied("副编辑只能维护已经完成过静态发布的文章。")
 
 
 def overlapping_placements(placement, *, lock=False):
@@ -177,11 +236,8 @@ def _placement_audit_metadata(placement):
 
 
 def _queue_or_request_placement_publish(*events, actor):
-    """Publish immediately only for publishing administrators; otherwise create a pending job."""
-    if actor.is_superuser or (
-        actor.has_perm("static_publish.publish_static_site")
-        and actor.has_perm("static_publish.publish_category_pages")
-    ):
+    """Automatically publish only an authorized platform or journal-scoped change."""
+    if can_publish_automatically(actor, events):
         queue_placement_publish(*events, actor=actor)
         return None
     return create_pending_placement_publish(*events, actor=actor)
@@ -212,6 +268,7 @@ def save_manual_placement(placement, *, actor, ip_address=None):
             if current.source != ArticlePlacement.Source.MANUAL:
                 raise PermissionDenied
             before = _placement_audit_metadata(current)
+        require_placement_scope(actor, placement, action=action)
         validate_placement_schedule(placement, lock=True)
         placement.full_clean()
         placement.save()
@@ -243,6 +300,7 @@ def deactivate_manual_placement(placement_id, *, actor, ip_address=None):
             .select_related("article", "slot")
             .get(pk=placement_id, source=ArticlePlacement.Source.MANUAL)
         )
+        require_placement_scope(actor, placement)
         before = _placement_audit_metadata(placement)
         placement.is_active = False
         placement.save(update_fields=("is_active", "updated_at"))
@@ -280,6 +338,8 @@ def reorder_placements(placement_ids, *, actor, ip_address=None):
         )
         if len(placements) != len(ordered_ids):
             raise ValidationError("排序列表包含不存在或无权操作的投放。")
+        for placement in placements:
+            require_placement_scope(actor, placement)
         first = placements[0]
         group_key = (
             first.slot_id,
@@ -361,6 +421,14 @@ def bulk_place_articles_in_journal(
             raise ValidationError("目标子期刊未启用。")
         if locked_slot.scope != LayoutSlot.Scope.JOURNAL or not locked_slot.is_active:
             raise ValidationError("批量投放只能使用启用中的子期刊版位。")
+        for article in selected_articles:
+            if not can_manage_placement_target(
+                actor,
+                article,
+                ArticlePlacement.TargetType.JOURNAL,
+                locked_journal,
+            ):
+                raise PermissionDenied("无权向该子期刊投放文章。")
         if starts_at and ends_at and ends_at <= starts_at:
             raise ValidationError("失效时间必须晚于生效时间。")
 
@@ -499,10 +567,18 @@ def bulk_place_articles_in_journal(
 
 def get_placeable_articles(search=""):
     """Return approved articles that may be selected for a placement."""
+    final_approval = ArticleReviewRecord.objects.filter(
+        article_id=OuterRef("pk"),
+        action=ArticleReviewRecord.Action.FINAL_APPROVE,
+        revision_id=OuterRef("approved_version_id"),
+    )
     queryset = (
-        ArticlePage.objects.filter(
+        ArticlePage.objects.annotate(has_final_approval=Exists(final_approval))
+        .filter(
             review_status__in=PLACEABLE_REVIEW_STATUSES,
             primary_journal__status=JournalStatus.ACTIVE,
+            approved_version__isnull=False,
+            has_final_approval=True,
         )
         .select_related("primary_journal")
         .prefetch_related("related_journals")
@@ -524,9 +600,7 @@ def get_journal_placeable_articles(journal, search=""):
     """Return approved articles belonging to one active journal."""
     journal_id = getattr(journal, "pk", journal)
     return (
-        get_placeable_articles(search)
-        .filter(Q(primary_journal_id=journal_id) | Q(related_journals__id=journal_id))
-        .distinct()
+        get_placeable_articles(search).filter(primary_journal_id=journal_id).distinct()
     )
 
 
@@ -539,6 +613,7 @@ def get_slot_items(
     at=None,
     exclude_article_ids=None,
     target_category=None,
+    include_active_release=False,
 ):
     if journal is not None:
         target_type = ArticlePlacement.TargetType.JOURNAL
@@ -556,9 +631,13 @@ def get_slot_items(
     if display_limit is None and auto_enabled:
         display_limit = slot.max_items
 
+    placement_queryset = (
+        ArticlePlacement.objects.available_for_static_release(at=at)
+        if include_active_release
+        else ArticlePlacement.objects.available(at=at)
+    )
     placements = (
-        ArticlePlacement.objects.available(at=at)
-        .filter(slot__code=slot_code)
+        placement_queryset.filter(slot__code=slot_code)
         .for_target(target_type, target_slug)
         .select_related(
             "slot",

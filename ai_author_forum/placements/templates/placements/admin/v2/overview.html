@@ -3,9 +3,9 @@
 <div class="page-heading">
   <div>
     <h2>投放总览 <span class="muted">/ Placement overview</span></h2>
-    <p>查看投放状态、容量风险和最近批次。审核通过不等于已投放，静态发布也必须单独执行。</p>
+    <p>查看投放状态、容量风险和最近批次。主编辑投放后自动进入静态发布；副编辑只能维护并重新发布已有文章。</p>
   </div>
-  <div class="actions"><a class="button button-primary" href="{% url 'placements:new_single' %}">新建单篇投放</a><a class="button button-secondary" href="{% url 'placements:bulk_new' %}">批量投放</a></div>
+  {% if can_add_placements %}<div class="actions"><a class="button button-primary" href="{% url 'placements:new_single' %}">新建单篇投放</a><a class="button button-secondary" href="{% url 'placements:bulk_new' %}">批量投放</a></div>{% endif %}
 </div>
 <div class="stats">
   <div class="stat"><span>当前生效 / Active</span><strong>{{ stats.active }}</strong></div>
@@ -25,7 +25,7 @@
   <div class="section-heading"><div><h2>最近批次 <span class="muted">/ Recent batches</span></h2><p class="muted">批次保留完整的选择、校验和执行记录，可从详情页继续处理草稿。</p></div><a class="button button-secondary" href="{% url 'placements:batches' %}">查看全部批次</a></div>
   <div class="table-shell"><table><thead><tr><th>批次</th><th>操作</th><th>状态</th><th>版位</th><th>静态发布</th><th>更新时间</th></tr></thead><tbody>
     {% for batch in recent_batches %}<tr><td><a href="{% url 'placements:batch_detail' batch_id=batch.pk %}"><strong>{{ batch.batch_number }}</strong></a></td><td>{{ batch.get_operation_display }}</td><td><span class="status-badge">{{ batch.get_status_display }}</span></td><td>{{ batch.slot|default:'未选择' }}</td><td>{{ batch.get_publish_status_display }}</td><td>{{ batch.updated_at }}</td></tr>
-    {% empty %}<tr><td colspan="6"><div class="empty-state"><strong>暂时没有投放批次</strong><span>从新建单篇投放开始。</span></div></td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="6"><div class="empty-state"><strong>暂时没有投放批次</strong><span>{% if can_add_placements %}从新建单篇投放开始。{% else %}可从投放清单维护已发布文章。{% endif %}</span></div></td></tr>{% endfor %}
   </tbody></table></div>
 </section>
 <style>

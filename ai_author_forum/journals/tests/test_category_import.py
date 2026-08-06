@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from wagtail.models import Revision
@@ -24,10 +25,18 @@ from ai_author_forum.journals.services import (
     import_article_rows,
 )
 from ai_author_forum.placements.models import ArticlePlacement
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 
 class ArticleCategoryImportTests(TestCase):
     def setUp(self):
+        self.actor = grant_business_super_admin(
+            get_user_model().objects.create_superuser(
+                username="category-import-admin",
+                email="category-import-admin@example.com",
+                password="test",
+            )
+        )
         self.journal = Journal.objects.create(
             name="Nature Machine Intelligence",
             slug="nmi",
@@ -66,6 +75,7 @@ class ArticleCategoryImportTests(TestCase):
             journal=journal,
             parent=parent,
             data={"name": name, "code": code, "slug": slug},
+            actor=self.actor,
         ).category
 
     def row(self, *, slug="article", **updates):

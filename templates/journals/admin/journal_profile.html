@@ -1,0 +1,15 @@
+{% extends "wagtailadmin/base.html" %}
+
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+  {% include "wagtailadmin/shared/header.html" with title=title icon="doc-full" %}
+  <div class="nice-padding">
+    <form method="post">
+      {% csrf_token %}
+      {{ form.media }}
+      {{ form.as_p }}
+      <button class="button" type="submit">保存子期刊资料</button>
+      <a class="button button-secondary" href="{% url 'journals:workspace' journal.pk %}">取消</a>
+    </form>
+  </div>
+{% endblock %}

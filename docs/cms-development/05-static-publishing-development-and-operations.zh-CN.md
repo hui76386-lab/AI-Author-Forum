@@ -42,6 +42,8 @@ output/                      # 构建中间产物，不直接对外服务
 
 构建输入必须冻结，避免构建中有人修改文章或投放导致同一 release 内容不一致。每个页面结果至少包括 URL/path、对象类型、对象 id、状态、错误摘要和耗时。
 
+只有账号状态正常且属于业务组“超级管理员”的实名账号可以创建构建、激活、失败重试或回滚。主编辑、常务副编辑、副编辑、技术组成员、旧发布 Group、Django 直接 permission 和单独的 `is_superuser=True` 都不能执行这些动作。后台视图、Celery worker 和 management command 必须调用同一权限 service。
+
 ## 4. 激活策略
 
 - 新 release 写入独立目录；
@@ -65,6 +67,8 @@ output/                      # 构建中间产物，不直接对外服务
 
 重试应支持页面级重试和任务级重试，但必须使用新的 attempt id 并关联原始 job。重复重试不得重复产生有效投放或重复审计业务事件。
 
+自动发布任务的 `coalesce_key` 必须非空并表达实际合并范围。投放批次使用 `placement-batch:<batch_uuid>`，延迟合并的投放变更使用操作者作用域键；不得让多个待处理自动任务依赖模型默认空字符串。运维检查应同时关注长时间停留在 `pending` 或 `running` 的任务以及 broker 中缺失的任务消息。
+
 ## 6. 回滚
 
 回滚前检查：
@@ -73,7 +77,7 @@ output/                      # 构建中间产物，不直接对外服务
 - 目标版本不是失败或构建中的版本；
 - 目标版本的资源路径仍可访问；
 - 当前数据库状态与目标版本差异已展示给操作者；
-- 操作者具有回滚权限。
+- 操作者是有效超级管理员，并为回滚提供明确原因。
 
 回滚后检查：
 
@@ -117,6 +121,8 @@ cd "E:\AI Author Forum\news-template"
 npm run build:prod
 npm run test:e2e
 ```
+
+`build_static_site` 使用 `--actor <username-or-email>` 标识承担责任的有效超级管理员；只有系统中恰好一名有效超级管理员时才可省略。重试使用 `--retry-job <job-id>`，回滚使用 `--rollback <release-id> --rollback-reason <至少5个字符的原因>`。命令行不因脱离 HTTP 请求而绕过业务角色和审计。
 
 上线前必须补充真实 Docker/PostgreSQL/Redis/Celery/Nginx 联合验收。仅通过 Django `check` 或本地 SQLite 测试，不能证明生产静态切流和回滚已经可用。
 
