@@ -4,6 +4,7 @@ from django.db.models import Case, Exists, F, IntegerField, OuterRef, Q, Value, 
 
 from ai_author_forum.journals.models import (
     JournalEditorAssignment,
+    JournalStatus,
     PublicationIssueScope,
 )
 from ai_author_forum.users.services import SUPER_ADMIN_GROUP_NAME
@@ -132,6 +133,92 @@ def can_manage_article(user, article) -> bool:
         article.primary_journal,
         JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE,
     )
+
+
+def get_article_authorship(user, article):
+    if not _active_user(user) or not getattr(user, "is_author", False):
+        return None
+    if article is None:
+        return None
+    from ai_author_forum.articles.models import ArticleAuthorship
+
+    return (
+        ArticleAuthorship.objects.effective()
+        .filter(
+            user=user,
+            article=article,
+            article__primary_journal__status=JournalStatus.ACTIVE,
+        )
+        .select_related("article", "article__primary_journal", "user")
+        .first()
+    )
+
+
+def can_access_author_workbench(user) -> bool:
+    if not _active_user(user) or not getattr(user, "is_author", False):
+        return False
+    from ai_author_forum.articles.models import ArticleAuthorship
+
+    return (
+        ArticleAuthorship.objects.effective()
+        .filter(
+            user=user,
+            article__primary_journal__status=JournalStatus.ACTIVE,
+        )
+        .exists()
+    )
+
+
+def can_create_submission(user, journal) -> bool:
+    if not can_access_author_workbench(user):
+        return False
+    from ai_author_forum.journals.submission_services import (
+        journal_accepts_author_submission,
+    )
+
+    return journal_accepts_author_submission(journal)
+
+
+def can_view_submission(user, article) -> bool:
+    return get_article_authorship(user, article) is not None
+
+
+def can_edit_submission(user, article) -> bool:
+    authorship = get_article_authorship(user, article)
+    if authorship is None or not authorship.can_edit:
+        return False
+    if article.review_status != article.ReviewStatus.DRAFT:
+        return False
+    locked_delivery_states = {
+        article.PublicationStatus.PLACED,
+        article.PublicationStatus.BUILT,
+        article.PublicationStatus.PUBLISHED,
+    }
+    return article.publication_status not in locked_delivery_states
+
+
+def can_submit_submission(user, article) -> bool:
+    return can_edit_submission(user, article)
+
+
+def can_view_author_review_feedback(user, article) -> bool:
+    return can_view_submission(user, article)
+
+
+def filter_author_submissions(user, queryset):
+    if not _active_user(user) or not getattr(user, "is_author", False):
+        return queryset.none()
+    from ai_author_forum.articles.models import ArticleAuthorship
+
+    article_ids = (
+        ArticleAuthorship.objects.effective()
+        .filter(
+            user=user,
+            article__primary_journal__status=JournalStatus.ACTIVE,
+        )
+        .values("article_id")
+    )
+    return queryset.filter(pk__in=article_ids)
 
 
 def can_manage_journal_field(user, journal, field_name) -> bool:

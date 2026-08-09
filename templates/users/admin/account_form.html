@@ -28,6 +28,7 @@
     const institution=form.querySelector('[name="institution"]')?.value||'';
     const username=form.querySelector('[name="username"]')?.value||'-';
     const superAdmin=form.querySelector('[name="is_super_admin_account"]')?.checked;
+    const author=form.querySelector('[name="is_author_account"]')?.checked;
     const rows=[...form.querySelectorAll('[name$="-journal"]')].map((journal)=>{
       const prefix=journal.name.replace(/journal$/,'');
       if(form.querySelector(`[name="${prefix}DELETE"]`)?.checked)return null;
@@ -37,7 +38,8 @@
       const duties=role?.value==='associate_editor'?[...form.querySelectorAll(`[name="${prefix}responsibilities"]:checked`)].map((item)=>item.parentElement?.textContent?.trim()||item.value).join('、')||'未分配职责':'全部职责';
       return journal.selectedOptions[0]?.text&&journal.value?`${journal.selectedOptions[0].text} / ${role?.selectedOptions[0]?.text||'-'} / ${duties}`:null;
     }).filter(Boolean);
-    summary.textContent=`${name||'-'} (${username}) / ${superAdmin?'超级管理员':rows.join('；')||'未分配角色'}`;
+    const roles=[];if(superAdmin)roles.push('超级管理员');if(author)roles.push('作者');if(rows.length)roles.push(...rows);
+    summary.textContent=`${name||'-'} (${username}) / ${roles.join('；')||'未分配角色'}`;
   };
   form.addEventListener('input',(event)=>{if(event.target.matches('[name$="-public_name"],[name$="-public_affiliation"]'))event.target.dataset.manual='true';render();});
   form.addEventListener('change',render);

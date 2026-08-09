@@ -154,3 +154,17 @@ npm run test:e2e
 - 发布/回滚成功审计与数据库 manifest 激活位于同一事务；任一步失败都会恢复旧 filesystem current、回滚数据库状态并把 job 标记为 failed。
 - retry 只写 RETRY 语义审计，不再重复制造 PUBLISH 事件。
 - Playwright 默认不复用占用端口的未知服务；只有显式设置 `PLAYWRIGHT_REUSE_EXISTING_SERVER=1` 才允许复用。可用 `STATIC_E2E_PORT` 选择隔离端口，并可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` 指定受控 Chromium。
+
+## 11. 作者投稿发布边界
+
+作者工作台产生的 draft、revision 和审核提交不是静态发布输入。只有文章完成初审、终审并由有权编辑创建有效正式投放后，才能进入冻结快照。构建前检查不得因文章具有 `ArticleAuthorship` 而放宽审核、Wagtail live、投放、生效时间或资源完整性条件；作者账号不得成为 `build_static_site` actor。回滚只切换到已验证 manifest，不修改作者关系、投稿 revision 或审核历史。
+
+## 12. 静态资源并发与英文输出约束
+
+### 12.1 `collectstatic` 与发布复制
+
+发布器复制 `STATIC_ROOT` 到 release staging 时，`collectstatic --clear` 可能短暂删除并重新写入带哈希的 Wagtail 资源。发布器对这类 `FileNotFoundError`/`shutil.Error` 进行有限、递增间隔重试；重试耗尽后任务失败并提示静态资源在复制期间发生变化，不激活不完整 release。运维侧仍应避免把 `collectstatic` 与正式静态构建安排在同一时间窗，失败后先确认静态资源目录稳定，再使用新的 attempt 重试。
+
+### 12.2 英文页面的数据边界
+
+英文导航标签必须按 `NavigationGroup.code`、`NavigationItem.managed_code` 等稳定代码从受审阅词典解析；期刊和编辑身份优先使用独立英文字段。后台兼容层只翻译已知的旧中文界面标签，未知文本必须原样保留，因为它可能是文章标题、姓名、错误详情或其他需要操作者区分的业务数据。禁止对整页 HTML 使用“未知中文统一替换为占位符”的策略，也禁止让后台清洗器处理 `/en/` 前台正文。

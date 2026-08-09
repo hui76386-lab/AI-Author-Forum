@@ -104,6 +104,7 @@ static_publish -> articles/placements/site_settings（只读取已确认数据�
 - 实名账号：`ai_author_forum/users/models.py`、`services.py`、`views.py`；
 - 子期刊任命：`ai_author_forum/journals/models.py`、`editor_services.py`、`access.py`；
 - 正式文章：`ai_author_forum/articles/models.py`、`review_services.py`、`workflows.py`；
+- 作者投稿：`ai_author_forum/articles/author_services.py`、`author_views.py`、`ai_author_forum/journals/submission_services.py`；对象授权只来自 `ArticleAuthorship`；
 - 子期刊和导入：`ai_author_forum/journals/models.py`、`importers.py`、`management/commands/`；
 - 正式投放：`ai_author_forum/placements/models.py`、`services.py`；
 - 静态发布：`ai_author_forum/static_publish/models.py`、`services.py`、`management/commands/build_static_site.py`；
@@ -123,3 +124,7 @@ static_publish -> articles/placements/site_settings（只读取已确认数据�
 - 审核固定为 `draft -> submitted -> pending_final -> approved` 两级流程，每条 `ArticleReviewRecord` 绑定 revision 且不可更新或删除。终审后的正文或作者声明变化会重置审核。
 
 因此正式数据流固定为：导入暂存 -> canonical 草稿/revision -> 审核 -> 正式投放 -> 冻结构建快照 -> 不可变 manifest -> current 激活。任何兼容模型都不能跨越该链路直接进入前台。
+
+## 8. 作者投稿架构边界
+
+作者工作台是 canonical `ArticlePage` 的受控草稿入口，不是第二套文章模型或发布系统。作者对象权限由 `ArticleAuthorship` 提供，作者保存产生 Wagtail revision，提交复用统一审核 service；作者不能进入完整 Wagtail 页面树，也不能获得审核、投放、导入、Raw HTML 或静态发布权限。实现和运维细节见 `09-author-submission-role-development-spec.zh-CN.md` 与 `10-author-submission-implementation-and-operations.zh-CN.md`。

@@ -1,0 +1,103 @@
+{% extends "author/base.html" %}
+{% block title %}{% if mode == "create" %}新建投稿{% else %}编辑投稿{% endif %}{% endblock %}
+{% block content %}
+<section class="author-page-heading author-page-heading--submission">
+  <div>
+    <p class="author-eyebrow">{% if mode == "create" %}新投稿{% else %}草稿编辑{% endif %}</p>
+    <h1>{% if mode == "create" %}新建投稿{% else %}编辑：{{ article.title }}{% endif %}</h1>
+    <p class="author-muted">内容保存在草稿 revision 中；提交初审后会锁定，审核与发布仍由编辑流程完成。</p>
+  </div>
+  {% if mode == "create" %}<a class="author-link" href="{% url 'author:journals' %}">浏览全部开放期刊</a>{% endif %}
+</section>
+
+<form method="post" enctype="multipart/form-data" class="author-submission-form">
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+  {{ form.request_id }}
+  {{ form.expected_revision_id }}
+  {{ form.body_json }}
+
+  <div class="author-submission-layout">
+    <main class="author-submission-content">
+      <section class="author-form-section author-form-section--identity">
+        <div class="author-section-heading"><div><p class="author-section-index">01</p><h2>稿件信息</h2></div><p>先确定投稿期刊、栏目和文章的基本信息。</p></div>
+        {% if mode == "create" %}
+          <div class="author-journal-picker" data-journal-picker>
+            <label for="id_journal_filter">查找期刊</label>
+            <input id="id_journal_filter" type="search" autocomplete="off" placeholder="输入期刊中英文名称或研究方向" data-journal-filter>
+            <label class="author-field-label">{{ form.journal.label }}{{ form.journal }}{{ form.journal.errors }}</label>
+            <p class="author-field-hint" data-journal-count>只列出当前可接收作者投稿的期刊。</p>
+          </div>
+        {% endif %}
+        <div class="author-field-grid author-field-grid--identity">
+          <label>{{ form.title.label }}{{ form.title }}{{ form.title.errors }}</label>
+          <label>{{ form.article_type.label }}{{ form.article_type }}{{ form.article_type.errors }}</label>
+          <label>{{ form.category.label }}{{ form.category }}{{ form.category.errors }}<small>期刊变更后请重新选择栏目。</small></label>
+        </div>
+        <label>{{ form.abstract.label }}{{ form.abstract }}{{ form.abstract.errors }}</label>
+        <label>{{ form.keywords.label }}{{ form.keywords }}{{ form.keywords.errors }}<small>多个关键词请使用英文逗号分隔。</small></label>
+      </section>
+
+      <section class="author-form-section author-form-section--body">
+        <div class="author-section-heading"><div><p class="author-section-index">02</p><h2>正文</h2></div><p>通过受控内容块组织稿件，支持图片、表格和附件，不需要手写 HTML。</p></div>
+        <div class="author-body-editor" data-body-editor data-body-input="id_body_json">
+          <div class="author-body-editor__toolbar" aria-label="添加正文内容">
+            <button type="button" class="author-icon-command" data-add-body-block="paragraph" title="添加正文段落"><span aria-hidden="true">P</span> 正文</button>
+            <button type="button" class="author-icon-command" data-add-body-block="heading" title="添加章节标题"><span aria-hidden="true">H</span> 标题</button>
+            <button type="button" class="author-icon-command" data-add-body-block="image" title="添加图片与说明"><span aria-hidden="true">+</span> 图片</button>
+            <button type="button" class="author-icon-command" data-add-body-block="quote" title="添加引用"><span aria-hidden="true">&quot;</span> 引用</button>
+            <button type="button" class="author-icon-command" data-add-body-block="list" title="添加列表"><span aria-hidden="true">=</span> 列表</button>
+            <button type="button" class="author-icon-command" data-add-body-block="table" title="添加表格"><span aria-hidden="true">#</span> 表格</button>
+            <button type="button" class="author-icon-command" data-add-body-block="document" title="添加附件或文档"><span aria-hidden="true">+</span> 附件</button>
+          </div>
+          <p class="author-body-editor__notice">富文本仅保留段落、标题、加粗、斜体、列表和安全链接。Raw HTML 不提供给作者投稿入口。</p>
+          <div class="author-body-editor__blocks" data-body-blocks></div>
+          <p class="author-body-editor__empty" data-body-empty>从上方选择一种内容块开始撰写。</p>
+        </div>
+        {{ form.body_json.errors }}
+      </section>
+
+      <section class="author-form-section">
+        <div class="author-section-heading"><div><p class="author-section-index">03</p><h2>作者责任</h2></div><p>作者、通讯作者和声明会随本次 revision 固化。</p></div>
+        <section class="author-contributors" data-contributor-formset>
+          {{ formset.management_form }}
+          {{ formset.non_form_errors }}
+          <div data-contributor-forms>
+            {% for contributor in formset %}
+              <fieldset class="author-contributor">
+                {{ contributor.non_field_errors }}
+                <div class="author-field-grid"><label>{{ contributor.name.label }}{{ contributor.name }}{{ contributor.name.errors }}</label><label>{{ contributor.affiliation.label }}{{ contributor.affiliation }}{{ contributor.affiliation.errors }}</label></div>
+                <div class="author-contributor__actions"><label class="author-check">{{ contributor.is_corresponding }} {{ contributor.is_corresponding.label }}</label>{% if contributor.DELETE %}<label class="author-check">{{ contributor.DELETE }} 移除</label>{% endif %}</div>
+              </fieldset>
+            {% endfor %}
+          </div>
+          <button class="author-icon-command" type="button" data-add-contributor title="添加作者"><span aria-hidden="true">+</span> 添加作者</button>
+          <template data-contributor-template>
+            <fieldset class="author-contributor">
+              <div class="author-field-grid"><label>{{ formset.empty_form.name.label }}{{ formset.empty_form.name }}</label><label>{{ formset.empty_form.affiliation.label }}{{ formset.empty_form.affiliation }}</label></div>
+              <div class="author-contributor__actions"><label class="author-check">{{ formset.empty_form.is_corresponding }} {{ formset.empty_form.is_corresponding.label }}</label><label class="author-check">{{ formset.empty_form.DELETE }} 移除</label></div>
+            </fieldset>
+          </template>
+        </section>
+        <label>{{ form.responsibility_statement.label }}{{ form.responsibility_statement }}{{ form.responsibility_statement.errors }}</label>
+        <div class="author-field-grid"><label>{{ form.ai_co_authors.label }}{{ form.ai_co_authors }}{{ form.ai_co_authors.errors }}</label><label>{{ form.ai_contribution_statement.label }}{{ form.ai_contribution_statement }}{{ form.ai_contribution_statement.errors }}</label></div>
+      </section>
+    </main>
+
+    <aside class="author-submission-sidebar" aria-label="稿件资源">
+      <section class="author-sidebar-section">
+        <p class="author-section-index">04</p><h2>封面与资源</h2>
+        <label>{{ form.cover_image.label }}{{ form.cover_image }}{{ form.cover_image.errors }}<small>{{ form.cover_image.help_text }}</small></label>
+        {% if mode == "edit" %}<label class="author-check">{{ form.remove_cover }} {{ form.remove_cover.label }}</label>{% endif %}
+        <label>{{ form.featured_image_alt.label }}{{ form.featured_image_alt }}{{ form.featured_image_alt.errors }}<small>为封面提供清晰的替代文本。</small></label>
+      </section>
+      <section class="author-sidebar-section author-sidebar-section--notice"><h2>保存草稿</h2><p>保存不会投递给编辑，也不会更新正式前台。提交初审前可继续修改内容和期刊。</p></section>
+    </aside>
+  </div>
+
+  <div class="author-actions author-actions--submission">
+    <a class="author-button" href="{% if article %}{% url 'author:detail' article.pk %}{% else %}{% url 'author:dashboard' %}{% endif %}">取消</a>
+    <button class="author-button author-button--accent" type="submit">保存草稿</button>
+  </div>
+</form>
+{% endblock %}

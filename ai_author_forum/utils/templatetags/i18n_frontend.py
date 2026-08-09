@@ -16,6 +16,7 @@ from ai_author_forum.utils.public_i18n import (
     localized_category_description as get_localized_category_description,
     localized_category_name as get_localized_category_name,
     localized_discipline_name as get_localized_discipline_name,
+    localized_journal_action_label as get_localized_journal_action_label,
     localized_page_title as get_localized_page_title,
 )
 
@@ -88,6 +89,11 @@ def localized_discipline_name(value):
 @register.filter
 def localized_page_title(value):
     return get_localized_page_title(value)
+
+
+@register.filter
+def localized_journal_action_label(value, url=""):
+    return get_localized_journal_action_label(value, url)
 
 
 @register.filter

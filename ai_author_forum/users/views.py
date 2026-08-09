@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from django.contrib import messages
-from django.contrib.auth import get_user_model, update_session_auth_hash
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.contrib.auth import get_user_model, logout, update_session_auth_hash
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect
@@ -13,6 +13,12 @@ from django.views.generic import TemplateView
 from ai_author_forum.site_settings.access_control import can_manage_accounts
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 
+from .auth_scope import (
+    ADMIN_SCOPE,
+    AUTHOR_SCOPE,
+    clear_login_scope,
+    get_login_scope,
+)
 from .forms import (
     AccountCreateForm,
     AccountStatusForm,
@@ -49,7 +55,9 @@ class AccountListView(SuperAdminRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         User = get_user_model()
         status = self.request.GET.get("status", "")
-        users = User.objects.prefetch_related("groups", "journal_editor_assignments")
+        users = User.objects.prefetch_related(
+            "groups", "journal_editor_assignments", "article_authorships"
+        )
         if status in User.AccountStatus.values:
             users = users.filter(account_status=status)
         context.update(
@@ -79,6 +87,7 @@ class AccountCreateView(SuperAdminRequiredMixin, TemplateView):
         form = AccountCreateForm(request.POST)
         assignment_formset = JournalAssignmentFormSet(request.POST, prefix="roles")
         is_super_admin_account = request.POST.get("is_super_admin_account") == "on"
+        is_author_account = request.POST.get("is_author_account") == "on"
         forms_valid = form.is_valid() and assignment_formset.is_valid()
         assignments = []
         if forms_valid:
@@ -93,8 +102,10 @@ class AccountCreateView(SuperAdminRequiredMixin, TemplateView):
                     "超级管理员不能同时分配子期刊角色。",
                 )
                 forms_valid = False
-            elif not is_super_admin_account and not assignments:
-                form.add_error(None, "编辑账号必须至少分配一条子期刊任命。")
+            elif (
+                not is_super_admin_account and not assignments and not is_author_account
+            ):
+                form.add_error(None, "账号必须分配作者、编辑或超级管理员角色。")
                 forms_valid = False
         if forms_valid:
             try:
@@ -107,6 +118,7 @@ class AccountCreateView(SuperAdminRequiredMixin, TemplateView):
                     job_title=form.cleaned_data["job_title"],
                     temporary_password=form.cleaned_data["temporary_password"],
                     is_super_admin_account=is_super_admin_account,
+                    is_author_account=is_author_account,
                     assignments=assignments,
                     confirming_password=form.cleaned_data["confirming_password"],
                 )
@@ -129,6 +141,7 @@ class AccountDetailView(SuperAdminRequiredMixin, TemplateView):
             get_user_model().objects.prefetch_related(
                 "groups",
                 "journal_editor_assignments__journal",
+                "article_authorships__article",
             ),
             pk=kwargs["account_id"],
         )
@@ -248,18 +261,56 @@ class AccountResetPasswordView(SuperAdminRequiredMixin, TemplateView):
         )
 
 
+class LegacyRequiredPasswordChangeRedirectView(View):
+    """Compatibility endpoint; the actual form lives outside Wagtail."""
+
+    def dispatch(self, request, *args, **kwargs):
+        return redirect("account:change_password")
+
+
+def _password_change_destination(request, user):
+    scope = get_login_scope(request)
+    if scope == AUTHOR_SCOPE:
+        from ai_author_forum.site_settings.access_control import (
+            can_access_author_workbench,
+        )
+
+        if can_access_author_workbench(user):
+            return "author:dashboard"
+    if (scope == ADMIN_SCOPE and getattr(user, "is_staff", False)) or (
+        scope is None and getattr(user, "is_staff", False)
+    ):
+        return "wagtailadmin_home"
+    from ai_author_forum.site_settings.access_control import can_access_author_workbench
+
+    return (
+        "author:dashboard"
+        if can_access_author_workbench(user)
+        else "wagtailadmin_login"
+    )
+
+
 class RequiredPasswordChangeView(TemplateView):
-    template_name = "users/admin/required_password_change.html"
+    template_name = "account/change_password.html"
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
-            raise PermissionDenied
+            return redirect(
+                f"{reverse('wagtailadmin_login')}?next={reverse('account:change_password')}"
+            )
+        if (
+            not request.user.is_active
+            or request.user.account_status != request.user.AccountStatus.ACTIVE
+        ):
+            logout(request)
+            return redirect("wagtailadmin_login")
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.setdefault("form", RequiredPasswordChangeForm(self.request.user))
-        context["title"] = "修改临时密码"
+        context["title"] = "修改密码"
+        context["login_scope"] = get_login_scope(self.request)
         return context
 
     def post(self, request):
@@ -278,16 +329,36 @@ class RequiredPasswordChangeView(TemplateView):
                     actor=user,
                     target=user,
                     message="完成首次强制密码修改。",
+                    metadata={
+                        "operation_source": "account_password_change",
+                        "result": "success",
+                        "login_scope": get_login_scope(request),
+                    },
                 )
             update_session_auth_hash(request, user)
             clear_credential_failures("first_change", user.pk, ip_address)
             messages.success(request, "密码已更新。")
-            return redirect("wagtailadmin_home")
+            destination = _password_change_destination(request, user)
+            clear_login_scope(request)
+            return redirect(destination)
         record_credential_failure(
             "first_change",
             request.user.pk,
             ip_address,
             actor=request.user,
             target=request.user,
+        )
+        AuditLog.record(
+            action=AuditAction.PERMISSION,
+            status=AuditStatus.FAILURE,
+            actor=request.user,
+            target=request.user,
+            message="首次强制密码修改失败。",
+            metadata={
+                "operation_source": "account_password_change",
+                "result": "failure",
+                "invalid_fields": sorted(form.errors.keys()),
+            },
+            ip_address=ip_address,
         )
         return self.render_to_response(self.get_context_data(form=form))

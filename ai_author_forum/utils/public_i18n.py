@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from html import escape
+from urllib.parse import urlsplit
 
 from django.utils.safestring import mark_safe
 from django.utils.translation import get_language
@@ -72,6 +73,54 @@ NAVIGATION_GROUP_TRANSLATIONS = {
     "publish-with-us": "与我们合作发表",
 }
 
+# Navigation labels are stored as managed, source-language values.  The
+# managed code is the stable contract used by both the CMS and static output,
+# so English rendering must resolve it from a reviewed catalogue instead of
+# passing the Chinese database label through the response sanitizer.
+NAVIGATION_GROUP_ENGLISH = {
+    "explore-content": "Explore content",
+    "journals": "Journals",
+    "about-the-forum": "About the forum",
+    "co-authoring-with-ai": "Co-authoring with AI",
+    "for-readers": "For readers",
+    "about-this-journal": "About this journal",
+    "publish-with-us": "Publish with us",
+}
+
+NAVIGATION_ITEM_ENGLISH = {
+    "ai-article": "AI Article",
+    "news": "News",
+    "opinion": "Opinion",
+    "research-analysis": "Research analysis",
+    "books-and-culture": "Books & culture",
+    "careers": "Careers",
+    "podcasts": "Podcasts",
+    "videos": "Videos",
+    "current-issue": "Current issue",
+    "browse-issues": "Browse issues",
+    "a-z-journals": "Journals A-Z",
+    "forum-staff": "Forum staff",
+    "about-the-editors": "About the editors",
+    "research-cross-forum-editorial-team": "Research cross-forum editorial team",
+    "forum-information": "Forum information",
+    "forum-metrics": "Forum metrics",
+    "our-publishing-models": "Our publishing models",
+    "editorial-values-statement": "Editorial values statement",
+    "editorial-policies": "Editorial policies",
+    "journalistic-principles": "Journalistic principles",
+    "development-of-the-forum": "Development of the forum",
+    "awards": "Awards",
+    "contact": "Contact",
+    "definition-of-a-co-author-to-the-ai": "Definition of an AI co-author",
+    "responsibility-of-the-co-author": "Co-author responsibility",
+    "how-ai-authored-articles-produced": "How AI-authored articles are produced",
+    "readers-responsibility": "Readers' responsibility",
+    "research-articles": "Research articles",
+    "news-and-comment": "News & Comment",
+    "journal-information": "Journal information",
+    "author-guidelines": "Author guidelines",
+}
+
 NAVIGATION_ITEM_TRANSLATIONS = {
     "ai-article": "AI 文章",
     "news": "新闻",
@@ -110,6 +159,12 @@ STATIC_GROUP_TRANSLATIONS = {
     "about-the-forum": "关于论坛",
     "co-authoring-with-ai": "与 AI 共同署名",
     "for-readers": "读者指南",
+}
+
+STATIC_GROUP_ENGLISH = {
+    "about-the-forum": "About the forum",
+    "co-authoring-with-ai": "Co-authoring with AI",
+    "for-readers": "For readers",
 }
 
 STATIC_PAGE_TRANSLATIONS = {
@@ -167,6 +222,70 @@ STATIC_PAGE_TRANSLATIONS = {
     ),
 }
 
+STATIC_PAGE_ENGLISH = {
+    "forum-staff": (
+        "Forum staff",
+        "The team supporting forum operations, journals, and publishing.",
+    ),
+    "about-the-editors": (
+        "About the editors",
+        "Editorial responsibilities, review coordination, and decision boundaries.",
+    ),
+    "research-cross-forum-editorial-team": (
+        "Research cross-forum editorial team",
+        "Research standards and editorial consistency across participating journals.",
+    ),
+    "forum-information": (
+        "Forum information",
+        "AI Author Forum consists of a main site and multiple journal homepages.",
+    ),
+    "forum-metrics": (
+        "Forum metrics",
+        "Editorially reviewed article, journal, publication, and reader metrics.",
+    ),
+    "our-publishing-models": (
+        "Our publishing models",
+        "How AI-authored and AI-assisted content moves through review and controlled publishing.",
+    ),
+    "editorial-values-statement": (
+        "Editorial values statement",
+        "Transparent, responsible, and evidence-led editorial practice.",
+    ),
+    "editorial-policies": (
+        "Editorial policies",
+        "Submission, review, AI disclosure, correction, image, data, and citation policies.",
+    ),
+    "journalistic-principles": (
+        "Journalistic principles",
+        "Accuracy, source transparency, clear labelling, and timely corrections.",
+    ),
+    "development-of-the-forum": (
+        "Development of the forum",
+        "Forum goals, journal onboarding, content management, and static publishing.",
+    ),
+    "awards": ("Awards", "Verified awards, certifications, and community recognition."),
+    "contact": (
+        "Contact",
+        "Editorial, publishing, journal onboarding, and static-content correction routes.",
+    ),
+    "definition-of-a-co-author-to-the-ai": (
+        "Definition of an AI co-author",
+        "The scope, labelling, human responsibility, and disclosure requirements for AI co-authors.",
+    ),
+    "responsibility-of-the-co-author": (
+        "Co-author responsibility",
+        "Human co-authors remain responsible for accuracy, ethics, originality, citations, and reader guidance.",
+    ),
+    "how-ai-authored-articles-produced": (
+        "How AI-authored articles are produced",
+        "How AI-assisted articles move through human verification, editorial review, disclosure, and controlled release.",
+    ),
+    "readers-responsibility": (
+        "Readers' responsibility",
+        "Understand AI involvement, assess evidence quality, and use feedback and correction channels.",
+    ),
+}
+
 STATIC_SECTION_TRANSLATIONS = {
     "ai-article": ("AI 文章", "精选 AI 参与研究、写作与出版的文章。"),
     "news": ("新闻", "关注 AI 署名、学术出版与编辑社区的最新动态。"),
@@ -180,6 +299,22 @@ STATIC_SECTION_TRANSLATIONS = {
     "browse-issues": ("浏览期号", "浏览过往期号及其收录内容。"),
 }
 
+STATIC_SECTION_ENGLISH = {
+    key: {
+        "ai-article": "AI Article",
+        "news": "News",
+        "opinion": "Opinion",
+        "research-analysis": "Research analysis",
+        "books-and-culture": "Books & culture",
+        "careers": "Careers",
+        "podcasts": "Podcasts",
+        "videos": "Videos",
+        "current-issue": "Current issue",
+        "browse-issues": "Browse issues",
+    }.get(key, key.replace("-", " ").title())
+    for key in STATIC_SECTION_TRANSLATIONS
+}
+
 WAGTAIL_PAGE_TITLE_TRANSLATIONS = {
     "Explore content": "内容探索",
     "Journals": "期刊",
@@ -188,12 +323,28 @@ WAGTAIL_PAGE_TITLE_TRANSLATIONS = {
     "For readers": "读者指南",
 }
 
+WAGTAIL_PAGE_TITLE_ENGLISH = {
+    "Explore content": "Explore content",
+    "Journals": "Journals",
+    "About the forum": "About the forum",
+    "Co authoring with AI": "Co-authoring with AI",
+    "For readers": "For readers",
+}
+
 CATEGORY_TRANSLATIONS = {
     "Research": "研究",
     "News": "新闻",
     "Comment": "评论",
     "Research articles": "研究文章",
     "News & Comment": "新闻与评论",
+}
+
+CATEGORY_ENGLISH = {
+    "research": "Research",
+    "news": "News",
+    "comment": "Comment",
+    "research articles": "Research articles",
+    "news & comment": "News & comment",
 }
 
 DISCIPLINE_TRANSLATIONS = {
@@ -252,6 +403,16 @@ JOURNAL_FOCUS_TRANSLATIONS = {
     "digital-rights-ai": "人工智能对权利、能动性与正当程序的影响",
 }
 
+JOURNAL_ACTION_ENGLISH = {
+    "探索人工智能文章": "Explore AI articles",
+    "查看人工智能文章": "View AI articles",
+    "浏览最新内容": "Browse latest content",
+    "当前期号": "Current issue",
+    "浏览期号": "Browse issues",
+    "作者指南": "Author guidelines",
+    "联系我们": "Contact",
+}
+
 
 @dataclass(frozen=True)
 class LocalizedBlock:
@@ -263,13 +424,24 @@ def is_english(language_code=None):
     return normalize_language(language_code or get_language()) == ENGLISH_LANGUAGE
 
 
+def _contains_han(value):
+    return any("\u3400" <= character <= "\u9fff" for character in str(value or ""))
+
+
 def localized_navigation_label(
     value, *, group=False, language_code=None, fallback=None
 ):
     label = str(fallback or value or "")
-    if is_english(language_code):
-        return label
     key = str(value or label).strip().lower().replace("_", "-")
+    if is_english(language_code):
+        if group and label and not _contains_han(label):
+            return label
+        translations = NAVIGATION_GROUP_ENGLISH if group else NAVIGATION_ITEM_ENGLISH
+        if key in translations:
+            return translations[key]
+        if label and not _contains_han(label):
+            return label
+        return key.replace("-", " ").capitalize() or label
     translations = (
         NAVIGATION_GROUP_TRANSLATIONS if group else NAVIGATION_ITEM_TRANSLATIONS
     )
@@ -279,22 +451,35 @@ def localized_navigation_label(
 def localized_category_name(category, language_code=None):
     name = str(getattr(category, "name", category) or "")
     if is_english(language_code):
-        return name
+        code = str(getattr(category, "code", "") or "").strip().lower()
+        return CATEGORY_ENGLISH.get(code, CATEGORY_ENGLISH.get(name.lower(), name))
     return CATEGORY_TRANSLATIONS.get(name, name)
 
 
 def localized_static_group(value, language_code=None):
     value = str(value or "")
     if is_english(language_code):
-        return value
+        key = value.strip().lower().replace(" ", "-")
+        return STATIC_GROUP_ENGLISH.get(key, value)
     key = value.strip().lower().replace(" ", "-")
     return STATIC_GROUP_TRANSLATIONS.get(key, value)
 
 
 def localized_static_page(page, language_code=None):
-    if is_english(language_code):
-        return page
     result = dict(page)
+    if is_english(language_code):
+        title, description = STATIC_PAGE_ENGLISH.get(
+            str(page.get("slug", "")),
+            (str(page.get("title", "")), str(page.get("summary", ""))),
+        )
+        result["group"] = localized_static_group(page.get("group", ""), language_code)
+        if _contains_han(result.get("title")):
+            result["title"] = title
+        if _contains_han(result.get("summary")):
+            result["summary"] = description
+        if _contains_han(result.get("body")):
+            result["body"] = description
+        return result
     title, summary = STATIC_PAGE_TRANSLATIONS.get(
         str(page.get("slug", "")),
         (str(page.get("title", "")), str(page.get("summary", ""))),
@@ -312,9 +497,17 @@ def localized_static_page(page, language_code=None):
 
 
 def localized_static_section(section, language_code=None):
-    if is_english(language_code):
-        return section
     result = dict(section)
+    if is_english(language_code):
+        title = STATIC_SECTION_ENGLISH.get(
+            str(section.get("slug", "")), str(section.get("title", ""))
+        )
+        if _contains_han(result.get("title")):
+            result["title"] = title
+        description = str(section.get("description", ""))
+        result["intro_title"] = "Content scope"
+        result["intro_body"] = description
+        return result
     title, description = STATIC_SECTION_TRANSLATIONS.get(
         str(section.get("slug", "")),
         (str(section.get("title", "")), str(section.get("description", ""))),
@@ -334,7 +527,9 @@ def localized_static_section(section, language_code=None):
 def localized_category_description(category, language_code=None):
     source = str(getattr(category, "description", "") or "")
     if is_english(language_code):
-        return source
+        if source and not _contains_han(source):
+            return source
+        return "Reviewed articles in this category." if source else ""
     name = localized_category_name(category, language_code)
     return f"{name}主题汇集经过审核并已投放的相关研究文章。" if source else ""
 
@@ -351,12 +546,14 @@ def localized_page_title(page, language_code=None):
         getattr(page, "listing_title", "") or getattr(page, "title", page) or ""
     )
     if is_english(language_code):
-        return title
+        return WAGTAIL_PAGE_TITLE_ENGLISH.get(title, title)
     return WAGTAIL_PAGE_TITLE_TRANSLATIONS.get(title, title)
 
 
-def localized_journal_focus(journal):
+def localized_journal_focus(journal, language_code=None):
     slug = str(getattr(journal, "slug", "") or "")
+    if is_english(language_code):
+        return str(getattr(journal, "name", "") or slug)
     return JOURNAL_FOCUS_TRANSLATIONS.get(
         slug,
         f"{getattr(journal, 'name_cn', '') or getattr(journal, 'name', '')}相关研究",
@@ -366,9 +563,12 @@ def localized_journal_focus(journal):
 def localized_journal_description(journal, language_code=None):
     source = str(getattr(journal, "seo_description", "") or "")
     if is_english(language_code):
-        return source
+        if source and not _contains_han(source):
+            return source
+        name = str(getattr(journal, "name", "") or getattr(journal, "slug", ""))
+        return f"Research, analysis, and editorial content from {name}."
     name = str(getattr(journal, "name_cn", "") or getattr(journal, "name", "") or "")
-    focus = localized_journal_focus(journal)
+    focus = localized_journal_focus(journal, language_code)
     return (
         f"{name}聚焦于{focus}，关注可复现的方法、可靠的证据以及从研究到应用的实际影响。"
     )
@@ -376,16 +576,37 @@ def localized_journal_description(journal, language_code=None):
 
 def localized_journal_intro(journal, language_code=None):
     source = str(getattr(journal, "homepage_intro", "") or "")
-    if source:
+    if source and (not is_english(language_code) or not _contains_han(source)):
         return mark_safe(source)
     if is_english(language_code):
-        return ""
+        name = str(getattr(journal, "name", "") or getattr(journal, "slug", ""))
+        return mark_safe(
+            f"<p><strong>{escape(name)}</strong> publishes reviewed research, "
+            "analysis, and editorial content.</p>"
+        )
     name = str(getattr(journal, "name_cn", "") or getattr(journal, "name", "") or "")
-    focus = localized_journal_focus(journal)
+    focus = localized_journal_focus(journal, language_code)
     return mark_safe(
         f"<p><strong>{escape(name)}</strong>聚焦于{escape(focus)}。"
         "本期刊强调可复现的方法、可靠的证据，以及研究成果在真实场景中的责任使用。</p>"
     )
+
+
+def localized_journal_action_label(value, url="", language_code=None):
+    """Localize managed journal CTA and quick-link labels for public pages."""
+    source = str(value or "").strip()
+    if not is_english(language_code) or not _contains_han(source):
+        return source
+    translated = JOURNAL_ACTION_ENGLISH.get(source)
+    if translated:
+        return translated
+    path = urlsplit(str(url or "")).path.rstrip("/")
+    code = path.rsplit("/", 1)[-1].lower() if path else ""
+    if code in NAVIGATION_ITEM_ENGLISH:
+        return NAVIGATION_ITEM_ENGLISH[code]
+    if code:
+        return code.replace("-", " ").capitalize()
+    return "Open resource"
 
 
 def localized_journal_seo_title(journal, language_code=None):

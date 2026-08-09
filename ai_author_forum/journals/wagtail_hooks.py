@@ -50,6 +50,7 @@ from ai_author_forum.site_settings.access_control import (
 )
 from ai_author_forum.site_settings.models import AuditAction, AuditStatus
 from ai_author_forum.site_settings.services import record_audit_event
+from ai_author_forum.utils.admin_i18n import admin_text
 from ai_author_forum.utils.admin_ui import (
     is_english_admin,
     translate_form_to_english,
@@ -645,7 +646,7 @@ def register_admin_urls():
 @hooks.register("register_admin_menu_item")
 def register_editorial_team_menu_item():
     return EditorialTeamMenuItem(
-        "编辑团队",
+        admin_text("journals.editorial_team"),
         reverse("journals_editorial_team_index"),
         icon_name="group",
         order=209,
@@ -655,7 +656,7 @@ def register_editorial_team_menu_item():
 @hooks.register("register_admin_menu_item")
 def register_publication_issue_menu_item():
     return PublicationIssueMenuItem(
-        "Publication issues",
+        admin_text("journals.publication_issues"),
         reverse("journals_publication_issue_admin"),
         icon_name="date",
         order=210,
@@ -665,7 +666,7 @@ def register_publication_issue_menu_item():
 @hooks.register("register_admin_menu_item")
 def register_category_menu_item():
     return JournalCategoryMenuItem(
-        "栏目管理",
+        admin_text("journals.categories"),
         reverse("journals_category_admin"),
         icon_name="folder-open-inverse",
         order=211,
@@ -675,7 +676,7 @@ def register_category_menu_item():
 @hooks.register("register_admin_menu_item")
 def register_category_audit_menu_item():
     return JournalCategoryAuditMenuItem(
-        "栏目变更记录",
+        admin_text("journals.category_audit"),
         reverse("journals_category_audit"),
         icon_name="history",
         order=212,
@@ -685,7 +686,7 @@ def register_category_audit_menu_item():
 @hooks.register("register_admin_menu_item")
 def register_import_menu_item():
     return JournalImportMenuItem(
-        "批量导入",
+        admin_text("journals.import"),
         reverse("journals_import_dashboard"),
         icon_name="upload",
         order=213,

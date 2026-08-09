@@ -22,6 +22,11 @@ class AccountCreateForm(forms.Form):
         required=False,
         label="超级管理员",
     )
+    is_author_account = forms.BooleanField(
+        required=False,
+        label="作者",
+        help_text="作者账号不获得 Wagtail 后台权限；还需为具体文章授予投稿关系。",
+    )
     confirming_password = forms.CharField(
         required=False,
         strip=False,

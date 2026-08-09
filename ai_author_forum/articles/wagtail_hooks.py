@@ -26,6 +26,7 @@ from wagtail.models import (
 from wagtail.signals import workflow_approved, workflow_rejected, workflow_submitted
 
 from ai_author_forum.journals.models import JournalCategory, JournalCategoryStatus
+from ai_author_forum.utils.admin_i18n import admin_text
 
 from .import_views import (
     article_import_confirm,
@@ -82,6 +83,11 @@ class ArticleAdminViewSet(ViewSet):
     url_namespace = "article_admin"
 
     def get_urlpatterns(self):
+        from .author_views import (
+            AdminArticleAuthorshipView,
+            AdminControlledTransferView,
+        )
+
         require_admin_access = permission_required(WAGTAIL_ADMIN_ACCESS_PERMISSION)
         return [
             path("import/", article_import_dashboard, name="import"),
@@ -137,6 +143,16 @@ class ArticleAdminViewSet(ViewSet):
                 "<int:page_id>/submit-review/",
                 require_admin_access(ArticleSubmitReviewView.as_view()),
                 name="submit_review",
+            ),
+            path(
+                "<int:article_id>/authorships/",
+                require_admin_access(AdminArticleAuthorshipView.as_view()),
+                name="authorships",
+            ),
+            path(
+                "<int:article_id>/transfer/",
+                require_admin_access(AdminControlledTransferView.as_view()),
+                name="controlled_transfer",
             ),
             path(
                 "category-options/",
@@ -236,7 +252,7 @@ def register_article_admin_viewset():
 @hooks.register("register_admin_menu_item")
 def register_all_articles_menu_item():
     return ArticleListMenuItem(
-        "所有文章",
+        admin_text("articles.all"),
         reverse_lazy("article_admin:index"),
         name="all-articles",
         icon_name="doc-full",
@@ -247,7 +263,7 @@ def register_all_articles_menu_item():
 @hooks.register("register_admin_menu_item")
 def register_pending_articles_menu_item():
     return ArticleReviewMenuItem(
-        "待审核",
+        admin_text("articles.pending_review"),
         reverse_lazy("article_admin:pending"),
         name="pending-articles",
         icon_name="list-ul",
@@ -258,7 +274,7 @@ def register_pending_articles_menu_item():
 @hooks.register("register_admin_menu_item")
 def register_placement_sync_exception_menu_item():
     return PlacementSyncExceptionMenuItem(
-        "投放同步异常",
+        admin_text("placements.sync_errors"),
         f"{reverse_lazy('system-category-placements:index')}?errors=1",
         name="placement-sync-exceptions",
         icon_name="warning",
@@ -616,7 +632,7 @@ def sync_article_status_on_workflow_submitted(sender, instance, user, **kwargs):
 @hooks.register("register_admin_menu_item")
 def register_final_articles_menu_item():
     return ArticleFinalReviewMenuItem(
-        "本刊待终审",
+        admin_text("articles.final_review"),
         reverse_lazy("article_admin:final"),
         name="final-review-articles",
         icon_name="clipboard-list",

@@ -6,7 +6,9 @@ from django.db import models, transaction
 from django.http import HttpResponsePermanentRedirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.text import slugify
+from django.utils.translation import get_language
 from modelcluster.fields import ParentalKey
 from wagtail.admin.panels import (
     FieldPanel,
@@ -287,6 +289,13 @@ class ArticlePage(Page):
         choices=ReviewStatus.choices,
         default=ReviewStatus.DRAFT,
     )
+    has_ever_been_submitted = models.BooleanField(
+        default=False,
+        db_index=True,
+        editable=False,
+    )
+    first_submitted_at = models.DateTimeField(null=True, blank=True, editable=False)
+    last_submitted_at = models.DateTimeField(null=True, blank=True, editable=False)
     publication_status = models.CharField(
         max_length=16,
         choices=PublicationStatus.choices,
@@ -910,6 +919,270 @@ class ArticlePage(Page):
         ]
 
 
+class ArticleAuthorshipQuerySet(models.QuerySet):
+    def effective(self):
+        return self.filter(
+            revoked_at__isnull=True,
+            user__is_active=True,
+            user__account_status="active",
+            user__is_author=True,
+        )
+
+
+class ArticleAuthorship(models.Model):
+    """Object-level author access; public contributor names are not authority."""
+
+    class Role(models.TextChoices):
+        OWNER = "owner", "投稿负责人"
+        CO_AUTHOR = "co_author", "共同作者"
+
+    article = models.ForeignKey(
+        ArticlePage,
+        on_delete=models.PROTECT,
+        related_name="authorships",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="article_authorships",
+    )
+    role = models.CharField(max_length=16, choices=Role.choices)
+    can_edit = models.BooleanField(default=False)
+    is_corresponding = models.BooleanField(default=False)
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="invited_article_authorships",
+    )
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = ArticleAuthorshipQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["article_id", "role", "created_at", "pk"]
+        indexes = [
+            models.Index(fields=["user", "revoked_at", "can_edit"]),
+            models.Index(fields=["article", "revoked_at", "role"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["article", "user"],
+                name="articles_unique_article_user_authorship",
+            ),
+            models.UniqueConstraint(
+                fields=["article"],
+                condition=models.Q(role="owner", revoked_at__isnull=True),
+                name="articles_one_effective_submission_owner",
+            ),
+            models.UniqueConstraint(
+                fields=["article"],
+                condition=models.Q(is_corresponding=True, revoked_at__isnull=True),
+                name="articles_one_effective_corresponding_author",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(can_edit=False)
+                    | models.Q(role="owner")
+                    | models.Q(accepted_at__isnull=False)
+                ),
+                name="articles_authorship_edit_requires_acceptance",
+            ),
+        ]
+        permissions = [
+            ("manage_article_authorship", "可管理文章投稿关系"),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.revoked_at is not None:
+            self.can_edit = False
+        elif self.role == self.Role.OWNER:
+            self.can_edit = True
+            self.accepted_at = self.accepted_at or timezone.now()
+        elif self.can_edit and self.accepted_at is None:
+            errors["can_edit"] = "共同作者接受邀请后才能获得编辑权。"
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("投稿关系必须撤销，不能删除。")
+
+    @property
+    def is_effective(self):
+        return bool(
+            self.revoked_at is None
+            and self.user.is_active
+            and self.user.account_status == "active"
+            and self.user.is_author
+        )
+
+    def __str__(self):
+        return f"{self.article}: {self.user} ({self.get_role_display()})"
+
+
+class AuthorSubmissionOperationQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("作者投稿操作记录创建后不可修改。")
+
+    def delete(self):
+        raise ValidationError("作者投稿操作记录创建后不可删除。")
+
+
+class AuthorSubmissionOperation(models.Model):
+    class Action(models.TextChoices):
+        CREATE = "create", "创建投稿"
+        SAVE = "save", "保存投稿"
+        CHANGE_JOURNAL = "change_journal", "作者更换期刊"
+        SUBMIT = "submit", "提交初审"
+        GRANT = "grant", "授予投稿关系"
+        REVOKE = "revoke", "撤销投稿关系"
+        TRANSFER = "transfer", "编辑受控转投"
+
+    request_id = models.UUIDField(unique=True)
+    action = models.CharField(max_length=24, choices=Action.choices)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="author_submission_operations",
+    )
+    article = models.ForeignKey(
+        ArticlePage,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="author_operations",
+    )
+    authorship = models.ForeignKey(
+        ArticleAuthorship,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="operations",
+    )
+    revision = models.ForeignKey(
+        "wagtailcore.Revision",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="author_submission_operations",
+    )
+    result = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AuthorSubmissionOperationQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [models.Index(fields=["article", "action", "created_at"])]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("作者投稿操作记录创建后不可修改。")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("作者投稿操作记录创建后不可删除。")
+
+
+class AuthorSubmissionAsset(models.Model):
+    class Kind(models.TextChoices):
+        COVER = "cover", "文章封面"
+        INLINE_IMAGE = "inline_image", "正文图片"
+        ATTACHMENT = "attachment", "投稿附件"
+
+    class ScanStatus(models.TextChoices):
+        PENDING = "pending", "待扫描"
+        CLEAN = "clean", "通过"
+        REJECTED = "rejected", "已拒绝"
+
+    article = models.ForeignKey(
+        ArticlePage,
+        on_delete=models.PROTECT,
+        related_name="author_assets",
+    )
+    authorship = models.ForeignKey(
+        ArticleAuthorship,
+        on_delete=models.PROTECT,
+        related_name="assets",
+    )
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="author_submission_assets",
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    image = models.ForeignKey(
+        "images.CustomImage",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="author_submission_assets",
+    )
+    document = models.ForeignKey(
+        "wagtaildocs.Document",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="author_submission_assets",
+    )
+    original_name = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=120)
+    size = models.PositiveIntegerField()
+    sha256 = models.CharField(max_length=64, db_index=True)
+    scan_status = models.CharField(
+        max_length=12,
+        choices=ScanStatus.choices,
+        default=ScanStatus.PENDING,
+        db_index=True,
+    )
+    scan_detail = models.CharField(max_length=255, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["article_id", "kind", "-created_at", "-pk"]
+        indexes = [models.Index(fields=["article", "kind", "is_active"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        kind__in=["cover", "inline_image"],
+                        image__isnull=False,
+                        document__isnull=True,
+                    )
+                    | models.Q(
+                        kind="attachment",
+                        image__isnull=True,
+                        document__isnull=False,
+                    )
+                ),
+                name="articles_author_asset_kind_payload",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.kind in {self.Kind.COVER, self.Kind.INLINE_IMAGE}:
+            if self.image_id is None or self.document_id is not None:
+                raise ValidationError("图片资产必须且只能关联一张图片。")
+        elif self.kind == self.Kind.ATTACHMENT:
+            if self.document_id is None or self.image_id is not None:
+                raise ValidationError("附件资产必须且只能关联一个文档。")
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("作者投稿资产必须停用，不能删除。")
+
+
 class ArticleContributor(Orderable):
     """A person credited on an article, with an editorial identity when needed."""
 
@@ -972,7 +1245,8 @@ class ArticleContributor(Orderable):
     def display_identity(self, language_code=None):
         if self.identity == self.Identity.CUSTOM:
             return self.custom_identity
-        if str(language_code or "").lower().startswith("en"):
+        active_language = language_code or get_language()
+        if str(active_language or "").lower().startswith("en"):
             return self.ENGLISH_IDENTITIES.get(
                 self.identity, self.get_identity_display()
             )
@@ -1285,6 +1559,7 @@ class ArticleReviewRecord(models.Model):
         FINAL_RETURN = "final_return", "终审退回"
         FINAL_REJECT = "final_reject", "终审拒绝"
         REOPEN = "reopen", "重新开启"
+        TRANSFER = "transfer", "受控转投"
 
     article = models.ForeignKey(
         ArticlePage,
@@ -1321,6 +1596,23 @@ class ArticleReviewRecord(models.Model):
     reviewer_role = models.CharField(max_length=24, blank=True)
     request_id = models.UUIDField(null=True, blank=True, unique=True)
     comment = models.TextField(blank=True)
+    author_visible_comment = models.TextField(blank=True)
+    content_sha256 = models.CharField(max_length=64, blank=True)
+    submission_owner = models.ForeignKey(
+        ArticleAuthorship,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="submission_review_records",
+    )
+    submission_journal = models.ForeignKey(
+        "journals.Journal",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="author_submission_review_records",
+    )
+    authorship_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = ImmutableReviewRecordQuerySet.as_manager()
@@ -1339,6 +1631,7 @@ class ArticleReviewRecord(models.Model):
             self.Action.INITIAL_RETURN,
             self.Action.INITIAL_REJECT,
             self.Action.REOPEN,
+            self.Action.TRANSFER,
         }
         final_actions = {
             self.Action.FINAL_APPROVE,

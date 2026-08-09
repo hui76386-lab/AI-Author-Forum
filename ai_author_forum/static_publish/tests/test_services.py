@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -49,6 +50,11 @@ PROVIDER = "ai_author_forum.static_publish.tests.providers.TestTargetProvider"
 )
 class StaticPublisherTests(TestCase):
     def setUp(self):
+        snapshot_patcher = patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        )
+        snapshot_patcher.start()
+        self.addCleanup(snapshot_patcher.stop)
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.media_temporary = TemporaryDirectory()
@@ -142,6 +148,62 @@ class StaticPublisherTests(TestCase):
                     "current/static/css/main.abc123.css",
                 ).is_file()
             )
+
+    def test_copy_assets_retries_when_collectstatic_changes_the_tree(self):
+        with (
+            TemporaryDirectory() as static_root,
+            TemporaryDirectory() as media_root,
+            TemporaryDirectory() as staging_root,
+        ):
+            asset = Path(static_root, "wagtailadmin/js/chooser.js")
+            asset.parent.mkdir(parents=True)
+            asset.write_text("chooser", encoding="utf-8")
+            real_copytree = shutil.copytree
+            attempts = 0
+
+            def flaky_copytree(source, destination, *args, **kwargs):
+                nonlocal attempts
+                if Path(source) == Path(static_root):
+                    attempts += 1
+                    if attempts == 1:
+                        raise FileNotFoundError("collectstatic replaced a file")
+                return real_copytree(source, destination, *args, **kwargs)
+
+            with (
+                self.settings(STATIC_ROOT=static_root, MEDIA_ROOT=media_root),
+                patch(
+                    "ai_author_forum.static_publish.services.shutil.copytree",
+                    side_effect=flaky_copytree,
+                ),
+                patch("ai_author_forum.static_publish.services.time.sleep") as sleep,
+            ):
+                self.publisher._copy_assets(Path(staging_root))
+
+            self.assertEqual(attempts, 2)
+            sleep.assert_called_once_with(0.1)
+            self.assertTrue(
+                Path(staging_root, "static/wagtailadmin/js/chooser.js").is_file()
+            )
+
+    def test_copy_assets_reports_a_stable_error_after_retry_exhaustion(self):
+        with TemporaryDirectory() as static_root, TemporaryDirectory() as staging_root:
+            Path(static_root, "present.txt").write_text("asset", encoding="utf-8")
+            with (
+                self.settings(STATIC_ROOT=static_root),
+                patch(
+                    "ai_author_forum.static_publish.services.shutil.copytree",
+                    side_effect=FileNotFoundError("tree is changing"),
+                ) as copytree,
+                patch("ai_author_forum.static_publish.services.time.sleep") as sleep,
+            ):
+                with self.assertRaisesMessage(
+                    PublishError,
+                    "Collected static assets changed during copy; retry the publish",
+                ):
+                    self.publisher._copy_assets(Path(staging_root))
+
+            self.assertEqual(copytree.call_count, 5)
+            self.assertEqual(sleep.call_count, 4)
 
     def test_render_failure_without_exception_code_records_fallback_code(self):
         job = StaticPublishJob.objects.create(
@@ -512,6 +574,11 @@ class StaticPublisherTests(TestCase):
 )
 class ContentReadinessPublishGateTests(TestCase):
     def setUp(self):
+        snapshot_patcher = patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        )
+        snapshot_patcher.start()
+        self.addCleanup(snapshot_patcher.stop)
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.publisher = StaticPublisher(self.temporary.name)
@@ -663,6 +730,11 @@ ARTICLE_PROVIDER = (
 )
 class ArticlePublicationStatusTests(TestCase):
     def setUp(self):
+        snapshot_patcher = patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        )
+        snapshot_patcher.start()
+        self.addCleanup(snapshot_patcher.stop)
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.media_temporary = TemporaryDirectory()

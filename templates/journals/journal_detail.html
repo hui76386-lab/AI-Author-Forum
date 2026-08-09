@@ -20,15 +20,15 @@
       {% endif %}
       <div class="c-journal-home__actions">
         {% if journal.hero_primary_cta_url %}
-        <a class="c-journal-home__action c-journal-home__action--primary" href="{{ journal.hero_primary_cta_url|localized_url }}">{% if journal.hero_primary_cta_text %}{{ journal.hero_primary_cta_text }}{% else %}{% ui_text 'explore_ai_articles' 'Explore AI articles' %}{% endif %}</a>
+        <a class="c-journal-home__action c-journal-home__action--primary" href="{{ journal.hero_primary_cta_url|localized_url }}">{% if journal.hero_primary_cta_text %}{{ journal.hero_primary_cta_text|localized_journal_action_label:journal.hero_primary_cta_url }}{% else %}{% ui_text 'explore_ai_articles' 'Explore AI articles' %}{% endif %}</a>
         {% else %}
-        <a class="c-journal-home__action c-journal-home__action--primary" href="#journal-articles">{% if journal.hero_primary_cta_text %}{{ journal.hero_primary_cta_text }}{% else %}{% ui_text 'explore_ai_articles' 'Explore AI articles' %}{% endif %}</a>
+        <a class="c-journal-home__action c-journal-home__action--primary" href="#journal-articles">{% if journal.hero_primary_cta_text %}{{ journal.hero_primary_cta_text|localized_journal_action_label:'#journal-articles' }}{% else %}{% ui_text 'explore_ai_articles' 'Explore AI articles' %}{% endif %}</a>
         {% endif %}
         <a class="c-journal-home__action" href="{{ '/journals/'|localized_url }}">{% ui_text 'view_all_journals' 'View all journals' %}</a>
       </div>
       {% if journal.hero_quick_links %}
       <nav class="c-journal-home__quick-links" aria-label="{% ui_text 'journal_quick_links' 'Journal quick links' %}">
-        {% for item in journal.hero_quick_links %}<a href="{{ item.value.url|localized_url }}"{% if item.value.open_in_new_tab %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ item.value.label }}</a>{% endfor %}
+        {% for item in journal.hero_quick_links %}<a href="{{ item.value.url|localized_url }}"{% if item.value.open_in_new_tab %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ item.value.label|localized_journal_action_label:item.value.url }}</a>{% endfor %}
       </nav>
       {% endif %}
     </div>

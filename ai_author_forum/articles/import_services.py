@@ -1915,7 +1915,7 @@ def confirm_article_import(
         )
     with transaction.atomic():
         job = (
-            ArticleImportJob.objects.select_for_update()
+            ArticleImportJob.objects.select_for_update(of=("self",))
             .select_related("target_journal")
             .get(pk=preview_job.pk)
         )

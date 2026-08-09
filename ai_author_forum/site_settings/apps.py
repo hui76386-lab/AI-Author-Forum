@@ -43,10 +43,12 @@ class SiteSettingsConfig(AppConfig):
         post_save.connect(
             copy_default_navigation,
             sender=Journal,
+            weak=False,
             dispatch_uid="site_settings.copy_default_navigation_to_new_journal",
         )
         post_migrate.connect(
             bootstrap_managed_navigation,
             sender=self,
+            weak=False,
             dispatch_uid="site_settings.bootstrap_managed_navigation",
         )

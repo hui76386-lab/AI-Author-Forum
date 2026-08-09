@@ -904,11 +904,23 @@ def get_content_column_context(
         year=year,
         page_number=page_number,
     )
+    navigation_item_label = (
+        localized_navigation_label(item.managed_code, fallback=item.label)
+        if is_english()
+        else item.label
+    )
+    page_title = config.seo_title or item.label
+    if is_english():
+        page_title = localized_navigation_label(
+            item.managed_code,
+            fallback=page_title,
+        )
     return {
         "journal": journal,
         "navigation_item": item,
+        "navigation_item_label": navigation_item_label,
         "column_config": config,
-        "page_title": config.seo_title or item.label,
+        "page_title": page_title,
         "featured_placements": featured[:1],
         "secondary_placements": secondary[:3],
         "article_placements": paged_articles,

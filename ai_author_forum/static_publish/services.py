@@ -622,16 +622,7 @@ class StaticPublisher:
     def _snapshot_targets(self, job, paths):
         had_outer_transaction = connection.in_atomic_block
         with transaction.atomic():
-            if connection.vendor == "postgresql":
-                if had_outer_transaction:
-                    raise PublishError(
-                        "静态发布必须在现有数据库事务之外启动，"
-                        "以建立可重复读的输入快照。"
-                    )
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE"
-                    )
+            self._configure_snapshot_transaction(had_outer_transaction)
             snapshot_at = timezone.now()
             targets = list(self._targets(paths))
             if paths and not targets:
@@ -700,6 +691,19 @@ class StaticPublisher:
                 )
             )
         return tuple(snapshots), snapshot_at
+
+    @staticmethod
+    def _configure_snapshot_transaction(had_outer_transaction):
+        if connection.vendor != "postgresql":
+            return
+        if had_outer_transaction:
+            raise PublishError(
+                "静态发布必须在现有数据库事务之外启动，" "以建立可重复读的输入快照。"
+            )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE"
+            )
 
     def _validate_target_paths(self, targets):
         paths = [target.output_path for target in targets]
@@ -784,7 +788,30 @@ class StaticPublisher:
         # as a fallback for development and uncollected assets.
         static_root = Path(settings.STATIC_ROOT)
         if static_root.is_dir():
-            shutil.copytree(static_root, static_destination, dirs_exist_ok=True)
+            # ``web`` and ``worker`` share STATIC_ROOT.  A container restart
+            # may run collectstatic while a publish job is copying the tree;
+            # copytree then observes a file between unlink and rewrite and
+            # raises a raw ``shutil.Error``.  A short retry window preserves
+            # the atomic release contract without masking genuinely missing
+            # assets (the later reference validation still reports those).
+            copy_error = None
+            for attempt in range(5):
+                try:
+                    shutil.copytree(
+                        static_root,
+                        static_destination,
+                        dirs_exist_ok=True,
+                    )
+                    copy_error = None
+                    break
+                except (FileNotFoundError, shutil.Error) as exc:
+                    copy_error = exc
+                    if attempt < 4:
+                        time.sleep(0.1 * (attempt + 1))
+            if copy_error is not None:
+                raise PublishError(
+                    "Collected static assets changed during copy; retry the publish"
+                ) from copy_error
 
         for finder in finders.get_finders():
             for relative, storage in finder.list([]):

@@ -1,0 +1,5 @@
+{% extends "wagtailadmin/base.html" %}
+{% load static wagtailadmin_tags %}
+{% block titletag %}受控转投 - {{ article.title }}{% endblock %}
+{% block content %}{% include "wagtailadmin/shared/header.html" with title="受控转投" subtitle=article.title icon="arrow-right" %}<div class="nice-padding"><p>转投会终止当前审核任务、清除初审分派、重新校验目标栏目并从目标期刊初审开始。</p><form method="post">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}{% formattedfield field %}{% endfor %}<button class="button button-primary" type="submit">确认受控转投</button></form></div>{% endblock %}
+{% block extra_js %}{{ block.super }}<script src="{% static 'articles/js/author-workbench.js' %}"></script>{% endblock %}

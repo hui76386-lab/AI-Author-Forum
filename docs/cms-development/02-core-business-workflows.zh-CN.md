@@ -159,3 +159,9 @@ Wagtail Workflow 固定为“初审”和“终审”两个任务，自定义审
 ### 8.3 发布边界
 
 审核通过、投放同步、静态构建和 manifest 激活保持为四个独立状态转换。任何一步失败都不得倒推或伪造前一步成功；新 release 未完整通过时必须保留旧 current。
+
+## 9. 作者投稿流程
+
+作者只能在具备有效主编辑且开放投稿的 active 期刊创建 canonical `ArticlePage` 草稿。创建、保存、首次提交前改刊和提交均通过 `author_services.py`，并绑定有效 `ArticleAuthorship`、request id 和 expected revision。首次提交后文章锁定；编辑以单独的公开理由退回后作者可创建新 revision 并重新提交，但不能自行改刊。编辑受控转投会取消旧工作流、清除原分派、生成新 revision 和审核记录，并从目标期刊初审重新开始。
+
+作者投稿终审通过后仍只到达 approved/待投放状态。主编辑必须另行创建并执行正式投放，静态构建仍只读取审核通过且有效投放的数据。完整契约见 `09-author-submission-role-development-spec.zh-CN.md`。

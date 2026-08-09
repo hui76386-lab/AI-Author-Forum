@@ -29,9 +29,20 @@ from ai_author_forum.test_helpers import (
 )
 
 
-@override_settings(STATIC_CATEGORY_PAGE_SIZE=1, STATIC_PUBLISH_KEEP_RELEASES=5)
+@override_settings(
+    STATIC_CATEGORY_PAGE_SIZE=1,
+    STATIC_PUBLISH_KEEP_RELEASES=5,
+    STATIC_PUBLISH_ENFORCE_CONTENT_READINESS=False,
+)
 class CategoryStaticPublishTests(TestCase):
     def setUp(self):
+        from unittest.mock import patch
+
+        snapshot_patcher = patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        )
+        snapshot_patcher.start()
+        self.addCleanup(snapshot_patcher.stop)
         self.admin = grant_business_super_admin(
             get_user_model().objects.create_user(
                 username="category-static-admin",

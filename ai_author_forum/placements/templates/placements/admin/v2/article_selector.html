@@ -1,12 +1,13 @@
 {% extends "placements/admin/v2/base.html" %}
+{% load admin_i18n_tags %}
 {% block workflow_content %}
 {% include "placements/admin/v2/stepper.html" %}
 <div class="page-heading">
   <div>
-    <h2>选择文章 <span class="muted">/ Select articles</span></h2>
+    <h2>选择文章</h2>
     <p>只显示审核通过且所属子期刊启用的文章。搜索支持标题、slug、摘要、作者、关键词和子期刊名称。</p>
   </div>
-  {% if selected_journal %}<div class="selected-target"><strong>目标子期刊</strong><span>{{ selected_journal.name_cn|default:selected_journal.name }}</span><span class="muted">{{ selected_journal.slug }}</span></div>{% endif %}
+  {% if selected_journal %}<div class="selected-target"><strong>目标子期刊</strong><span>{{ selected_journal.name_cn|default:selected_journal.name|admin_data }}</span><span class="muted">{{ selected_journal.slug|admin_data }}</span></div>{% endif %}
 </div>
 
 <form class="filters" method="get" action="{{ next_url }}">
@@ -60,12 +61,12 @@
               {% endif %}
             </td>
             <td class="article-title">
-              {{ article.title }}
-              <div class="muted">{{ article.static_slug }} · #{{ article.pk }}</div>
+              {{ article.title|admin_data }}
+              <div class="muted">{{ article.static_slug|admin_data }} · #{{ article.pk }}</div>
             </td>
             <td>
-              {{ article.primary_journal.name_cn|default:article.primary_journal.name }}
-              <div class="muted">{{ article.primary_journal.slug }}</div>
+              {{ article.primary_journal.name_cn|default:article.primary_journal.name|admin_data }}
+              <div class="muted">{{ article.primary_journal.slug|admin_data }}</div>
             </td>
             <td><span class="status-badge status-badge--ready">审核通过</span><div class="muted">可投放</div></td>
             <td>

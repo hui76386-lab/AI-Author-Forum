@@ -7,7 +7,7 @@ from .views import (
     AccountListView,
     AccountResetPasswordView,
     AccountStatusView,
-    RequiredPasswordChangeView,
+    LegacyRequiredPasswordChangeRedirectView,
 )
 
 app_name = "account_admin"
@@ -17,7 +17,7 @@ urlpatterns = [
     path("new/", AccountCreateView.as_view(), name="new"),
     path(
         "change-password/",
-        RequiredPasswordChangeView.as_view(),
+        LegacyRequiredPasswordChangeRedirectView.as_view(),
         name="change_password",
     ),
     path("<int:account_id>/", AccountDetailView.as_view(), name="detail"),

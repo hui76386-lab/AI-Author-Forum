@@ -1325,7 +1325,8 @@ class ArticlePageWorkflowTests(TestCase):
         self.assertTrue(resolved.is_placeholder)
         self.assertEqual(resolved.source, "placeholder")
         self.assertEqual(resolved.alt, article.title)
-        self.assertTrue(resolved.placeholder_url.endswith("/article-1.png"))
+        self.assertIn("/article-1.", resolved.placeholder_url)
+        self.assertTrue(resolved.placeholder_url.endswith(".png"))
 
         template_root = Path(__file__).resolve().parents[3] / "templates"
         template_paths = (

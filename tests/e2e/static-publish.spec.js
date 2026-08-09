@@ -41,7 +41,7 @@ const formalPages = [
   },
   {
     path: acceptance.content_column_path,
-    title: /Content unavailable in English/,
+    title: /Research articles/,
     content: "Static acceptance content column headline",
   },
   {

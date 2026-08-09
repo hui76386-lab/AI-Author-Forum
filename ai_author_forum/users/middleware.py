@@ -5,6 +5,8 @@ from django.shortcuts import redirect
 
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 
+from .auth_scope import ADMIN_SCOPE, clear_login_scope, set_login_scope
+
 MAX_CREDENTIAL_ATTEMPTS = 5
 CREDENTIAL_COOLDOWN_SECONDS = 900
 PASSWORD_CHANGE_RESOURCE_PATHS = frozenset(
@@ -13,6 +15,9 @@ PASSWORD_CHANGE_RESOURCE_PATHS = frozenset(
         "/admin/sprite/",
     }
 )
+NEUTRAL_PASSWORD_CHANGE_PATH = "/account/change-password/"
+LEGACY_PASSWORD_CHANGE_PATH = "/admin/accounts/change-password/"
+AUTHOR_FORBIDDEN_PREFIXES = ("/admin/", "/django-admin/", "/documents/")
 
 
 def request_ip(request):
@@ -70,6 +75,41 @@ class RequiredPasswordChangeMiddleware:
 
     def __call__(self, request):
         user = getattr(request, "user", None)
+        path = request.path
+
+        # Keep the old Wagtail URL as a redirect-only compatibility endpoint.
+        if path == LEGACY_PASSWORD_CHANGE_PATH:
+            if user and user.is_authenticated:
+                return redirect("account:change_password")
+            return redirect(f"/admin/login/?next={NEUTRAL_PASSWORD_CHANGE_PATH}")
+
+        # This check must precede forced-password handling: a pure author must
+        # receive a controlled 403 for /admin/, even when a password change is
+        # still required.
+        if (
+            user
+            and user.is_authenticated
+            and getattr(user, "is_author", False)
+            and not user.is_staff
+            and any(path.startswith(prefix) for prefix in AUTHOR_FORBIDDEN_PREFIXES)
+            and path not in {"/admin/login/", "/admin/logout/"}
+        ):
+            AuditLog.record(
+                action=AuditAction.PERMISSION,
+                status=AuditStatus.FAILURE,
+                actor=user,
+                target=user,
+                message="纯作者账号访问编辑后台被拒绝。",
+                metadata={
+                    "operation_source": "author_admin_boundary",
+                    "method": request.method,
+                    "path": path,
+                    "result": "denied",
+                },
+                ip_address=request_ip(request),
+            )
+            return HttpResponse("作者账号无权访问编辑后台。", status=403)
+
         is_password_change_resource = (
             request.method in {"GET", "HEAD"}
             and request.path in PASSWORD_CHANGE_RESOURCE_PATHS
@@ -78,13 +118,30 @@ class RequiredPasswordChangeMiddleware:
             user
             and user.is_authenticated
             and user.must_change_password
-            and request.path.startswith("/admin/")
-            and not request.path.startswith("/admin/accounts/change-password/")
-            and not request.path.startswith("/admin/logout/")
+            and path.startswith("/admin/")
+            and path not in {"/admin/login/", "/admin/logout/"}
             and not is_password_change_resource
         ):
-            return redirect("account_admin:change_password")
-        return self.get_response(request)
+            return redirect("account:change_password")
+        if (
+            user
+            and user.is_authenticated
+            and user.must_change_password
+            and path.startswith("/author/")
+            and path not in {"/author/login/", "/author/logout/"}
+        ):
+            return redirect("account:change_password")
+
+        response = self.get_response(request)
+        if (
+            path.rstrip("/") == "/admin/login"
+            and response.status_code in {301, 302, 303}
+            and getattr(request.user, "is_authenticated", False)
+        ):
+            set_login_scope(request, ADMIN_SCOPE)
+        if path.rstrip("/") in {"/admin/logout", "/author/logout"}:
+            clear_login_scope(request)
+        return response
 
 
 class CredentialRateLimitMiddleware:
@@ -92,7 +149,7 @@ class CredentialRateLimitMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        is_login = request.path.rstrip("/") == "/admin/login"
+        is_login = request.path.rstrip("/") in {"/admin/login", "/author/login"}
         if request.method != "POST" or not is_login:
             return self.get_response(request)
         username = str(request.POST.get("username", "")).strip().lower()

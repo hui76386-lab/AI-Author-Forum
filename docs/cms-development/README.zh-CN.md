@@ -1,7 +1,7 @@
 # AI Author Forum CMS 开发文档总览
 
-> 文档版本：v1.2
-> 基线日期：2026-08-04
+> 文档版本：v1.3
+> 基线日期：2026-08-07
 > 适用工程：`E:\AI Author Forum\news-template`
 > 文档性质：开发、联调、评审和发布的统一约定
 
@@ -34,6 +34,9 @@
 | [06-当前冲突与整改路线](./06-current-conflicts-and-remediation-roadmap.zh-CN.md) | 记录本次扫描发现的问题、优先级、影响和整改顺序 |
 | [07-待确认需求与验收标准](./07-open-decisions-and-acceptance-criteria.zh-CN.md) | 记录尚未明确的业务决策和模块验收标准 |
 | [08-账号、子期刊编辑角色与审核开发任务书](./08-account-and-editorial-access-development-spec.zh-CN.md) | 定义超级管理员、主编辑、常务副编辑、副编辑、账号创建、两级审核、编辑团队和作者声明 |
+| [09-作者投稿角色开发任务书](./09-author-submission-role-development-spec.zh-CN.md) | 定义作者账号、对象级投稿关系、作者工作台、投稿状态、审核意见和投稿权限 |
+| [10-作者投稿实现与运维说明](./10-author-submission-implementation-and-operations.zh-CN.md) | 说明作者投稿功能的代码入口、迁移边界、启用条件和发布验收 |
+| [11-统一登录入口与作者工作台权限隔离开发任务书](./11-unified-login-author-workbench-development-spec.zh-CN.md) | 定义统一品牌登录入口、中立首次改密、作者工作台边界、双角色路由和重定向循环验收 |
 | [简化账号与子期刊角色迁移和回滚手册](../operations/simple-role-migration-and-rollback.zh-CN.md) | 说明显式映射、dry-run、幂等应用、旧授权快照和不删除新业务记录的回滚步骤 |
 | [远程中间件接入与生产部署](../remote-middleware.zh-CN.md) | 说明远程 PostgreSQL、Redis、Celery 的配置、隔离、本地 overlay 和验收 |
 

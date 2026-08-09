@@ -42,6 +42,13 @@ STORAGES = {
 
 class ImportPublishCommandTests(TestCase):
     def setUp(self):
+        from unittest.mock import patch
+
+        snapshot_patcher = patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        )
+        snapshot_patcher.start()
+        self.addCleanup(snapshot_patcher.stop)
         self.publish_root = TemporaryDirectory()
         self.media_root = TemporaryDirectory()
         self.package_root = TemporaryDirectory()

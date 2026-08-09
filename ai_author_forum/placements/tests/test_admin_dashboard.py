@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.staticfiles import finders
 from django.core.exceptions import ValidationError
+from django.templatetags.static import static
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -607,7 +608,7 @@ class PlacementDashboardTests(TestCase):
         self.assertContains(response, "data-bulk-articles-message")
         self.assertContains(
             response,
-            "/static/placements/placements-workbench.js?v=20260730-2",
+            f"{static('placements/placements-workbench.js')}?v=20260730-2",
         )
 
         script_path = finders.find("placements/placements-workbench.js")

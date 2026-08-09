@@ -11,6 +11,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.templatetags.static import static
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone, translation
@@ -33,6 +34,7 @@ from ai_author_forum.site_settings.models import (
     NavigationTargetType,
 )
 from ai_author_forum.standardpages.models import StandardPage
+from ai_author_forum.static_publish.frontend import get_content_column_context
 from ai_author_forum.static_publish.models import StaticPublishJob
 from ai_author_forum.static_publish.providers import WagtailPageTargetProvider
 from ai_author_forum.static_publish.readiness import ContentReadinessResult
@@ -49,6 +51,11 @@ from ai_author_forum.test_helpers import (
 
 class StaticFrontendTests(TestCase):
     def setUp(self):
+        snapshot_patcher = patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        )
+        snapshot_patcher.start()
+        self.addCleanup(snapshot_patcher.stop)
         readiness_patcher = patch(
             "ai_author_forum.static_publish.services.check_content_readiness",
             return_value=ContentReadinessResult(configured=True),
@@ -195,6 +202,36 @@ class StaticFrontendTests(TestCase):
             ).get_text(" ", strip=True),
             self.journal.name,
         )
+        reader_links = {
+            link["data-navigation-item"]: link.get_text(" ", strip=True)
+            for link in soup.select('[data-navigation-group="for-readers"] a')
+        }
+        self.assertEqual(
+            reader_links["how-ai-authored-articles-produced"],
+            "How AI-authored articles are produced",
+        )
+        self.assertEqual(
+            reader_links["readers-responsibility"], "Readers' responsibility"
+        )
+        rendered = response.content.decode("utf-8")
+        self.assertNotIn("Content unavailable in English", rendered)
+
+    def test_english_content_column_uses_code_for_a_chinese_managed_label(self):
+        item = NavigationItem.objects.get(
+            group__navigation_set__journal=self.journal,
+            code="research-articles",
+        )
+        item.label = "超长中文栏目名称：人工智能作者协作与责任研究"
+        item.save(update_fields=["label"])
+
+        with translation.override("en"):
+            context = get_content_column_context(
+                column_slug="research-articles",
+                journal_slug=self.journal.slug,
+            )
+
+        self.assertEqual(context["navigation_item_label"], "Research articles")
+        self.assertEqual(context["page_title"], "Research articles")
 
     def test_editorial_page_uses_wagtail_content_and_publishes_fixed_html(self):
         careers = StandardPage.objects.get(slug="careers")
@@ -472,7 +509,7 @@ class StaticFrontendTests(TestCase):
         hero = soup.select_one('section[data-home-slot="home_hero"] article')
         image = hero.select_one("img")
 
-        self.assertTrue(image["src"].endswith("/static/images/reference/article-1.png"))
+        self.assertEqual(image["src"], static("images/reference/article-1.png"))
         self.assertEqual(image["alt"], placement.article.title)
         self.assertNotIn("journal-cover.png", response.content.decode("utf-8"))
         self.assertNotIn("metrics-chart.png", response.content.decode("utf-8"))
@@ -556,6 +593,17 @@ class StaticFrontendTests(TestCase):
         )
 
     def test_english_journal_page_uses_localized_labels_and_deduplicated_articles(self):
+        self.journal.hero_quick_links = [
+            (
+                "link",
+                {
+                    "label": "当前期号",
+                    "url": "/journals/ai-ethics-forum/current-issue/",
+                    "open_in_new_tab": False,
+                },
+            )
+        ]
+        self.journal.save(update_fields=["hero_quick_links"])
         self.place(
             self.article_a,
             "journal_hero",
@@ -588,7 +636,12 @@ class StaticFrontendTests(TestCase):
         self.assertEqual(len(soup.select(".c-journal-home__featured-story article")), 1)
         self.assertEqual(len(soup.select(".c-journal-home__article-grid article")), 1)
         self.assertIn("AI Article", rendered)
+        self.assertIn("Explore AI articles", rendered)
+        self.assertIn("Current issue", rendered)
         self.assertNotIn("AI 文章", rendered)
+        self.assertNotIn("探索人工智能文章", rendered)
+        self.assertNotIn("当前期号", rendered)
+        self.assertNotIn("Content unavailable in English", rendered)
         self.assertNotIn("Replaceable journal cover", rendered)
 
     def test_section_page_uses_exact_section_target_and_display_order(self):

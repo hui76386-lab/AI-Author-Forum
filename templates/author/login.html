@@ -1,0 +1,18 @@
+{% extends "author/base.html" %}
+{% load i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+{% block title %}{% if LANGUAGE_CODE|slice:":2" == "zh" %}作者登录{% else %}Author login{% endif %}{% endblock %}
+{% block content %}
+<section class="author-auth-card">
+  <p class="author-eyebrow">AI Author Forum</p><h1>{% if LANGUAGE_CODE|slice:":2" == "zh" %}作者投稿登录{% else %}Author submission login{% endif %}</h1>
+  <p class="author-muted">{% if LANGUAGE_CODE|slice:":2" == "zh" %}此入口仅用于投稿工作台，不是 CMS 编辑后台。{% else %}This entry is for the submission workbench, not the CMS editorial backend.{% endif %}</p>
+  <form method="post" class="author-form">{% csrf_token %}
+    {{ form.non_field_errors }}
+    <label>{% if LANGUAGE_CODE|slice:":2" == "zh" %}用户名{% else %}Username{% endif %}{{ form.username }}{{ form.username.errors }}</label>
+    <label>{% if LANGUAGE_CODE|slice:":2" == "zh" %}密码{% else %}Password{% endif %}{{ form.password }}{{ form.password.errors }}</label>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="author-button author-button--accent author-button--wide" type="submit">{% if LANGUAGE_CODE|slice:":2" == "zh" %}登录作者工作台{% else %}Sign in to author workbench{% endif %}</button>
+  </form>
+  <p class="author-auth-switch"><a class="author-link" href="{% url 'wagtailadmin_login' %}">{% if LANGUAGE_CODE|slice:":2" == "zh" %}编辑与运营登录{% else %}Editorial and operations login{% endif %}</a></p>
+</section>
+{% endblock %}

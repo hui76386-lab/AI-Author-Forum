@@ -17,6 +17,8 @@
                 <div class="button-group">
                     <a class="button button-secondary" href="{{ preview_url }}" target="_blank" rel="noreferrer">打开预览</a>
                     {% if can_edit_article %}<a class="button button-secondary" href="{{ edit_url }}">编辑页面</a>{% endif %}
+                    {% if can_manage_authorships %}<a class="button button-secondary" href="{{ authorships_url }}">投稿关系</a>{% endif %}
+                    {% if can_manage_authorships and article.has_ever_been_submitted and article.review_status != 'approved' and article.review_status != 'published' %}<a class="button button-secondary" href="{{ transfer_url }}">受控转投</a>{% endif %}
                 </div>
             </div>
 
@@ -98,9 +100,12 @@
                         <input type="hidden" name="expected_revision_id" value="{{ expected_revision_id }}">
                         <input type="hidden" name="expected_state" value="{{ article.review_status }}">
                         <input type="hidden" name="request_id" value="{{ request_id }}">
-                        <label for="review-comment">审核意见</label>
-                        <p class="help">通过意见可选；退回和拒绝意见必填。</p>
-                        <textarea id="review-comment" name="comment" rows="6" placeholder="请说明审核依据或需要修改的内容"></textarea>
+                        <label for="review-comment">内部审核意见</label>
+                        <p class="help">仅编辑人员可见；退回和拒绝时必填，不会自动披露给作者。</p>
+                        <textarea id="review-comment" name="comment" rows="5" placeholder="请记录内部审核依据"></textarea>
+                        <label for="author-visible-comment">作者可见意见</label>
+                        <p class="help">退回和拒绝时必填。这里只填写可以向作者公开的修改要求或结论原因。</p>
+                        <textarea id="author-visible-comment" name="author_visible_comment" rows="5" placeholder="请填写作者可见原因"></textarea>
                         <div class="article-review-actions">
                             <button class="button" type="submit" name="action" value="approve" data-review-action>{% if review_stage == 'final' %}终审通过{% else %}初审通过{% endif %}</button>
                             <button class="button button-secondary" type="submit" name="action" value="return" data-review-action>退回修改</button>

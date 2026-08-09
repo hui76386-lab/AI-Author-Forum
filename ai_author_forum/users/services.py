@@ -74,6 +74,7 @@ def create_account(
     institution: str = "",
     job_title: str = "",
     is_super_admin_account: bool = False,
+    is_author_account: bool = False,
     assignments: Iterable[dict] = (),
     confirming_password: str = "",
 ):
@@ -92,8 +93,8 @@ def create_account(
         raise ValidationError("超级管理员不能同时通过账号表单分配子期刊角色。")
     if is_super_admin_account and not actor.check_password(confirming_password):
         raise ValidationError("创建超级管理员账号必须再次输入本人密码。")
-    if not is_super_admin_account and not assignment_rows:
-        raise ValidationError("编辑账号必须至少分配一条子期刊任命。")
+    if not is_super_admin_account and not assignment_rows and not is_author_account:
+        raise ValidationError("账号必须分配作者、编辑或超级管理员角色。")
 
     user = User(
         username=username.strip(),
@@ -103,7 +104,8 @@ def create_account(
         job_title=job_title.strip(),
         account_status=User.AccountStatus.ACTIVE,
         is_active=True,
-        is_staff=True,
+        is_staff=bool(is_super_admin_account or assignment_rows),
+        is_author=bool(is_author_account),
         must_change_password=True,
         created_by=actor,
     )
@@ -129,6 +131,7 @@ def create_account(
         metadata={
             "account_status": user.account_status,
             "is_super_admin": is_super_admin_account,
+            "is_author": is_author_account,
             "assignment_count": len(assignment_rows),
         },
     )

@@ -11,12 +11,12 @@
 </header>
 <div class="placement-v2">
   <nav class="placement-nav" aria-label="投放导航 / Placement navigation">
-    <a href="{% url 'placements:index' %}">总览 <span>Overview</span></a>
-    {% if can_add_placements %}<a href="{% url 'placements:new_single' %}">单篇投放 <span>Single</span></a>{% endif %}
-    <a href="{% url 'placements:journals' %}">子期刊编排 <span>Journal curation</span></a>
-    {% if can_add_placements %}<a href="{% url 'placements:bulk_new' %}">批量投放 <span>Bulk</span></a>{% endif %}
-    <a href="{% url 'placements:list' %}">投放清单 <span>List</span></a>
-    <a href="{% url 'placements:batches' %}">投放批次 <span>Batches</span></a>
+    <a href="{% url 'placements:index' %}">总览</a>
+    {% if can_add_placements %}<a href="{% url 'placements:new_single' %}">单篇投放</a>{% endif %}
+    <a href="{% url 'placements:journals' %}">子期刊编排</a>
+    {% if can_add_placements %}<a href="{% url 'placements:bulk_new' %}">批量投放</a>{% endif %}
+    <a href="{% url 'placements:list' %}">投放清单</a>
+    <a href="{% url 'placements:batches' %}">投放批次</a>
   </nav>
   {% block workflow_content %}{% endblock %}
 </div>
@@ -90,6 +90,6 @@
 .placement-v2 .empty-state { display: grid; gap: .35rem; padding: 2.5rem 1rem; color: var(--placement-muted); text-align: center; }
 .placement-v2 .empty-state strong { color: var(--placement-ink); }
 @media (max-width: 72rem) { .placement-v2 .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .placement-v2 .filters .filter-actions { grid-column: 1 / -1; } .placement-v2 .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 48rem) { .placement-v2 { width: min(calc(100% - 1rem), 100rem); } .placement-v2 .filters, .placement-v2 .stats { grid-template-columns: 1fr; } .placement-v2 .filters .filter-actions { grid-column: auto; } .placement-v2 .page-heading, .placement-v2 .selection-toolbar, .placement-v2 .sticky-actions { align-items: stretch; flex-direction: column; } .placement-v2 .sticky-actions .button { width: 100%; text-align: center; } .placement-v2 .article-title { min-width: 18rem; } .placement-nav a { flex: 1 1 8rem; } }
+@media (max-width: 48rem) { .placement-header { box-sizing: border-box; padding-inline-start: 3.5rem; } .placement-v2 { width: min(calc(100% - 1rem), 100rem); } .placement-v2 .filters, .placement-v2 .stats { grid-template-columns: 1fr; } .placement-v2 .filters .filter-actions { grid-column: auto; } .placement-v2 .page-heading, .placement-v2 .selection-toolbar, .placement-v2 .sticky-actions { align-items: stretch; flex-direction: column; } .placement-v2 .sticky-actions .button { width: 100%; text-align: center; } .placement-v2 .article-title { min-width: 18rem; } .placement-nav a { flex: 1 1 8rem; } }
 </style>
 {% endblock %}

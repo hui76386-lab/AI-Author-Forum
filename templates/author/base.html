@@ -1,0 +1,28 @@
+{% load static i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}{% if LANGUAGE_CODE|slice:":2" == "zh" %}作者工作台{% else %}Author Workbench{% endif %}{% endblock %} | AI Author Forum</title>
+  <link rel="stylesheet" href="{% static 'articles/css/author-workbench.css' %}">
+  <script src="{% static 'articles/js/author-workbench.js' %}" defer></script>
+</head>
+<body class="author-shell">
+  <header class="author-header">
+    <a class="author-brand" href="{% url 'author:dashboard' %}">AI Author Forum <span>{% if LANGUAGE_CODE|slice:":2" == "zh" %}作者工作台{% else %}Author Workbench{% endif %}</span></a>
+    {% if request.user.is_authenticated %}
+      <nav class="author-nav" aria-label="{% if LANGUAGE_CODE|slice:":2" == "zh" %}作者导航{% else %}Author navigation{% endif %}">
+        <a href="{% url 'author:dashboard' %}">{% if LANGUAGE_CODE|slice:":2" == "zh" %}我的投稿{% else %}My submissions{% endif %}</a>
+        <a href="{% url 'author:journals' %}">{% if LANGUAGE_CODE|slice:":2" == "zh" %}开放期刊{% else %}Open journals{% endif %}</a>
+        <a class="author-button author-button--accent" href="{% url 'author:new' %}">{% if LANGUAGE_CODE|slice:":2" == "zh" %}新建投稿{% else %}New submission{% endif %}</a>
+        <a href="{% url 'account:change_password' %}">{% if LANGUAGE_CODE|slice:":2" == "zh" %}账号与密码{% else %}Account and password{% endif %}</a>
+        <form method="post" action="{% url 'author:logout' %}">{% csrf_token %}<button class="author-button" type="submit">{% if LANGUAGE_CODE|slice:":2" == "zh" %}退出{% else %}Sign out{% endif %}</button></form>
+      </nav>
+    {% endif %}
+  </header>
+  <main class="author-main">{% block content %}{% endblock %}</main>
+  <footer class="author-footer">{% if LANGUAGE_CODE|slice:":2" == "zh" %}投稿内容只会在审核、投放和静态发布完成后进入正式前台。{% else %}Submissions reach the public site only after review, placement, and static publishing.{% endif %}</footer>
+</body>
+</html>

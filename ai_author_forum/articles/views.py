@@ -689,6 +689,24 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
                     else "initial"
                 ),
                 "can_submit_review": self.can_submit_review(),
+                "authorships_url": reverse(
+                    "article_admin:authorships", args=[self.article.pk]
+                ),
+                "transfer_url": reverse(
+                    "article_admin:controlled_transfer", args=[self.article.pk]
+                ),
+                "can_manage_authorships": bool(
+                    is_super_admin(self.request.user)
+                    or (
+                        get_journal_editor_assignment(
+                            self.request.user, self.article.primary_journal
+                        )
+                        and get_journal_editor_assignment(
+                            self.request.user, self.article.primary_journal
+                        ).role
+                        == JournalEditorAssignment.Role.CHIEF_EDITOR
+                    )
+                ),
             }
         )
         return context
@@ -696,6 +714,7 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
     def post(self, request, *args, **kwargs):
         action = request.POST.get("action")
         comment = request.POST.get("comment", "").strip()
+        author_visible_comment = request.POST.get("author_visible_comment", "").strip()
         expected_revision_id = request.POST.get("expected_revision_id", "")
         expected_state = request.POST.get("expected_state", "")
 
@@ -705,6 +724,9 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
         if action in {"return", "reject"} and not comment:
             messages.error(request, "退回或拒绝意见必填。")
             return redirect(self.get_success_url())
+        if action in {"return", "reject"} and not author_visible_comment:
+            messages.error(request, "退回或拒绝必须填写作者可见原因。")
+            return redirect(self.get_success_url())
         if expected_state and expected_state != self.article.review_status:
             return HttpResponse("文章状态已变化，请刷新后重试。", status=409)
         if not self.can_execute_review(action):
@@ -712,7 +734,11 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
 
         try:
             self.perform_review_action(
-                action, comment, expected_state, expected_revision_id
+                action,
+                comment,
+                author_visible_comment,
+                expected_state,
+                expected_revision_id,
             )
         except (ArticleRevisionConflict, ArticleStateConflict) as exc:
             return HttpResponse(str(exc), status=409)
@@ -810,7 +836,12 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
         )
 
     def perform_review_action(
-        self, action, comment, expected_state, expected_revision_id
+        self,
+        action,
+        comment,
+        author_visible_comment,
+        expected_state,
+        expected_revision_id,
     ):
         with transaction.atomic():
             article = ArticlePage.objects.select_for_update().get(pk=self.article.pk)
@@ -828,6 +859,7 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
                 "article": article,
                 "action": action,
                 "comment": comment,
+                "author_visible_comment": author_visible_comment,
                 "expected_state": expected_state or article.review_status,
                 "expected_revision_id": expected_revision_id,
                 "request_id": self.request.POST.get("request_id") or uuid4(),

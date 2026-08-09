@@ -219,7 +219,6 @@ class ArticleImportPermissionMatrixTests(TestCase):
             reverse("article_admin:import_errors", args=[job.pk])
         )
         self.assertEqual(response.status_code, 200)
-        response.close()
 
     def test_unassigned_user_cannot_access_article_import_jobs(self):
         owner = self.make_role_user("unassigned", "owner")

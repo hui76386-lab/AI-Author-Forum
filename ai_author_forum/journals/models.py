@@ -7,6 +7,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
+from django.utils.translation import get_language
 from wagtail.admin.panels import FieldPanel, MultiFieldPanel
 from wagtail.fields import RichTextField, StreamField
 from wagtail.search import index
@@ -177,6 +178,18 @@ class Journal(models.Model):
     notes = models.TextField(blank=True)
     show_editorial_team_on_article_pages = models.BooleanField(default=True)
     editorial_team_heading = models.CharField(max_length=80, default="编辑团队")
+    accepts_author_submissions = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="仅控制作者投稿入口；期刊状态、关闭时间和有效主编辑仍会再次校验。",
+    )
+    submission_guidelines_url = models.CharField(
+        max_length=500,
+        blank=True,
+        validators=[validate_public_link],
+    )
+    submission_opened_at = models.DateTimeField(null=True, blank=True)
+    submission_closed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -222,6 +235,15 @@ class Journal(models.Model):
         ),
         MultiFieldPanel(
             [
+                FieldPanel("accepts_author_submissions"),
+                FieldPanel("submission_guidelines_url"),
+                FieldPanel("submission_opened_at"),
+                FieldPanel("submission_closed_at"),
+            ],
+            heading="Author submissions",
+        ),
+        MultiFieldPanel(
+            [
                 FieldPanel("seo_title"),
                 FieldPanel("seo_description"),
                 FieldPanel("static_site_path"),
@@ -258,6 +280,14 @@ class Journal(models.Model):
             self.az_group = self.az_group.upper()
         if self.az_group and not re.fullmatch(r"[A-Z#]", self.az_group):
             raise ValidationError({"az_group": "Use A-Z or #."})
+        if (
+            self.submission_opened_at
+            and self.submission_closed_at
+            and self.submission_closed_at <= self.submission_opened_at
+        ):
+            raise ValidationError(
+                {"submission_closed_at": "投稿关闭时间必须晚于投稿开放时间。"}
+            )
         if not self.static_site_path and self.slug:
             self.static_site_path = f"/journals/{self.slug}/index.html"
 
@@ -284,6 +314,11 @@ class Journal(models.Model):
             )
 
     def __str__(self):
+        # Wagtail chooser labels call ``str(instance)``.  Returning the
+        # Chinese editorial name unconditionally made every English chooser
+        # value get replaced by the response sanitizer.
+        if (get_language() or "").lower().startswith("en"):
+            return self.name or self.name_cn or self.slug
         return self.name_cn or self.name or self.slug
 
 
@@ -463,7 +498,14 @@ class JournalEditorAssignment(models.Model):
         )
 
     def __str__(self):
-        return f"{self.journal}: {self.public_name} ({self.get_role_display()})"
+        role = self.get_role_display()
+        if (get_language() or "").lower().startswith("en"):
+            role = {
+                self.Role.CHIEF_EDITOR: "Chief editor",
+                self.Role.EXECUTIVE_EDITOR: "Executive editor",
+                self.Role.ASSOCIATE_EDITOR: "Associate editor",
+            }.get(self.role, role)
+        return f"{self.journal}: {self.public_name} ({role})"
 
 
 class PublicationIssueScope(models.TextChoices):
@@ -901,6 +943,8 @@ class JournalCategory(models.Model):
         return f"journals/{self.journal.slug}/categories/{self.path_cache}/index.html"
 
     def __str__(self):
+        if (get_language() or "").lower().startswith("en"):
+            return f"{self.journal}: {self.code or self.slug or self.name}"
         return f"{self.journal}: {self.path_cache or self.name}"
 
 

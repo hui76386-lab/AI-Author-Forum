@@ -182,6 +182,11 @@ class JournalHomepageManagedContentTemplateTests(TestCase):
 
 class JournalHomepageManagedContentStaticPublishTests(TestCase):
     def setUp(self):
+        snapshot_patcher = patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        )
+        snapshot_patcher.start()
+        self.addCleanup(snapshot_patcher.stop)
         readiness_patcher = patch(
             "ai_author_forum.static_publish.services.check_content_readiness",
             return_value=ContentReadinessResult(configured=True),

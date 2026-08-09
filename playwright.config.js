@@ -15,6 +15,13 @@ module.exports = defineConfig({
   },
   use: {
     baseURL: staticSiteURL,
+    httpCredentials: process.env.TEST_BASIC_AUTH_USERNAME
+      ? {
+          username: process.env.TEST_BASIC_AUTH_USERNAME,
+          password: process.env.TEST_BASIC_AUTH_PASSWORD,
+        }
+      : undefined,
+    ignoreHTTPSErrors: process.env.PLAYWRIGHT_IGNORE_HTTPS_ERRORS === "1",
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
       : undefined,

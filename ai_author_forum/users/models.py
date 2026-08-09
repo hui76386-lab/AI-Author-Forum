@@ -21,6 +21,12 @@ class User(AbstractUser):
         db_index=True,
     )
     must_change_password = models.BooleanField(default=False)
+    is_author = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="作者账号",
+        help_text="作者权限仍需由具体文章的有效投稿关系授予。",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

@@ -143,6 +143,25 @@ class AccountAcceptanceTests(TestCase):
         )
         self.assertTrue(created.groups.filter(name=SUPER_ADMIN_GROUP_NAME).exists())
 
+    def test_super_admin_creates_pure_author_without_editor_or_wagtail_access(self):
+        author = create_account(
+            actor=self.admin,
+            username="pure-author-account",
+            email="pure-author-account@example.com",
+            display_name="Pure Author Account",
+            temporary_password=self.temporary_password,
+            is_author_account=True,
+            assignments=(),
+        )
+
+        self.assertTrue(author.is_author)
+        self.assertFalse(author.is_staff)
+        self.assertTrue(author.must_change_password)
+        self.assertFalse(author.journal_editor_assignments.exists())
+        self.assertFalse(
+            author.groups.filter(name=JOURNAL_EDITOR_ACCESS_GROUP_NAME).exists()
+        )
+
     def test_non_super_admin_service_and_direct_url_are_forbidden(self):
         editor = self.create_editor("forbidden-editor")
         with self.assertRaises(PermissionDenied):
@@ -197,11 +216,11 @@ class AccountAcceptanceTests(TestCase):
         response = client.get("/admin/")
         self.assertRedirects(
             response,
-            "/admin/accounts/change-password/",
+            "/account/change-password/",
             fetch_redirect_response=False,
         )
         response = client.post(
-            "/admin/accounts/change-password/",
+            "/account/change-password/",
             {
                 "old_password": self.temporary_password,
                 "new_password1": "Changed-editor-password-2026!",
@@ -225,15 +244,40 @@ class AccountAcceptanceTests(TestCase):
         response = client.post("/admin/jsi18n/")
         self.assertRedirects(
             response,
-            "/admin/accounts/change-password/",
+            "/account/change-password/",
             fetch_redirect_response=False,
         )
         response = client.get("/admin/articles/")
         self.assertRedirects(
             response,
-            "/admin/accounts/change-password/",
+            "/account/change-password/",
             fetch_redirect_response=False,
         )
+
+    def test_editor_login_scope_returns_to_admin_after_neutral_password_change(self):
+        editor = self.create_editor("scope-editor")
+        client = Client()
+        login_response = client.post(
+            "/admin/login/",
+            {"username": editor.username, "password": self.temporary_password},
+        )
+        self.assertRedirects(login_response, "/admin/", fetch_redirect_response=False)
+        self.assertEqual(client.session.get("login_scope"), "admin")
+        self.assertRedirects(
+            client.get("/admin/"),
+            "/account/change-password/",
+            fetch_redirect_response=False,
+        )
+        change_response = client.post(
+            "/account/change-password/",
+            {
+                "old_password": self.temporary_password,
+                "new_password1": "Unrelated-editor-password-2026!",
+                "new_password2": "Unrelated-editor-password-2026!",
+            },
+        )
+        self.assertRedirects(change_response, "/admin/", fetch_redirect_response=False)
+        self.assertIsNone(client.session.get("login_scope"))
 
     def test_deactivation_revokes_session_and_writes_reasoned_audit(self):
         editor = self.create_editor("deactivated-editor")
@@ -363,7 +407,7 @@ class AccountAcceptanceTests(TestCase):
             )
         self.client.force_login(editor)
         response = self.client.post(
-            "/admin/accounts/change-password/",
+            "/account/change-password/",
             {
                 "old_password": self.temporary_password,
                 "new_password1": "Changed-rate-limited-password-2026!",

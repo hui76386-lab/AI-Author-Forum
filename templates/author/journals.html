@@ -1,0 +1,6 @@
+{% extends "author/base.html" %}
+{% block title %}开放期刊{% endblock %}
+{% block content %}
+<section class="author-page-heading"><div><p class="author-eyebrow">投稿范围</p><h1>开放期刊</h1><p class="author-muted">仅显示状态正常、已开放作者投稿且存在有效主编辑的期刊。</p></div><a class="author-button author-button--accent" href="{{ new_submission_url }}">选择期刊并投稿</a></section>
+<section class="author-journal-grid">{% for journal in journals %}<article class="author-journal-card"><div class="author-journal-card__top"><span class="author-kicker">{{ journal.slug }}</span><span class="author-open-dot">开放投稿</span></div><h2>{{ journal.name_cn|default:journal.name }}</h2><p class="author-journal-card__english">{{ journal.name }}</p><p class="author-muted">{{ journal.seo_description|default:journal.homepage_intro|striptags|truncatechars:180 }}</p><div class="author-journal-card__actions"><a class="author-button author-button--accent" href="{{ new_submission_url }}?journal={{ journal.pk }}">选择此期刊</a>{% if journal.submission_guidelines_url %}<a class="author-link" href="{{ journal.submission_guidelines_url }}" target="_blank" rel="noreferrer">投稿须知</a>{% endif %}</div></article>{% empty %}<p class="author-empty">当前没有开放投稿的期刊。</p>{% endfor %}</section>
+{% endblock %}

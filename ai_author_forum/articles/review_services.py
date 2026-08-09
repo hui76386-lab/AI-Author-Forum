@@ -11,6 +11,7 @@ from ai_author_forum.site_settings.access_control import (
     can_final_review,
     can_initial_review,
     can_manage_article,
+    can_submit_submission,
     get_journal_editor_assignment,
     is_super_admin,
 )
@@ -75,7 +76,9 @@ def _existing_review_result(*, request_id, article, expected_action=None):
     return record
 
 
-def _record_audit(*, actor, article, record, message, comment=""):
+def _record_audit(
+    *, actor, article, record, message, comment="", old_state=None, new_state=None
+):
     return AuditLog.record(
         action=AuditAction.PERMISSION,
         status=AuditStatus.SUCCESS,
@@ -89,7 +92,13 @@ def _record_audit(*, actor, article, record, message, comment=""):
             "stage": record.stage,
             "action": record.action,
             "reviewer_role": record.reviewer_role,
-            "comment": comment,
+            "comment_present": bool(comment),
+            "author_visible_comment_present": bool(record.author_visible_comment),
+            "submission_owner_id": record.submission_owner_id,
+            "submission_journal_id": record.submission_journal_id,
+            "content_sha256": record.content_sha256,
+            "old_state": old_state,
+            "new_state": new_state,
         },
     )
 
@@ -141,6 +150,7 @@ def submit_article_for_initial_review(
     expected_revision_id,
     request_id,
     comment="",
+    source="editor",
 ):
     request_uuid = _request_uuid(request_id)
     existing = _existing_review_result(
@@ -158,7 +168,10 @@ def submit_article_for_initial_review(
     )
     if existing:
         return existing
-    if not can_manage_article(actor, locked):
+    author_source = source == "author"
+    if author_source and not can_submit_submission(actor, locked):
+        raise PermissionDenied("无权以作者身份提交该文章初审。")
+    if not author_source and not can_manage_article(actor, locked):
         raise PermissionDenied("无权提交该文章初审。")
     if locked.review_status != ArticlePage.ReviewStatus.DRAFT:
         raise ArticleStateConflict("只有草稿可以提交初审；拒绝状态必须先重新开启。")
@@ -175,9 +188,27 @@ def submit_article_for_initial_review(
         revision_content=revision.content,
         action="submit",
     )
-    assignment = get_journal_editor_assignment(actor, locked.primary_journal)
+    assignment = (
+        None
+        if author_source
+        else get_journal_editor_assignment(actor, locked.primary_journal)
+    )
+    from .author_services import revision_sha256
+    from .models import ArticleAuthorship
+
+    submission_owner = (
+        ArticleAuthorship.objects.effective()
+        .filter(article=locked, role=ArticleAuthorship.Role.OWNER)
+        .first()
+    )
+    if author_source and submission_owner is None:
+        raise ValidationError("作者投稿缺少有效投稿负责人。")
+    submitted_at = timezone.now()
     locked.review_status = ArticlePage.ReviewStatus.SUBMITTED
     locked.rejected_version = None
+    locked.has_ever_been_submitted = True
+    locked.first_submitted_at = locked.first_submitted_at or submitted_at
+    locked.last_submitted_at = submitted_at
     locked.save(bypass_article_permission_check=True)
     record = ArticleReviewRecord.objects.create(
         article=locked,
@@ -186,9 +217,13 @@ def submit_article_for_initial_review(
         revision=revision,
         reviewer=actor,
         journal_editor_assignment=assignment,
-        reviewer_role=_role_snapshot(actor, assignment),
+        reviewer_role="author" if author_source else _role_snapshot(actor, assignment),
         request_id=request_uuid,
         comment=comment.strip(),
+        content_sha256=revision_sha256(revision),
+        submission_owner=submission_owner,
+        submission_journal=locked.primary_journal,
+        authorship_updated_at=getattr(submission_owner, "updated_at", None),
     )
     _record_audit(
         actor=actor,
@@ -196,6 +231,8 @@ def submit_article_for_initial_review(
         record=record,
         message="文章已提交初审。",
         comment=comment.strip(),
+        old_state=ArticlePage.ReviewStatus.DRAFT,
+        new_state=locked.review_status,
     )
     from wagtail.models import WorkflowPage
 
@@ -366,6 +403,7 @@ def initial_review_article(
     expected_state,
     expected_revision_id,
     request_id,
+    author_visible_comment=None,
 ):
     request_uuid = _request_uuid(request_id)
     action_map = {
@@ -384,6 +422,17 @@ def initial_review_article(
     if existing:
         return existing
     comment = comment.strip()
+    if author_visible_comment is None:
+        author_visible_comment = (
+            comment
+            if record_action
+            in {
+                ArticleReviewRecord.Action.INITIAL_RETURN,
+                ArticleReviewRecord.Action.INITIAL_REJECT,
+            }
+            else ""
+        )
+    author_visible_comment = str(author_visible_comment or "").strip()
     if (
         record_action
         in {
@@ -393,6 +442,17 @@ def initial_review_article(
         and not comment
     ):
         raise ValidationError({"comment": "初审退回或拒绝必须填写意见。"})
+    if (
+        record_action
+        in {
+            ArticleReviewRecord.Action.INITIAL_RETURN,
+            ArticleReviewRecord.Action.INITIAL_REJECT,
+        }
+        and not author_visible_comment
+    ):
+        raise ValidationError(
+            {"author_visible_comment": "初审退回或拒绝必须填写作者可见原因。"}
+        )
     locked = ArticlePage.objects.select_for_update().get(pk=article.pk)
     existing = _existing_review_result(
         request_id=request_uuid,
@@ -435,6 +495,7 @@ def initial_review_article(
         reviewer_role=_role_snapshot(actor, assignment),
         request_id=request_uuid,
         comment=comment,
+        author_visible_comment=author_visible_comment,
     )
     _record_audit(
         actor=actor,
@@ -442,6 +503,8 @@ def initial_review_article(
         record=record,
         message="完成文章初审动作。",
         comment=comment,
+        old_state=ArticlePage.ReviewStatus.SUBMITTED,
+        new_state=locked.review_status,
     )
     return record
 
@@ -456,6 +519,7 @@ def final_review_article(
     expected_state,
     expected_revision_id,
     request_id,
+    author_visible_comment=None,
 ):
     request_uuid = _request_uuid(request_id)
     action_map = {
@@ -474,6 +538,17 @@ def final_review_article(
     if existing:
         return existing
     comment = comment.strip()
+    if author_visible_comment is None:
+        author_visible_comment = (
+            comment
+            if record_action
+            in {
+                ArticleReviewRecord.Action.FINAL_RETURN,
+                ArticleReviewRecord.Action.FINAL_REJECT,
+            }
+            else ""
+        )
+    author_visible_comment = str(author_visible_comment or "").strip()
     if (
         record_action
         in {
@@ -483,6 +558,17 @@ def final_review_article(
         and not comment
     ):
         raise ValidationError({"comment": "终审退回或拒绝必须填写意见。"})
+    if (
+        record_action
+        in {
+            ArticleReviewRecord.Action.FINAL_RETURN,
+            ArticleReviewRecord.Action.FINAL_REJECT,
+        }
+        and not author_visible_comment
+    ):
+        raise ValidationError(
+            {"author_visible_comment": "终审退回或拒绝必须填写作者可见原因。"}
+        )
     locked = ArticlePage.objects.select_for_update().get(pk=article.pk)
     existing = _existing_review_result(
         request_id=request_uuid,
@@ -554,6 +640,7 @@ def final_review_article(
         reviewer_role=assignment.role,
         request_id=request_uuid,
         comment=comment,
+        author_visible_comment=author_visible_comment,
     )
     from .publication import sync_article_placement_status
 
@@ -564,6 +651,8 @@ def final_review_article(
         record=record,
         message="完成文章终审动作。",
         comment=comment,
+        old_state=ArticlePage.ReviewStatus.PENDING_FINAL,
+        new_state=locked.review_status,
     )
     return record
 
@@ -640,6 +729,8 @@ def reopen_rejected_article(
         record=record,
         message="重新开启已拒绝文章。",
         comment=reason,
+        old_state=ArticlePage.ReviewStatus.REJECTED,
+        new_state=locked.review_status,
     )
     return record
 

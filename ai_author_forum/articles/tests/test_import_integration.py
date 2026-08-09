@@ -92,6 +92,7 @@ class ArticleImportIntegrationTests(TestCase):
             MEDIA_ROOT=str(self.media_root),
             AI_AUTHOR_FORUM_IMPORT_QUEUE_ROOT=str(self.queue_root),
             STATIC_PUBLISH_ROOT=str(self.static_root),
+            STATIC_PUBLISH_ENFORCE_CONTENT_READINESS=False,
         )
         settings_override.enable()
         self.addCleanup(settings_override.disable)
@@ -221,7 +222,10 @@ class ArticleImportIntegrationTests(TestCase):
             scope=StaticPublishJob.Scope.FULL,
             triggered_by=self.user,
         )
-        StaticPublisher(self.static_root).build(publish_job)
+        with patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        ):
+            StaticPublisher(self.static_root).build(publish_job)
         publish_job.refresh_from_db()
         self.assertEqual(publish_job.status, StaticPublishJob.Status.SUCCEEDED)
         article_file = (
