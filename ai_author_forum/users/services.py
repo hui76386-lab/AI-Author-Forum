@@ -14,6 +14,78 @@ from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditSta
 
 SUPER_ADMIN_GROUP_NAME = "超级管理员"
 JOURNAL_EDITOR_ACCESS_GROUP_NAME = "子期刊编辑基础访问"
+JOURNAL_EDITOR_CUSTOM_PERMISSIONS = frozenset(
+    {
+        "access_journals",
+        "access_articles",
+        "access_article_review",
+        "access_placements",
+    }
+)
+JOURNAL_EDITOR_VIEW_MODELS = {
+    "journals.Journal": frozenset({"view"}),
+    "journals.JournalEditorAssignment": frozenset({"view"}),
+    "journals.JournalCategory": frozenset({"view"}),
+    "articles.ArticlePage": frozenset({"view"}),
+    "articles.ArticleReviewRecord": frozenset({"view"}),
+    "placements.ArticlePlacement": frozenset({"view"}),
+    "placements.LayoutSlot": frozenset({"view"}),
+    "site_settings.AuditLog": frozenset({"view"}),
+}
+
+
+def ensure_journal_editor_access_group():
+    """Create the editor technical group and repair its required permissions."""
+    from django.contrib.auth.models import Permission
+    from django.contrib.contenttypes.models import ContentType
+    from wagtail.models import GroupPagePermission, Page
+
+    from ai_author_forum.site_settings.models import AdminRolePreset
+
+    group, _ = Group.objects.get_or_create(name=JOURNAL_EDITOR_ACCESS_GROUP_NAME)
+    required_permissions = list(
+        Permission.objects.filter(
+            content_type__app_label="wagtailadmin",
+            codename="access_admin",
+        )
+    )
+    role_content_type = ContentType.objects.get_for_model(AdminRolePreset)
+    required_permissions.extend(
+        Permission.objects.filter(
+            content_type=role_content_type,
+            codename__in=JOURNAL_EDITOR_CUSTOM_PERMISSIONS,
+        )
+    )
+    for resource, actions in JOURNAL_EDITOR_VIEW_MODELS.items():
+        app_label, model_name = resource.split(".", 1)
+        content_type = ContentType.objects.filter(
+            app_label=app_label,
+            model=model_name.lower(),
+        ).first()
+        if content_type is None:
+            continue
+        required_permissions.extend(
+            Permission.objects.filter(
+                content_type=content_type,
+                codename__in={f"{action}_{content_type.model}" for action in actions},
+            )
+        )
+    group.permissions.add(*required_permissions)
+
+    root_page = Page.get_first_root_node()
+    if root_page is not None:
+        page_content_type = ContentType.objects.get_for_model(Page)
+        add_page_permission = Permission.objects.filter(
+            content_type=page_content_type,
+            codename="add_page",
+        ).first()
+        if add_page_permission is not None:
+            GroupPagePermission.objects.get_or_create(
+                group=group,
+                page=root_page,
+                permission=add_page_permission,
+            )
+    return group
 
 
 def _is_super_admin(user) -> bool:

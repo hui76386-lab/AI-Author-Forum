@@ -33,6 +33,7 @@ from ai_author_forum.journals.models import (
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.site_settings.models import (
     ColumnEmptyBehavior,
+    NavigationEntryStatus,
     NavigationItem,
     NavigationTargetType,
 )
@@ -280,6 +281,28 @@ class ContentReadinessTests(TestCase):
             {finding.code for finding in result.warnings},
             result.to_dict(),
         )
+
+    def test_non_public_navigation_items_do_not_trigger_issue_readiness(self):
+        current_issue = NavigationItem.objects.get(
+            group__navigation_set=self.item.group.navigation_set,
+            target_type=NavigationTargetType.CURRENT_ISSUE,
+        )
+        states = (
+            (NavigationEntryStatus.HIDDEN, False),
+            (NavigationEntryStatus.ARCHIVED, False),
+            (NavigationEntryStatus.ACTIVE, False),
+        )
+
+        for status, is_visible in states:
+            with self.subTest(status=status, is_visible=is_visible):
+                NavigationItem.objects.filter(pk=current_issue.pk).update(
+                    status=status,
+                    is_visible=is_visible,
+                    is_active=True,
+                )
+                result = check_content_readiness()
+                self.assertNotIn("current_issue_missing", self.finding_codes(result))
+                self.assertEqual(result.checked_navigation_items, 1)
 
     def test_unapproved_placed_article_blocks_publish(self):
         article = self.create_article(

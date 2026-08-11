@@ -41,7 +41,7 @@ from ..models import (
     ArticleReviewTask,
     ArticleRevisionConflict,
 )
-from ..review_services import reopen_rejected_article
+from ..review_services import has_valid_final_approval, reopen_rejected_article
 from ..services import (
     get_approved_articles,
     get_article_context,
@@ -491,6 +491,52 @@ class ArticlePageWorkflowTests(TestCase):
         self.assertEqual(record.action, ArticleReviewRecord.Action.FINAL_APPROVE)
         self.assertEqual(record.reviewer, self.reviewer)
         self.assertEqual(article.approved_version, article.get_latest_revision())
+
+    def test_review_detail_posts_keep_final_record_and_projection_in_sync(self):
+        article = self.create_article("Review Detail Final Projection")
+        revision = article.get_latest_revision()
+        article.submit_for_review(self.editor, "Ready for page review.")
+        article.refresh_from_db()
+
+        self.client.force_login(self.editor)
+        initial_response = self.client.post(
+            reverse("article_admin:review_detail", args=[article.pk]),
+            {
+                "action": "approve",
+                "expected_state": ArticlePage.ReviewStatus.SUBMITTED,
+                "expected_revision_id": revision.pk,
+                "request_id": uuid4(),
+                "comment": "Initial review from the review detail page.",
+            },
+        )
+        self.assertEqual(initial_response.status_code, 302)
+        article.refresh_from_db()
+        self.assertEqual(
+            article.review_status,
+            ArticlePage.ReviewStatus.PENDING_FINAL,
+        )
+
+        self.client.force_login(self.reviewer)
+        final_response = self.client.post(
+            reverse("article_admin:review_detail", args=[article.pk]),
+            {
+                "action": "approve",
+                "expected_state": ArticlePage.ReviewStatus.PENDING_FINAL,
+                "expected_revision_id": revision.pk,
+                "request_id": uuid4(),
+                "comment": "Final review from the review detail page.",
+            },
+        )
+
+        self.assertEqual(final_response.status_code, 302)
+        article.refresh_from_db()
+        final_record = article.review_records.get(
+            action=ArticleReviewRecord.Action.FINAL_APPROVE
+        )
+        self.assertEqual(article.review_status, ArticlePage.ReviewStatus.APPROVED)
+        self.assertEqual(article.approved_version_id, revision.pk)
+        self.assertEqual(final_record.revision_id, revision.pk)
+        self.assertTrue(has_valid_final_approval(article, revision))
 
     def test_reject_updates_status_and_can_be_resubmitted(self):
         article = self.create_article("Rejected Article")

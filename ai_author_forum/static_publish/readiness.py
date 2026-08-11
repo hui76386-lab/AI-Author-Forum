@@ -703,19 +703,19 @@ def check_content_readiness(*, targets=None, at=None, journal_ids=None):
         _check_homepage(result, at=at)
     _check_active_journal_chiefs(result, at=at, journal_ids=journal_ids)
 
-    navigation_items = (
-        NavigationItem.objects.select_related(
-            "group__navigation_set__journal",
-            "page",
-            "content_column_config__cover_image",
-            "content_column_config__category",
-        )
-        .filter(
-            group__navigation_set__status=NavigationSetStatus.ACTIVE,
-            group__navigation_set__is_template=False,
-            is_active=True,
-        )
-        .exclude(status=NavigationEntryStatus.ARCHIVED)
+    navigation_items = NavigationItem.objects.select_related(
+        "group__navigation_set__journal",
+        "page",
+        "content_column_config__cover_image",
+        "content_column_config__category",
+    ).filter(
+        group__navigation_set__status=NavigationSetStatus.ACTIVE,
+        group__navigation_set__is_template=False,
+        group__status=NavigationEntryStatus.ACTIVE,
+        group__is_visible=True,
+        is_active=True,
+        is_visible=True,
+        status=NavigationEntryStatus.ACTIVE,
     )
     if journal_ids is not None:
         navigation_items = navigation_items.filter(

@@ -13,6 +13,10 @@ from wagtail.models import (
 )
 
 from ai_author_forum.site_settings.models import AdminRolePreset
+from ai_author_forum.users.services import (
+    JOURNAL_EDITOR_ACCESS_GROUP_NAME,
+    ensure_journal_editor_access_group,
+)
 
 ROLE_DEFINITIONS = {
     "super_admin": {
@@ -44,23 +48,6 @@ ROLE_DEFINITIONS = {
             },
         },
     }
-}
-
-JOURNAL_EDITOR_ACCESS_GROUP_NAME = "子期刊编辑基础访问"
-JOURNAL_EDITOR_CUSTOM_PERMISSIONS = {
-    "access_journals",
-    "access_articles",
-    "access_article_review",
-    "access_placements",
-}
-JOURNAL_EDITOR_VIEW_MODELS = {
-    "journals.JournalEditorAssignment": {"view"},
-    "journals.JournalCategory": {"view"},
-    "articles.ArticlePage": {"view"},
-    "articles.ArticleReviewRecord": {"view"},
-    "placements.ArticlePlacement": {"view"},
-    "placements.LayoutSlot": {"view"},
-    "site_settings.AuditLog": {"view"},
 }
 
 
@@ -113,17 +100,7 @@ class Command(BaseCommand):
         editor_group.permissions.clear()
         GroupPagePermission.objects.filter(group=editor_group).delete()
         GroupCollectionPermission.objects.filter(group=editor_group).delete()
-        self._assign_admin_access(editor_group)
-        self._assign_custom_permissions(
-            editor_group,
-            content_type,
-            JOURNAL_EDITOR_CUSTOM_PERMISSIONS,
-            all_permissions,
-        )
-        self._assign_model_permissions(editor_group, JOURNAL_EDITOR_VIEW_MODELS)
-        # Wagtail checks the parent page before it knows the new page type.
-        # before_create_page restricts this grant to in-scope ArticlePage records.
-        self._assign_page_permissions(editor_group, {"add_page"})
+        ensure_journal_editor_access_group()
         self.stdout.write(
             f"Synchronized technical group: {JOURNAL_EDITOR_ACCESS_GROUP_NAME}"
         )

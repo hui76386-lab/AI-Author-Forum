@@ -6,6 +6,7 @@ from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management import call_command
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 from wagtail.models import Page
 
@@ -15,7 +16,10 @@ from ai_author_forum.articles.review_services import (
     initial_review_article,
     submit_article_for_initial_review,
 )
-from ai_author_forum.journals.editor_services import appoint_journal_editor
+from ai_author_forum.journals.editor_services import (
+    appoint_journal_editor,
+    create_journal_editor_account,
+)
 from ai_author_forum.journals.models import (
     Journal,
     JournalCategory,
@@ -32,7 +36,12 @@ from ..batch_operations import (
     execute_maintenance_batch,
     precheck_maintenance_batch,
 )
-from ..batch_services import create_draft, execute_create_batch, update_draft
+from ..batch_services import (
+    create_draft,
+    execute_create_batch,
+    precheck_batch,
+    update_draft,
+)
 from ..models import ArticlePlacement, LayoutSlot, PlacementBatch
 from ..publishing import supersede_pending_chief_publish_jobs
 from ..services import save_manual_placement
@@ -274,6 +283,76 @@ class SimpleRbacPlacementAcceptanceTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             save_manual_placement(placement, actor=self.chief)
+
+    def test_directly_created_chief_completes_journal_placement_batch(self):
+        journal = Journal.objects.create(
+            name="Direct Account Placement Journal",
+            slug="direct-account-placement-journal",
+            status=JournalStatus.ACTIVE,
+            az_group="D",
+        )
+        category = JournalCategory.objects.create(
+            journal=journal,
+            name="Direct account category",
+            code="direct-account-category",
+            slug="direct-account-category",
+        )
+        chief = create_journal_editor_account(
+            actor=self.admin,
+            journal=journal,
+            role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            username="direct-account-placement-chief",
+            temporary_password="Direct-placement-password-2026!",
+            email="direct-account-placement-chief@example.com",
+            display_name="Direct Account Placement Chief",
+        )
+        article = self.create_article(
+            "Direct account placement article",
+            journal,
+            category,
+            chief,
+            chief,
+            approve=True,
+        )
+        batch = create_draft(
+            actor=chief,
+            mode=PlacementBatch.Mode.SINGLE,
+            target_type=ArticlePlacement.TargetType.JOURNAL,
+            target_slug=journal.slug,
+            slot=LayoutSlot.objects.get(code="journal_hero"),
+        )
+        update_draft(batch, actor=chief, selected_article_ids=[article.pk])
+
+        result = precheck_batch(batch, actor=chief)
+        self.assertTrue(result["ok"], result["errors"])
+        executed = execute_create_batch(batch, actor=chief)
+
+        self.assertEqual(executed.status, PlacementBatch.Status.SUCCEEDED)
+        self.assertEqual(executed.success_count, 1)
+        self.assertEqual(executed.publish_status, PlacementBatch.PublishStatus.QUEUED)
+        self.assertTrue(executed.publish_job.is_automatic)
+        self.assertEqual(executed.publish_job.triggered_by, chief)
+        self.assertFalse(
+            executed.publish_job.summary.get("requires_publisher_approval")
+        )
+        self.assertTrue(
+            ArticlePlacement.objects.filter(
+                article=article,
+                slot=batch.slot,
+                target_type=ArticlePlacement.TargetType.JOURNAL,
+                target_slug=journal.slug,
+                is_active=True,
+            ).exists()
+        )
+        chief.must_change_password = False
+        chief.save(update_fields=("must_change_password",))
+        self.client.force_login(chief)
+        self.assertEqual(
+            self.client.get(
+                reverse("placements:batch_result", kwargs={"batch_id": batch.pk})
+            ).status_code,
+            200,
+        )
 
     def test_only_chief_can_create_same_journal_targets(self):
         cases = (

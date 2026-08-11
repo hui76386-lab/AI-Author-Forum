@@ -21,6 +21,7 @@ from ai_author_forum.articles.review_services import (
     ArticleStateConflict,
     claim_initial_review,
     final_review_article,
+    has_valid_final_approval,
     initial_review_article,
     reassign_initial_review,
     reopen_rejected_article,
@@ -512,6 +513,7 @@ class SimpleRbacReviewAcceptanceTests(TestCase):
     def test_approved_content_or_author_declaration_change_resets_review(self):
         article = self.create_article("Approved content reset")
         _, _ = self.approve_formally(article)
+        approved_revision = article.approved_version
         article.responsibility_statement = "Updated author declaration."
         article.save(user=self.chief_a)
         article.refresh_from_db()
@@ -520,6 +522,7 @@ class SimpleRbacReviewAcceptanceTests(TestCase):
         self.assertEqual(
             article.publication_status, ArticlePage.PublicationStatus.OFFLINE
         )
+        self.assertFalse(has_valid_final_approval(article, approved_revision))
 
     def test_review_audit_failure_rolls_back_final_state_and_record(self):
         article = self.create_article("Final audit rollback")

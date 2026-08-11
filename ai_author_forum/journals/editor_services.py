@@ -11,6 +11,7 @@ from ai_author_forum.users.services import (
     JOURNAL_EDITOR_ACCESS_GROUP_NAME,
     SUPER_ADMIN_GROUP_NAME,
     create_account,
+    ensure_journal_editor_access_group,
     revoke_user_sessions,
 )
 
@@ -91,16 +92,18 @@ def _normalize_public_profile(*, user, role, public_profile):
 
 
 def sync_editor_access_group(user):
-    group, _ = Group.objects.get_or_create(name=JOURNAL_EDITOR_ACCESS_GROUP_NAME)
     has_effective_assignment = (
         JournalEditorAssignment.objects.effective().filter(user=user).exists()
     )
     if has_effective_assignment:
+        group = ensure_journal_editor_access_group()
         user.is_staff = True
         user.save(update_fields=["is_staff"])
         user.groups.add(group)
     else:
-        user.groups.remove(group)
+        group = Group.objects.filter(name=JOURNAL_EDITOR_ACCESS_GROUP_NAME).first()
+        if group is not None:
+            user.groups.remove(group)
         revoke_user_sessions(user)
     return has_effective_assignment
 

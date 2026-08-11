@@ -65,6 +65,13 @@ def _role_snapshot(actor, assignment):
     return ""
 
 
+def _write_review_projection(article, **values):
+    """Persist only service-owned review fields on the locked canonical row."""
+    ArticlePage.objects.filter(pk=article.pk).update(**values)
+    for field_name, value in values.items():
+        setattr(article, field_name, value)
+
+
 def _existing_review_result(*, request_id, article, expected_action=None):
     record = ArticleReviewRecord.objects.filter(request_id=request_id).first()
     if record is None:
@@ -608,28 +615,36 @@ def final_review_article(
     if assignment is None or assignment.journal_id != locked.primary_journal_id:
         raise PermissionDenied("终审任命与文章主属期刊不一致。")
     if record_action == ArticleReviewRecord.Action.FINAL_APPROVE:
-        locked.review_status = ArticlePage.ReviewStatus.APPROVED
-        locked.approved_version = revision
+        projection = {
+            "review_status": ArticlePage.ReviewStatus.APPROVED,
+            "approved_version_id": revision.pk,
+        }
         if locked.publication_status not in {
             ArticlePage.PublicationStatus.BUILT,
             ArticlePage.PublicationStatus.PUBLISHED,
         }:
-            locked.publication_status = ArticlePage.PublicationStatus.APPROVED
+            projection["publication_status"] = ArticlePage.PublicationStatus.APPROVED
     elif record_action == ArticleReviewRecord.Action.FINAL_RETURN:
-        locked.review_status = ArticlePage.ReviewStatus.DRAFT
-        locked.approved_version = None
+        projection = {
+            "review_status": ArticlePage.ReviewStatus.DRAFT,
+            "approved_version_id": None,
+        }
     else:
-        locked.review_status = ArticlePage.ReviewStatus.REJECTED
-        locked.rejected_version = revision
-        locked.approved_version = None
+        projection = {
+            "review_status": ArticlePage.ReviewStatus.REJECTED,
+            "rejected_version_id": revision.pk,
+            "approved_version_id": None,
+        }
         if locked.publication_status:
-            locked.publication_status = ArticlePage.PublicationStatus.OFFLINE
+            projection["publication_status"] = ArticlePage.PublicationStatus.OFFLINE
     if record_action != ArticleReviewRecord.Action.FINAL_APPROVE:
-        locked.assigned_initial_editor = None
-        locked.assigned_by = None
-        locked.assigned_at = None
-        locked.assignment_request_id = None
-    locked.save(bypass_article_permission_check=True)
+        projection.update(
+            assigned_initial_editor_id=None,
+            assigned_by_id=None,
+            assigned_at=None,
+            assignment_request_id=None,
+        )
+    _write_review_projection(locked, **projection)
     record = ArticleReviewRecord.objects.create(
         article=locked,
         stage=ArticleReviewRecord.Stage.FINAL,
@@ -642,6 +657,14 @@ def final_review_article(
         comment=comment,
         author_visible_comment=author_visible_comment,
     )
+    locked.refresh_from_db(
+        fields=("review_status", "approved_version", "publication_status")
+    )
+    if record_action == ArticleReviewRecord.Action.FINAL_APPROVE and (
+        locked.review_status != ArticlePage.ReviewStatus.APPROVED
+        or locked.approved_version_id != revision.pk
+    ):
+        raise ArticleStateConflict("终审记录与文章批准状态未能原子同步。")
     from .publication import sync_article_placement_status
 
     sync_article_placement_status(locked.pk)
@@ -737,6 +760,15 @@ def reopen_rejected_article(
 
 def has_valid_final_approval(article, revision) -> bool:
     if article is None or revision is None:
+        return False
+    if (
+        article.review_status
+        not in {
+            ArticlePage.ReviewStatus.APPROVED,
+            ArticlePage.ReviewStatus.PUBLISHED,
+        }
+        or article.approved_version_id != revision.pk
+    ):
         return False
     return ArticleReviewRecord.objects.filter(
         article=article,

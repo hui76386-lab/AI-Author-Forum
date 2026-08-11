@@ -155,6 +155,37 @@ class JournalEditorAccessAcceptanceTests(TestCase):
         )
         self.assertNotIn("Zebra-Quartz-8462!Velvet", serialized_logs)
 
+    def test_directly_created_chief_repairs_base_group_and_opens_placements(self):
+        Group.objects.filter(name=JOURNAL_EDITOR_ACCESS_GROUP_NAME).delete()
+
+        chief = self.create_role_account(
+            "direct-placement-chief",
+            self.journal_a,
+            JournalEditorAssignment.Role.CHIEF_EDITOR,
+        )
+
+        self.assertTrue(chief.is_staff)
+        self.assertTrue(
+            chief.groups.filter(name=JOURNAL_EDITOR_ACCESS_GROUP_NAME).exists()
+        )
+        for permission in (
+            "wagtailadmin.access_admin",
+            "site_settings.access_placements",
+            "placements.view_articleplacement",
+            "journals.view_journal",
+        ):
+            with self.subTest(permission=permission):
+                self.assertTrue(chief.has_perm(permission))
+
+        chief.must_change_password = False
+        chief.save(update_fields=("must_change_password",))
+        self.client.force_login(chief)
+        self.assertEqual(self.client.get("/admin/", secure=True).status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse("placements:index"), secure=True).status_code,
+            200,
+        )
+
     def test_journal_role_account_presets_are_server_controlled(self):
         for role in JournalEditorAssignment.Role.values:
             with self.subTest(role=role):
