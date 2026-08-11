@@ -7,12 +7,19 @@ from django.contrib.sessions.models import Session
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management import call_command
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone, translation
 
-from ai_author_forum.journals.editor_forms import AppointEditorForm, ReplaceEditorForm
+from ai_author_forum.journals.editor_forms import (
+    AppointEditorForm,
+    JournalEditorAccountCreateForm,
+    ReplaceEditorForm,
+)
 from ai_author_forum.journals.editor_services import (
     appoint_journal_editor,
+    create_journal_editor_account,
     end_journal_editor_assignment,
+    journal_editor_account_responsibilities,
     replace_chief_editor,
     update_editor_assignment_profile,
     update_journal_profile,
@@ -89,6 +96,143 @@ class JournalEditorAccessAcceptanceTests(TestCase):
                 "show_publicly": True,
             },
         )
+
+    def create_role_account(self, username, journal, role):
+        return create_journal_editor_account(
+            actor=self.admin,
+            journal=journal,
+            role=role,
+            username=username,
+            temporary_password="Quick-editor-password-2026!",
+            email=f"{username}@example.com",
+            display_name=username.replace("-", " ").title(),
+            institution="Quick Editorial Institute",
+        )
+
+    def test_journal_page_creates_role_account_for_fixed_current_journal(self):
+        self.client.force_login(self.admin)
+        url = reverse("journals_editorial_team", args=[self.journal_a.pk])
+
+        response = self.client.get(url, secure=True)
+
+        self.assertContains(response, "创建本刊角色账号")
+        self.assertContains(response, 'name="create-account-role"')
+        self.assertContains(response, 'name="create-account-username"')
+        self.assertContains(response, "锁定职责")
+        response = self.client.post(
+            url,
+            {
+                "action": "create-account",
+                "create-account-role": (JournalEditorAssignment.Role.ASSOCIATE_EDITOR),
+                "create-account-username": "journal-page-editor",
+                "create-account-temporary_password": ("Zebra-Quartz-8462!Velvet"),
+                "create-account-email": "Journal-Page-Editor@Example.com",
+                "create-account-display_name": "Journal Page Editor",
+                "create-account-institution": "Journal Page Institute",
+                # Client-supplied duties are ignored by the shortcut.
+                "create-account-responsibilities": "invented_responsibility",
+            },
+            secure=True,
+        )
+
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        user = self.User.objects.get(username="journal-page-editor")
+        assignment = user.journal_editor_assignments.get()
+        self.assertEqual(user.email, "journal-page-editor@example.com")
+        self.assertTrue(user.must_change_password)
+        self.assertTrue(user.check_password("Zebra-Quartz-8462!Velvet"))
+        self.assertEqual(assignment.journal, self.journal_a)
+        self.assertEqual(
+            assignment.role,
+            JournalEditorAssignment.Role.ASSOCIATE_EDITOR,
+        )
+        self.assertEqual(
+            assignment.responsibilities,
+            list(JournalEditorAssignment.ALL_RESPONSIBILITIES),
+        )
+        serialized_logs = " ".join(
+            f"{log.message} {log.metadata}" for log in AuditLog.objects.all()
+        )
+        self.assertNotIn("Zebra-Quartz-8462!Velvet", serialized_logs)
+
+    def test_journal_role_account_presets_are_server_controlled(self):
+        for role in JournalEditorAssignment.Role.values:
+            with self.subTest(role=role):
+                self.assertEqual(
+                    journal_editor_account_responsibilities(role),
+                    list(JournalEditorAssignment.ALL_RESPONSIBILITIES),
+                )
+
+    def test_role_account_creation_rolls_back_when_unique_role_is_occupied(self):
+        current_chief = self.make_user("current-shortcut-chief")
+        self.appoint(
+            current_chief,
+            self.journal_a,
+            JournalEditorAssignment.Role.CHIEF_EDITOR,
+        )
+
+        with self.assertRaises(ValidationError):
+            self.create_role_account(
+                "rolled-back-shortcut-chief",
+                self.journal_a,
+                JournalEditorAssignment.Role.CHIEF_EDITOR,
+            )
+
+        self.assertFalse(
+            self.User.objects.filter(username="rolled-back-shortcut-chief").exists()
+        )
+
+    def test_non_super_admin_cannot_see_or_submit_role_account_form(self):
+        editor = self.make_user("shortcut-permission-editor")
+        self.appoint(
+            editor,
+            self.journal_a,
+            JournalEditorAssignment.Role.ASSOCIATE_EDITOR,
+            [JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE],
+        )
+        self.client.force_login(editor)
+        url = reverse("journals_editorial_team", args=[self.journal_a.pk])
+
+        response = self.client.get(url, secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "创建本刊角色账号")
+        response = self.client.post(
+            url,
+            {
+                "action": "create-account",
+                "create-account-role": (JournalEditorAssignment.Role.ASSOCIATE_EDITOR),
+                "create-account-username": "forbidden-shortcut-account",
+                "create-account-temporary_password": "Forbidden-password-2026!",
+                "create-account-email": "forbidden-shortcut@example.com",
+                "create-account-display_name": "Forbidden Shortcut",
+            },
+            secure=True,
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(
+            self.User.objects.filter(username="forbidden-shortcut-account").exists()
+        )
+
+    def test_role_account_form_preselects_chief_and_validates_identity(self):
+        form = JournalEditorAccountCreateForm()
+        self.assertEqual(
+            form["role"].value(),
+            JournalEditorAssignment.Role.CHIEF_EDITOR,
+        )
+        existing = self.make_user("duplicate-shortcut-identity")
+        form = JournalEditorAccountCreateForm(
+            {
+                "role": JournalEditorAssignment.Role.ASSOCIATE_EDITOR,
+                "username": existing.username,
+                "temporary_password": "Valid-shortcut-password-2026!",
+                "email": existing.email.upper(),
+                "display_name": "Duplicate Identity",
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("username", form.errors)
+        self.assertIn("email", form.errors)
 
     def test_chief_and_executive_are_unique_and_associates_can_be_multiple(self):
         chief = self.make_user("unique-chief")

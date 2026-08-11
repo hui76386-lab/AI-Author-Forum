@@ -16,6 +16,7 @@ from ai_author_forum.placements.services import save_manual_placement
 from ai_author_forum.static_publish.automatic import (
     _queue_placement_publish,
     create_pending_placement_publish,
+    placement_publish_plan,
     queue_placement_publish,
 )
 from ai_author_forum.static_publish.models import (
@@ -36,6 +37,57 @@ from ai_author_forum.test_helpers import (
     STATIC_PUBLISH_AUTO_DEBOUNCE_SECONDS=60,
 )
 class AutomaticPlacementPublishTests(TestCase):
+    @patch(
+        "ai_author_forum.static_publish.automatic.get_journal_publish_paths",
+        return_value=[
+            "journals/index.html",
+            "journals/new-journal/index.html",
+            "journals/new-journal/categories/main/index.html",
+        ],
+    )
+    def test_unpublished_journal_placement_uses_complete_journal_baseline(
+        self, _get_paths
+    ):
+        journal = Journal.objects.create(
+            name="New Journal",
+            slug="new-journal",
+            az_group="N",
+            status="active",
+        )
+        active_job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.FULL,
+            status=StaticPublishJob.Status.SUCCEEDED,
+        )
+        StaticManifest.objects.create(
+            version="baseline-without-new-journal",
+            job=active_job,
+            files=[],
+            metadata={"targets": []},
+            is_active=True,
+        )
+
+        plan = placement_publish_plan(
+            [
+                {
+                    "placement_id": 101,
+                    "article_static_slug": "new-article",
+                    "target_type": "journal",
+                    "target_slug": journal.slug,
+                }
+            ]
+        )
+
+        self.assertEqual(plan["scope"], StaticPublishJob.Scope.JOURNAL)
+        self.assertEqual(plan["summary"]["journal_id"], journal.pk)
+        self.assertEqual(
+            plan["paths"],
+            [
+                "journals/index.html",
+                "journals/new-journal/categories/main/index.html",
+                "journals/new-journal/index.html",
+            ],
+        )
+
     @patch(
         "ai_author_forum.static_publish.tasks.run_coalesced_static_publish.apply_async"
     )

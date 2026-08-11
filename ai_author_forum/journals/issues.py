@@ -141,7 +141,7 @@ def save_issue_article(*, actor, values, assignment=None):
         created = True
     else:
         assignment = (
-            IssueArticle.objects.select_for_update()
+            IssueArticle.objects.select_for_update(of=("self",))
             .select_related("issue", "issue__journal")
             .get(pk=assignment.pk)
         )
@@ -149,7 +149,7 @@ def save_issue_article(*, actor, values, assignment=None):
         if not _can_manage_issue_draft(actor, assignment.issue):
             raise PermissionDenied("无权维护该期次目录。")
     issue = (
-        PublicationIssue.objects.select_for_update()
+        PublicationIssue.objects.select_for_update(of=("self",))
         .select_related("journal")
         .get(pk=values["issue"].pk)
     )

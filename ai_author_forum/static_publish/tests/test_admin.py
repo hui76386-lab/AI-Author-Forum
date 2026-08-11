@@ -9,6 +9,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from ai_author_forum.journals.models import Journal
 from ai_author_forum.site_settings.management.commands.seed_roles import (
     ROLE_DEFINITIONS,
 )
@@ -123,6 +124,86 @@ class PublishCenterTests(TestCase):
         )
         self.assertContains(response, 'name="csrfmiddlewaretoken"')
         self.assert_template_syntax_was_rendered(response)
+
+    def test_journal_context_preselects_publish_scope_and_frontend_link(self):
+        grant_business_super_admin(self.user)
+        self.grant_permission("view_staticpublishjob")
+        journal = Journal.objects.create(
+            name="Context Journal",
+            name_cn="上下文期刊",
+            slug="context-journal",
+            az_group="C",
+        )
+
+        response = self.client.get(
+            reverse("static_publish:center"),
+            {"journal": journal.slug},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["publish_form"]["scope"].value(),
+            StaticPublishJob.Scope.JOURNAL,
+        )
+        self.assertEqual(response.context["publish_form"]["journal"].value(), journal.pk)
+        self.assertContains(response, "本刊发布：上下文期刊")
+        self.assertContains(response, f"/journals/{journal.slug}/")
+
+    def test_journal_publish_records_context_and_queues_exact_paths(self):
+        grant_business_super_admin(self.user)
+        self.grant_permission("view_staticpublishjob")
+        journal = Journal.objects.create(
+            name="Queued Journal",
+            name_cn="队列期刊",
+            slug="queued-journal",
+            az_group="Q",
+        )
+        baseline_job = StaticPublishJob.objects.create(
+            status=StaticPublishJob.Status.SUCCEEDED,
+            scope=StaticPublishJob.Scope.FULL,
+            version="baseline-v1",
+            triggered_by=self.user,
+        )
+        StaticManifest.objects.create(
+            version="baseline-v1",
+            job=baseline_job,
+            is_active=True,
+        )
+        expected_paths = [
+            "journals/index.html",
+            "journals/queued-journal/index.html",
+        ]
+
+        with (
+            patch(
+                "ai_author_forum.static_publish.views.get_journal_publish_paths",
+                return_value=expected_paths,
+            ),
+            patch(
+                "ai_author_forum.static_publish.views.run_static_publish.delay",
+                return_value=SimpleNamespace(id="journal-task-1"),
+            ) as queued,
+        ):
+            response = self.client.post(
+                f"{reverse('static_publish:center')}?journal={journal.slug}",
+                {
+                    "publish-scope": StaticPublishJob.Scope.JOURNAL,
+                    "publish-journal": journal.pk,
+                    "publish-paths": "",
+                    "action": "publish",
+                },
+            )
+
+        job = StaticPublishJob.objects.exclude(pk=baseline_job.pk).get()
+        self.assertRedirects(
+            response,
+            reverse("static_publish:job_detail", kwargs={"job_id": job.pk}),
+        )
+        self.assertEqual(job.scope, StaticPublishJob.Scope.JOURNAL)
+        self.assertEqual(job.requested_paths, expected_paths)
+        self.assertEqual(job.summary["journal_id"], journal.pk)
+        self.assertEqual(job.summary["journal_slug"], journal.slug)
+        queued.assert_called_once_with(job.pk)
 
     def test_job_detail_renders_values_and_hides_retry_from_viewer(self):
         self.grant_permission("view_staticpublishjob")

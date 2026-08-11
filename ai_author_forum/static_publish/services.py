@@ -52,6 +52,21 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+TARGET_TYPE_LABELS = {
+    "journal_index": "子期刊总目录",
+    "journal_page": "子期刊主页",
+    "category_page": "本刊栏目页",
+    "category_redirect": "栏目历史地址",
+    "article_page": "文章详情页",
+    "journal_current_issue": "本刊当前期次",
+    "journal_issue_archive": "本刊期次归档",
+    "issue_detail": "期次详情页",
+    "managed_content_column": "导航内容栏目",
+    "managed_navigation_info": "导航信息页",
+    "wagtail_page": "站点内容页",
+    "search_page": "搜索页",
+}
+
 
 class PublishError(RuntimeError):
     def __init__(self, message, status=StaticPublishJob.Status.FAILED):
@@ -217,10 +232,53 @@ def estimate_publish_targets(paths=None):
         by_type[target_type] = by_type.get(target_type, 0) + 1
     return {
         "total": len(targets),
-        "types": sorted(by_type.items()),
+        "types": [
+            (TARGET_TYPE_LABELS.get(target_type, target_type), count)
+            for target_type, count in sorted(by_type.items())
+        ],
         "paths": [target.output_path for target in targets[:20]],
         "truncated": len(targets) > 20,
     }
+
+
+def get_journal_publish_paths(journal):
+    """Return all static targets owned by one active journal.
+
+    The provider remains the source of truth for localized paths and target
+    dependencies. This helper only turns that target graph into the explicit
+    path list understood by the selective publisher.
+    """
+    provider_class = import_string(settings.STATIC_PUBLISH_TARGET_PROVIDER)
+    targets = list(provider_class().get_targets())
+    language_codes = {
+        str(code).lower().split("-", 1)[0]
+        for code, _label in getattr(settings, "LANGUAGES", ())
+    }
+    paths = set()
+    for target in targets:
+        clean_path = urlsplit(target.url).path.strip("/").lower()
+        parts = clean_path.split("/") if clean_path else []
+        is_journal_path = (
+            len(parts) >= 2 and parts[0] == "journals" and parts[1] == journal.slug
+        ) or (
+            len(parts) >= 3
+            and parts[0] in language_codes
+            and parts[1] == "journals"
+            and parts[2] == journal.slug
+        )
+        # A new journal must also become discoverable from the public A-Z
+        # directory. Keep the directory target in the same selective release.
+        is_journal_directory = target.target_type == "journal_index"
+        is_related_article = target.target_type == "article_page" and journal.pk in (
+            target.dependencies or {}
+        ).get("journal_ids", ())
+        if is_journal_path or is_journal_directory or is_related_article:
+            paths.add(target.output_path)
+    if not paths:
+        raise PublishError(
+            f"子期刊 {journal.name} 尚未生成可发布目标。请确认状态为启用，并重新加载页面。"
+        )
+    return sorted(paths)
 
 
 def classify_publish_error(exc):
@@ -358,10 +416,27 @@ class StaticPublisher:
             self._copy_assets(staging)
             self._validate_assets(staging)
             try:
+                validation_journal_ids = None
+                if job.scope != StaticPublishJob.Scope.FULL:
+                    validation_journal_ids = sorted(
+                        {
+                            int(value)
+                            for target in targets
+                            for value in (getattr(target, "dependencies", None) or {}).get(
+                                "journal_ids", ()
+                            )
+                        }
+                    )
+                    journal_id = (job.summary or {}).get("journal_id")
+                    if journal_id:
+                        validation_journal_ids = sorted(
+                            {*validation_journal_ids, int(journal_id)}
+                        )
                 validate_category_publication_consistency(
                     version_id=job.version,
                     targets=targets,
                     staging=staging,
+                    journal_ids=validation_journal_ids,
                 )
             except CategoryPublicationConsistencyError as exc:
                 raise PublishError(str(exc)) from exc
@@ -634,6 +709,27 @@ class StaticPublisher:
                     readiness = check_content_readiness(targets=targets, at=snapshot_at)
                 elif requires_homepage_readiness(targets):
                     readiness = check_homepage_readiness(at=snapshot_at)
+                elif job.scope == StaticPublishJob.Scope.JOURNAL:
+                    journal_id = (job.summary or {}).get("journal_id")
+                    journal_ids = (
+                        [int(journal_id)]
+                        if journal_id
+                        else sorted(
+                            {
+                                int(value)
+                                for target in targets
+                                for value in (target.dependencies or {}).get(
+                                    "journal_ids", ()
+                                )
+                                if str(value).isdigit()
+                            }
+                        )
+                    )
+                    readiness = check_content_readiness(
+                        targets=targets,
+                        at=snapshot_at,
+                        journal_ids=journal_ids or None,
+                    )
             if readiness is not None:
                 job.summary = {
                     **(job.summary or {}),

@@ -240,6 +240,22 @@ class ContentReadinessTests(TestCase):
         }
         self.assertNotIn("active_journal_chief_invalid", journal_findings)
 
+    def test_journal_scoped_readiness_ignores_other_active_journals(self):
+        other = Journal.objects.create(
+            name="Unrelated Journal Without Chief",
+            slug="unrelated-journal-without-chief",
+            az_group="U",
+        )
+
+        result = check_content_readiness(journal_ids=[self.journal.pk])
+
+        scoped_journal_ids = {
+            finding.target_id
+            for finding in result.blockers
+            if finding.code == "active_journal_chief_invalid"
+        }
+        self.assertNotIn(str(other.pk), scoped_journal_ids)
+
     def test_non_core_hide_navigation_policy_warns_without_blocking(self):
         self.item.code = "non-core-news"
         self.item.slug = "non-core-news"

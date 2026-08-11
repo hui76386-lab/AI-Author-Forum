@@ -105,8 +105,11 @@ def _finding(code, message, *, target=None, path=""):
     )
 
 
-def _check_active_journal_chiefs(result, *, at):
-    for journal in Journal.objects.filter(status=JournalStatus.ACTIVE).order_by("pk"):
+def _check_active_journal_chiefs(result, *, at, journal_ids=None):
+    journals = Journal.objects.filter(status=JournalStatus.ACTIVE)
+    if journal_ids is not None:
+        journals = journals.filter(pk__in=journal_ids)
+    for journal in journals.order_by("pk"):
         chief_count = (
             JournalEditorAssignment.objects.effective(at=at)
             .filter(
@@ -541,10 +544,20 @@ def _check_column(result, item, at, *, article_static_paths=None):
         )
 
 
-def _check_issues(result, *, article_static_paths=None, issue_static_paths=None):
-    issues = PublicationIssue.objects.filter(
-        status=PublicationIssueStatus.PUBLISHED
-    ).select_related("journal", "cover_image")
+def _check_issues(
+    result,
+    *,
+    article_static_paths=None,
+    issue_static_paths=None,
+    journal_ids=None,
+):
+    issues = PublicationIssue.objects.filter(status=PublicationIssueStatus.PUBLISHED)
+    if journal_ids is not None:
+        issues = issues.filter(
+            scope=PublicationIssueScope.JOURNAL,
+            journal_id__in=journal_ids,
+        )
+    issues = issues.select_related("journal", "cover_image")
     for issue in issues:
         result.checked_issues += 1
         path = _normalise_public_path(issue.scope_path)
@@ -677,7 +690,7 @@ def _check_static_targets(result, targets, at):
     return static_paths, article_static_paths, issue_static_paths
 
 
-def check_content_readiness(*, targets=None, at=None):
+def check_content_readiness(*, targets=None, at=None, journal_ids=None):
     at = at or timezone.now()
     target_list = list(targets) if targets is not None else None
     result = ContentReadinessResult()
@@ -688,9 +701,9 @@ def check_content_readiness(*, targets=None, at=None):
         )
     if target_list is None or requires_homepage_readiness(target_list):
         _check_homepage(result, at=at)
-    _check_active_journal_chiefs(result, at=at)
+    _check_active_journal_chiefs(result, at=at, journal_ids=journal_ids)
 
-    items = list(
+    navigation_items = (
         NavigationItem.objects.select_related(
             "group__navigation_set__journal",
             "page",
@@ -703,7 +716,15 @@ def check_content_readiness(*, targets=None, at=None):
             is_active=True,
         )
         .exclude(status=NavigationEntryStatus.ARCHIVED)
-        .order_by("group__navigation_set_id", "group__sort_order", "sort_order", "pk")
+    )
+    if journal_ids is not None:
+        navigation_items = navigation_items.filter(
+            group__navigation_set__journal_id__in=journal_ids
+        )
+    items = list(
+        navigation_items.order_by(
+            "group__navigation_set_id", "group__sort_order", "sort_order", "pk"
+        )
     )
     result.configured = bool(items)
     result.checked_navigation_items = len(items)
@@ -728,5 +749,6 @@ def check_content_readiness(*, targets=None, at=None):
         result,
         article_static_paths=article_static_paths,
         issue_static_paths=issue_static_paths,
+        journal_ids=journal_ids,
     )
     return result

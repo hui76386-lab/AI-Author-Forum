@@ -21,6 +21,7 @@ from ai_author_forum.journals.issues import (
     archive_issue,
     publish_issue,
     rollback_issue,
+    save_issue_article,
     set_current_issue,
 )
 from ai_author_forum.journals.models import (
@@ -251,6 +252,27 @@ class PublicationIssueTests(TestCase):
         self.assertEqual(logs.filter(action=AuditAction.PUBLISH).count(), 1)
         self.assertEqual(logs.filter(action=AuditAction.CONFIGURE).count(), 2)
         self.assertEqual(logs.filter(action=AuditAction.ROLLBACK).count(), 1)
+
+    def test_save_issue_article_locks_only_the_issue_row(self):
+        issue = self.create_issue(
+            scope=PublicationIssueScope.JOURNAL,
+            journal=self.journal,
+            slug="journal-draft",
+        )
+        article = self.create_article(title="Journal draft article")
+
+        assignment = save_issue_article(
+            actor=self.actor,
+            values={
+                "issue": issue,
+                "article": article,
+                "section_label": "Research articles",
+                "sort_order": 10,
+            },
+        )
+
+        self.assertEqual(assignment.issue_id, issue.pk)
+        self.assertEqual(assignment.article_id, article.pk)
 
     def test_failed_current_archive_and_rollback_actions_are_audited(self):
         draft = self.create_issue(slug="failed-current")

@@ -71,7 +71,9 @@ def build_category_redirect(*, redirect_id, version_id):
     )
 
 
-def validate_category_publication_consistency(*, version_id, targets, staging):
+def validate_category_publication_consistency(
+    *, version_id, targets, staging, journal_ids=None
+):
     """Block activation when category assignments, placements, routes, or outputs drift."""
     errors = []
     target_list = list(targets)
@@ -92,13 +94,17 @@ def validate_category_publication_consistency(*, version_id, targets, staging):
             raise CategoryPublicationConsistencyError(errors)
         return {"version_id": version_id, "status": "valid", "errors": []}
 
-    expected_categories = list(
-        JournalCategory.objects.filter(
-            status__in=(JournalCategoryStatus.ACTIVE, JournalCategoryStatus.HIDDEN),
-            generate_static_page=True,
-            journal__status="active",
-        ).select_related("journal")
+    scoped_journal_ids = (
+        {int(value) for value in journal_ids} if journal_ids is not None else None
     )
+    category_queryset = JournalCategory.objects.filter(
+        status__in=(JournalCategoryStatus.ACTIVE, JournalCategoryStatus.HIDDEN),
+        generate_static_page=True,
+        journal__status="active",
+    )
+    if scoped_journal_ids is not None:
+        category_queryset = category_queryset.filter(journal_id__in=scoped_journal_ids)
+    expected_categories = list(category_queryset.select_related("journal"))
     target_by_id = {getattr(target, "target_id", ""): target for target in target_list}
     for category in expected_categories:
         key = f"category:{category.pk}:page:1"
@@ -113,8 +119,13 @@ def validate_category_publication_consistency(*, version_id, targets, staging):
                 }
             )
 
+    navigation_queryset = JournalCategory.objects.filter(show_in_navigation=True)
+    if scoped_journal_ids is not None:
+        navigation_queryset = navigation_queryset.filter(
+            journal_id__in=scoped_journal_ids
+        )
     invalid_navigation = list(
-        JournalCategory.objects.filter(show_in_navigation=True)
+        navigation_queryset
         .exclude(status=JournalCategoryStatus.ACTIVE, depth__lte=2)
         .values_list("pk", flat=True)
     )
@@ -127,16 +138,21 @@ def validate_category_publication_consistency(*, version_id, targets, staging):
             }
         )
 
-    article_ids = set(
-        ArticlePage.objects.filter(
-            live=True,
-            review_status__in=(
-                ArticlePage.ReviewStatus.APPROVED,
-                ArticlePage.ReviewStatus.PUBLISHED,
-            ),
-            primary_journal__status="active",
-            category_assignments__isnull=False,
+    article_queryset = ArticlePage.objects.filter(
+        live=True,
+        review_status__in=(
+            ArticlePage.ReviewStatus.APPROVED,
+            ArticlePage.ReviewStatus.PUBLISHED,
+        ),
+        primary_journal__status="active",
+        category_assignments__isnull=False,
+    )
+    if scoped_journal_ids is not None:
+        article_queryset = article_queryset.filter(
+            primary_journal_id__in=scoped_journal_ids
         )
+    article_ids = set(
+        article_queryset
         .values_list("pk", flat=True)
         .distinct()
     )
@@ -205,7 +221,12 @@ def validate_category_publication_consistency(*, version_id, targets, staging):
                 }
             )
 
-    redirects = list(JournalCategoryPathRedirect.objects.filter(is_active=True))
+    redirect_queryset = JournalCategoryPathRedirect.objects.filter(is_active=True)
+    if scoped_journal_ids is not None:
+        redirect_queryset = redirect_queryset.filter(
+            category__journal_id__in=scoped_journal_ids
+        )
+    redirects = list(redirect_queryset)
     old_paths = {redirect.old_path for redirect in redirects}
     canonical_paths = {category.get_absolute_url() for category in expected_categories}
     for redirect in redirects:

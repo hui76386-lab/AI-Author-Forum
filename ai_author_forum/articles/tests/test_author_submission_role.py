@@ -837,7 +837,24 @@ class AuthorSubmissionRoleAcceptanceTests(TestCase):
         )
         self.assertFalse(self.author.has_perm("articles.review_article"))
         self.assertFalse(self.author.has_perm("articles.trigger_article_placement"))
-        self.assertEqual(client.get("/admin/articles/").status_code, 403)
+        denied_response = client.get("/admin/articles/")
+        self.assertEqual(denied_response.status_code, 403)
+        self.assertTemplateUsed(denied_response, "author/admin_forbidden.html")
+        self.assertContains(
+            denied_response,
+            reverse("author:dashboard"),
+            status_code=403,
+        )
+        self.assertContains(
+            denied_response,
+            reverse("author:logout"),
+            status_code=403,
+        )
+        self.assertNotContains(
+            denied_response,
+            "作者账号无权访问编辑后台。",
+            status_code=403,
+        )
         self.assertTrue(
             AuditLog.objects.filter(
                 actor=self.author,

@@ -30,6 +30,7 @@ from ai_author_forum.static_publish.providers import (
     WagtailPageTargetProvider,
     output_path_for_url,
 )
+from ai_author_forum.static_publish.services import get_journal_publish_paths
 from ai_author_forum.test_helpers import (
     formally_approve_test_article,
     grant_business_super_admin,
@@ -212,6 +213,19 @@ class WagtailPageTargetProviderTests(TestCase):
                 )
                 self.assertTrue(by_url[english_url].source.endswith(":lang:en"))
                 self.assertTrue(by_url[english_url].target_id.endswith(":lang:en"))
+
+    def test_journal_publish_paths_include_public_directory_in_both_languages(self):
+        paths = set(get_journal_publish_paths(self.journal))
+
+        self.assertTrue(
+            {
+                "journals/index.html",
+                "en/journals/index.html",
+                f"journals/{self.journal.slug}/index.html",
+                f"en/journals/{self.journal.slug}/index.html",
+            }.issubset(paths),
+            paths,
+        )
 
     def test_navigation_dependencies_follow_main_and_journal_scope(self):
         ArticlePlacement.objects.create(

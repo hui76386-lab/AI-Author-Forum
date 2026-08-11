@@ -10,10 +10,16 @@ from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditSta
 from ai_author_forum.users.services import (
     JOURNAL_EDITOR_ACCESS_GROUP_NAME,
     SUPER_ADMIN_GROUP_NAME,
+    create_account,
     revoke_user_sessions,
 )
 
 from .models import Journal, JournalEditorAssignment, JournalStatus
+
+JOURNAL_EDITOR_ACCOUNT_ROLE_PRESETS = {
+    role: tuple(JournalEditorAssignment.ALL_RESPONSIBILITIES)
+    for role in JournalEditorAssignment.Role.values
+}
 
 
 def _is_super_admin(user) -> bool:
@@ -97,6 +103,55 @@ def sync_editor_access_group(user):
         user.groups.remove(group)
         revoke_user_sessions(user)
     return has_effective_assignment
+
+
+def journal_editor_account_responsibilities(role):
+    try:
+        return list(JOURNAL_EDITOR_ACCOUNT_ROLE_PRESETS[role])
+    except KeyError as exc:
+        raise ValidationError({"role": "不支持的子期刊角色。"}) from exc
+
+
+@transaction.atomic
+def create_journal_editor_account(
+    *,
+    actor,
+    journal,
+    role,
+    username,
+    temporary_password,
+    email,
+    display_name,
+    institution="",
+):
+    """Create one account and its assignment for the fixed current journal."""
+    _require_super_admin(actor)
+    locked_journal = Journal.objects.select_for_update().get(pk=journal.pk)
+    responsibilities = journal_editor_account_responsibilities(role)
+    return create_account(
+        actor=actor,
+        username=username,
+        email=email,
+        display_name=display_name,
+        institution=institution,
+        temporary_password=temporary_password,
+        assignments=(
+            {
+                "journal": locked_journal,
+                "role": role,
+                "responsibilities": responsibilities,
+                "public_profile": {
+                    "public_name": display_name,
+                    "public_affiliation": institution,
+                    "public_role_label": (
+                        JournalEditorAssignment.DEFAULT_PUBLIC_ROLE_LABELS[role]
+                    ),
+                    "display_order": 0,
+                    "show_publicly": True,
+                },
+            },
+        ),
+    )
 
 
 @transaction.atomic
@@ -425,6 +480,31 @@ def update_journal_profile(*, actor, journal, values):
             setattr(locked, field_name, value)
     if not changed:
         return locked
+    if changed.get("status") == JournalStatus.ACTIVE:
+        now = timezone.now()
+        chief_count = (
+            JournalEditorAssignment.objects.filter(
+                journal=locked,
+                role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+                is_active=True,
+                user__is_active=True,
+                user__account_status="active",
+            )
+            .filter(
+                models.Q(starts_at__isnull=True) | models.Q(starts_at__lte=now),
+                models.Q(ends_at__isnull=True) | models.Q(ends_at__gt=now),
+            )
+            .count()
+        )
+        if chief_count != 1:
+            raise ValidationError(
+                {
+                    "status": (
+                        "启用前必须准备且仅保留一名有效主编辑；"
+                        f"当前找到 {chief_count} 名。"
+                    )
+                }
+            )
     locked.full_clean()
     locked.save(update_fields=(*changed.keys(), "updated_at"))
     AuditLog.record(

@@ -123,6 +123,50 @@ class CategoryStaticPublishTests(TestCase):
         self.assertEqual(redirect_target.http_status, 301)
         self.assertEqual(redirect_target.redirect_to, self.category.get_absolute_url())
 
+    def test_scoped_consistency_ignores_unpublished_categories_from_other_journals(
+        self,
+    ):
+        other_journal = Journal.objects.create(
+            name="Unpublished Other Journal",
+            slug="unpublished-other-journal",
+            az_group="U",
+            status="active",
+        )
+        other_category = JournalCategory.objects.create(
+            journal=other_journal,
+            name="Other research",
+            code="OTHER",
+            slug="other",
+            depth=1,
+            path_cache="other",
+            show_in_navigation=True,
+        )
+        target = PublishTarget(
+            self.category.get_absolute_url(),
+            f"journals.JournalCategory:{self.category.pk}:page:1",
+            target_type="category_page",
+            target_id=f"category:{self.category.pk}:page:1",
+            dependencies={"journal_ids": [self.journal.pk], "category_ids": [self.category.pk]},
+        )
+
+        with TemporaryDirectory() as staging:
+            result = validate_category_publication_consistency(
+                version_id="scoped-category-release",
+                targets=[target],
+                staging=staging,
+                journal_ids=[self.journal.pk],
+            )
+            self.assertEqual(result["status"], "valid")
+            with self.assertRaisesMessage(
+                CategoryPublicationConsistencyError,
+                f"Category {other_category.pk} has no generated page-one output",
+            ):
+                validate_category_publication_consistency(
+                    version_id="global-category-release",
+                    targets=[target],
+                    staging=staging,
+                )
+
     def test_fixed_pagination_route_and_navigation_render(self):
         self.create_live_article("Category Article One")
         self.create_live_article("Category Article Two")

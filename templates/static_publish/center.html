@@ -1,16 +1,132 @@
 {% extends "wagtailadmin/base.html" %}
 {% load wagtailadmin_tags static %}
 {% block titletag %}静态发布{% endblock %}
-{% block extra_css %}{{ block.super }}<style>.publish-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:1rem}.publish-card{border:1px solid var(--w-color-border-furniture);border-radius:.4rem;padding:1rem;margin-bottom:1rem}.status-pill{display:inline-block;padding:.2rem .6rem;border-radius:999px;font-weight:600}.status-pill--ok{background:#d9f2e6;color:#075b36}.status-pill--warn{background:#fff1c2;color:#684d00}.status-pill--error{background:#fde2e2;color:#8f1d1d}.status-pill--running{background:#dcecff;color:#124f8c}.health-list{list-style:none;padding:0}.health-list li{margin:.5rem 0}.publish-impact{padding:.75rem;background:var(--w-color-surface-field);border-left:4px solid var(--w-color-info-100)}</style>{% endblock %}
+{% block extra_css %}{{ block.super }}
+<style>
+.publish-page{max-width:112rem}.publish-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.publish-card{border:1px solid var(--w-color-border-furniture);padding:1.25rem;margin-bottom:1rem;background:var(--w-color-surface-page)}.publish-card h2{margin:.1rem 0 .55rem}.publish-card p{line-height:1.55}.status-pill{display:inline-block;padding:.2rem .6rem;border-radius:999px;font-weight:600}.status-pill--ok{background:#d9f2e6;color:#075b36}.status-pill--warn{background:#fff1c2;color:#684d00}.status-pill--error{background:#fde2e2;color:#8f1d1d}.status-pill--running{background:#dcecff;color:#124f8c}.health-list{list-style:none;padding:0;margin:.8rem 0 0}.health-list li{margin:.6rem 0;line-height:1.5}.publish-impact{padding:.85rem 1rem;background:var(--w-color-surface-field);border-left:4px solid var(--w-color-info-100)}.publish-context{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;padding:1.25rem;border-left:4px solid var(--w-color-primary);background:var(--w-color-surface-header);margin-bottom:1rem}.publish-context h2{margin:0 0 .35rem}.publish-context p{margin:.25rem 0;color:var(--w-color-text-meta)}.publish-context__actions{display:flex;gap:.5rem;flex-wrap:wrap;flex-shrink:0}.publish-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem;margin:0 0 1rem;padding:0;list-style:none}.publish-steps li{padding:1rem;border:1px solid var(--w-color-border-furniture)}.publish-steps span{display:block;color:var(--w-color-text-meta);font-size:.8rem;font-weight:700}.publish-steps strong{display:block;margin:.3rem 0}.publish-steps small{display:block;color:var(--w-color-text-meta);line-height:1.45}.publish-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.publish-form-grid .publish-field--wide{grid-column:1/-1}.publish-field__label{display:block;margin-bottom:.35rem;font-weight:700}.publish-field input,.publish-field select,.publish-field textarea{width:100%}.publish-field textarea{min-height:7rem}.publish-field__help{margin:.35rem 0 0;color:var(--w-color-text-meta);line-height:1.45}.publish-field__errors{color:var(--w-color-critical-100);font-weight:600}.publish-scope-help{margin:0;padding:.85rem 1rem;background:var(--w-color-surface-header);border-left:4px solid var(--w-color-primary);color:var(--w-color-text-meta);line-height:1.5}.publish-actions{display:flex;gap:.65rem;align-items:center;margin-top:1rem}.publish-note{color:var(--w-color-text-meta)}.job-filters{margin:1rem 0}.job-filters summary{cursor:pointer;font-weight:700}.job-filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem 1rem;margin-top:1rem}.job-filter-actions{display:flex;align-items:end;gap:.5rem}.jobs-table td,.jobs-table th{vertical-align:top}.job-scope{display:grid;gap:.2rem}.job-scope small{color:var(--w-color-text-meta)}
+@media(max-width:900px){.publish-grid,.publish-form-grid{grid-template-columns:1fr}.publish-steps,.job-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.publish-context{flex-direction:column}}
+@media(max-width:600px){.publish-steps{grid-template-columns:1fr}.publish-actions{align-items:stretch;flex-direction:column}.publish-actions .button{text-align:center}}
+</style>
+{% endblock %}
 {% block content %}
-{% include "wagtailadmin/shared/header.html" with title="静态发布" icon="upload" %}
-<div class="nice-padding">
-<div class="publish-grid">
-<section class="publish-card"><h2>当前活动版本</h2>{% if active_manifest %}<p><strong>{{ active_manifest.version }}</strong></p><p>切换时间：{{ active_manifest.created_at }}</p><p>此版本已复制到活动目录，前台固定 HTML 正在使用它。</p>{% else %}<p class="status-pill status-pill--error">没有活动 manifest</p><p>生成成功不等于切换成功；只有活动 manifest 对应的版本才会由前台访问。</p>{% endif %}</section>
-<section class="publish-card"><h2>发布环境健康状态</h2><p><span class="status-pill {% if health.status == 'ok' %}status-pill--ok{% else %}status-pill--error{% endif %}">{% if health.status == 'ok' %}可发布{% else %}存在阻断{% endif %}</span></p><ul class="health-list">{% for name, check in health.checks.items %}<li><strong>{% if name == 'database' %}数据库{% elif name == 'output' %}输出目录{% elif name == 'release' %}活动版本{% elif name == 'broker' %}任务队列{% else %}{{ name }}{% endif %}：</strong><span class="status-pill {% if check.ok %}status-pill--ok{% else %}status-pill--error{% endif %}">{% if check.ok %}正常{% else %}异常{% endif %}</span> {{ check.message }}</li>{% endfor %}</ul></section>
+{% include "wagtailadmin/shared/header.html" with title="静态发布" subtitle="把审核通过并已投放的内容生成固定 HTML，并切换活动版本" icon="upload" only %}
+<div class="nice-padding publish-page">
+  {% if requested_journal %}
+  <section class="publish-context" aria-labelledby="publish-context-title">
+    <div>
+      <p class="publish-card__eyebrow">当前发布范围</p>
+      <h2 id="publish-context-title">本刊发布：{{ requested_journal.name_cn|default:requested_journal.name }}</h2>
+      <p>系统会自动选择 <code>/journals/{{ requested_journal.slug }}/</code> 下的主页、栏目、期次、导航页，以及属于本刊的文章详情页。</p>
+    </div>
+    <div class="publish-context__actions">
+      <a class="button button-secondary" href="{% url 'journals:workspace' requested_journal.pk %}">返回本刊工作台</a>
+      <a class="button button-secondary" href="{{ requested_journal_frontend_url }}" target="_blank" rel="noopener">查看前台地址</a>
+    </div>
+  </section>
+  {% endif %}
+
+  <ol class="publish-steps" aria-label="静态发布步骤">
+    <li><span>步骤 1</span><strong>选择发布范围</strong><small>子期刊日常更新选“本刊发布”；全站发布只用于首次建站或全局改版。</small></li>
+    <li><span>步骤 2</span><strong>预估影响</strong><small>先看预计页面数量和示例路径，不会写入活动目录。</small></li>
+    <li><span>步骤 3</span><strong>确认并入队</strong><small>任务在后台生成 staging，全部校验通过后才切换 current。</small></li>
+    <li><span>步骤 4</span><strong>验证上线</strong><small>任务必须显示“已成功并切换”，再打开前台地址检查。</small></li>
+  </ol>
+
+  <div class="publish-grid">
+    <section class="publish-card">
+      <h2>当前活动版本</h2>
+      {% if active_manifest %}
+        <p><strong>{{ active_manifest.version }}</strong></p>
+        <p>切换时间：{{ active_manifest.created_at }}</p>
+        <p class="publish-note">前台当前读取的是这个 manifest 对应的 current 目录。新任务失败时，它会继续保持不变。</p>
+      {% else %}
+        <p class="status-pill status-pill--error">没有活动 manifest</p>
+        <p>这是首次发布环境。本刊发布需要复制现有活动版本，请先完成一次全站发布建立基线。</p>
+      {% endif %}
+    </section>
+    <section class="publish-card">
+      <h2>发布环境健康检查</h2>
+      <p><span class="status-pill {% if health.status == 'ok' %}status-pill--ok{% else %}status-pill--error{% endif %}">{% if health.status == 'ok' %}可发布{% else %}存在阻断{% endif %}</span></p>
+      <ul class="health-list">
+        {% for name, check in health.checks.items %}
+        <li><strong>{% if name == 'database' %}数据库{% elif name == 'output' %}输出目录{% elif name == 'release' %}活动版本{% elif name == 'broker' %}任务队列{% else %}{{ name }}{% endif %}：</strong><span class="status-pill {% if check.ok %}status-pill--ok{% else %}status-pill--error{% endif %}">{% if check.ok %}正常{% else %}异常{% endif %}</span> {% if check.ok %}{% if name == 'database' %}已连接发布数据库{% elif name == 'output' %}发布目录可写{% elif name == 'release' %}活动版本文件完整{% elif name == 'broker' %}后台发布队列可用{% else %}检查通过{% endif %}{% else %}{{ check.message }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+
+  {% if can_publish %}
+  <section class="publish-card">
+    <h2>新建发布任务</h2>
+    <p class="publish-impact"><strong>发布不会直接覆盖前台。</strong>系统先在独立 staging 目录生成目标，再校验页面、资源和 manifest；全部通过后才切换活动版本。任务失败时，旧版本继续提供服务。</p>
+    <form method="post" data-publish-confirm>
+      {% csrf_token %}
+      <div class="publish-form-grid">
+        {% for field in publish_form %}
+        <div class="publish-field {% if field.name == 'paths' or field.name == 'scope' %}publish-field--wide{% endif %}" data-publish-field="{{ field.name }}">
+          <label class="publish-field__label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span aria-hidden="true">*</span>{% endif %}</label>
+          {{ field }}
+          {% if field.help_text %}<p class="publish-field__help">{{ field.help_text }}</p>{% endif %}
+          {% for error in field.errors %}<p class="publish-field__errors">{{ error }}</p>{% endfor %}
+        </div>
+        {% endfor %}
+        <p class="publish-field--wide publish-scope-help" data-publish-scope-help>请选择发布范围。选择“本刊发布”时，系统会自动包含子期刊主页、栏目、期次、关联文章和子期刊总目录。</p>
+      </div>
+      <div class="publish-actions">
+        <button type="submit" name="action" value="estimate" class="button button-secondary">预估影响</button>
+        <button type="submit" name="action" value="publish" class="button button-primary">确认并进入队列</button>
+        <span class="publish-note">预估只读数据；确认后才会创建任务。</span>
+      </div>
+    </form>
+    {% if estimate %}
+    <div class="publish-impact" style="margin-top:1rem">
+      <h3>预估结果</h3>
+      <p>预计生成 <strong>{{ estimate.total }}</strong> 个页面目标。以下统计仅用于确认范围，实际结果以任务详情为准。</p>
+      <ul>{% for type, count in estimate.types %}<li>{{ type }}：{{ count }} 个</li>{% endfor %}</ul>
+      {% if estimate.paths %}<details><summary>查看示例路径</summary><ul>{% for path in estimate.paths %}<li><code>{{ path }}</code></li>{% endfor %}</ul>{% if estimate.truncated %}<p>仅展示前 20 条。</p>{% endif %}</details>{% endif %}
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if perms.static_publish.rollback_category_publish %}
+  <section class="publish-card"><h2>回滚入口</h2><p>回滚只切换到已验证的历史 manifest。执行前必须查看版本差异并填写原因，不能把数据库内容回退到任意历史状态。</p><form method="get" action="{% url 'static_publish:rollback_preview' %}"><div class="w-space-y-6">{% for field in rollback_select_form %}{% formattedfield field %}{% endfor %}</div><button type="submit" class="button button-secondary">查看差异并确认</button></form></section>
+  {% endif %}
+
+  <section class="publish-card">
+    <h2>最近任务</h2>
+    <p class="publish-note">“已成功并切换”表示新版本已经成为前台使用的活动版本；“失败”只表示本次尝试失败，不会覆盖旧版本。点击任务编号查看逐页错误。</p>
+    <details class="job-filters"{% if request.GET.status or request.GET.scope or request.GET.target_status or request.GET.manifest_status or request.GET.triggered_by or request.GET.created_from or request.GET.created_to %} open{% endif %}><summary>筛选任务</summary><form method="get"><div class="job-filter-grid">{% for field in filter_form %}<div>{% formattedfield field %}</div>{% endfor %}<div class="job-filter-actions"><button class="button button-secondary">应用筛选</button><a class="button button-secondary" href="{% url 'static_publish:center' %}">清除</a></div></div></form></details>
+    <div class="w-overflow-x-auto"><table class="listing jobs-table"><thead><tr><th>任务</th><th>范围</th><th>触发方式</th><th>状态</th><th>成功 / 失败 / 总数</th><th>版本</th><th>发起人</th><th>活动版本</th><th>前台验证</th></tr></thead><tbody>
+      {% for job in jobs_page %}<tr><td><a href="{% url 'static_publish:job_detail' job.pk %}">#{{ job.pk }}</a><small>{{ job.created_at }}</small></td><td><div class="job-scope"><strong>{{ job.get_scope_display }}</strong>{% if job.summary.journal_name %}<small>{{ job.summary.journal_name }}</small>{% endif %}</div></td><td>{% if job.is_automatic %}投放变更自动合并{% else %}人工发起{% endif %}</td><td><span class="status-pill {% if job.status == 'succeeded' or job.status == 'rolled_back' %}status-pill--ok{% elif job.status == 'running' or job.status == 'pending' %}status-pill--running{% elif job.status == 'partial' %}status-pill--warn{% else %}status-pill--error{% endif %}">{{ job.get_status_display }}</span></td><td>{{ job.success_count }} / {{ job.failed_count }} / {{ job.target_count }}</td><td><code>{{ job.version|default:"—" }}</code></td><td>{{ job.triggered_by|default:"系统" }}</td><td>{% if job.version == active_version %}<span class="status-pill status-pill--ok">当前</span>{% else %}—{% endif %}</td><td>{% if job.journal_frontend_url and job.status == 'succeeded' %}<a href="{{ job.journal_frontend_url }}" target="_blank" rel="noopener">打开前台</a>{% else %}—{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="9">暂无任务。</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if jobs_page.paginator.num_pages > 1 %}<nav>{% if jobs_page.has_previous %}<a class="button button-small" href="?{% if jobs_querystring %}{{ jobs_querystring }}&amp;{% endif %}page={{ jobs_page.previous_page_number }}">上一页</a>{% endif %} 第 {{ jobs_page.number }} / {{ jobs_page.paginator.num_pages }} 页 {% if jobs_page.has_next %}<a class="button button-small" href="?{% if jobs_querystring %}{{ jobs_querystring }}&amp;{% endif %}page={{ jobs_page.next_page_number }}">下一页</a>{% endif %}</nav>{% endif %}
+  </section>
 </div>
-{% if can_publish %}<section class="publish-card"><h2>新建发布任务</h2><p class="publish-impact">发布先在独立 staging 目录生成并校验全部目标；只有全部满足现有规则后才切换活动版本。失败任务不会静默修改活动目录。</p><form method="post" data-publish-confirm>{% csrf_token %}<div class="w-space-y-6">{% for field in publish_form %}{% formattedfield field %}{% endfor %}</div><button type="submit" name="action" value="estimate" class="button button-secondary">预估影响</button> <button type="submit" name="action" value="publish" class="button button-longrunning">确认并进入队列</button></form>{% if estimate %}<div class="publish-impact"><h3>目标预估</h3><p>预计目标：<strong>{{ estimate.total }}</strong></p><ul>{% for type, count in estimate.types %}<li>{{ type }}：{{ count }}</li>{% endfor %}</ul>{% if estimate.paths %}<details><summary>查看示例路径</summary><ul>{% for path in estimate.paths %}<li><code>{{ path }}</code></li>{% endfor %}</ul>{% if estimate.truncated %}<p>仅展示前 20 条。</p>{% endif %}</details>{% endif %}<p>警告：预估和实际执行之间内容可能变化，最终以任务详情和 manifest 为准。</p></div>{% endif %}</section>{% endif %}
-{% if perms.static_publish.rollback_category_publish %}<section class="publish-card"><h2>回滚入口</h2><p>回滚前必须查看当前活动版本与目标版本的 manifest 差异，并填写原因。</p><form method="get" action="{% url 'static_publish:rollback_preview' %}"><div class="w-space-y-6">{% for field in rollback_select_form %}{% formattedfield field %}{% endfor %}</div><button type="submit" class="button button-secondary">查看差异并确认</button></form></section>{% endif %}
-<section class="publish-card"><h2>最近任务</h2><form method="get"><div class="w-space-y-6">{% for field in filter_form %}{% formattedfield field %}{% endfor %}</div><button class="button button-secondary">筛选</button> <a class="button button-secondary" href="{% url 'static_publish:center' %}">清除</a></form><div class="w-overflow-x-auto"><table class="listing"><thead><tr><th>任务</th><th>范围</th><th>??</th><th>状态</th><th>成功/失败/总数</th><th>耗时</th><th>版本</th><th>发起人</th><th>创建时间</th><th>活动</th></tr></thead><tbody>{% for job in jobs_page %}<tr><td><a href="{% url 'static_publish:job_detail' job.pk %}">#{{ job.pk }}</a></td><td>{{ job.get_scope_display }}</td><td>{% if job.is_automatic %}投放自动合并{% else %}人工{% endif %}</td><td><span class="status-pill {% if job.status == 'succeeded' or job.status == 'rolled_back' %}status-pill--ok{% elif job.status == 'running' or job.status == 'pending' %}status-pill--running{% elif job.status == 'partial' %}status-pill--warn{% else %}status-pill--error{% endif %}">{{ job.get_status_display }}</span></td><td>{{ job.success_count }}/{{ job.failed_count }}/{{ job.target_count }}</td><td>{% if job.started_at and job.finished_at %}{{ job.started_at|timesince:job.finished_at }}{% elif job.started_at %}进行中{% else %}—{% endif %}</td><td>{{ job.version|default:"—" }}</td><td>{{ job.triggered_by|default:"系统" }}</td><td>{{ job.created_at }}</td><td>{% if job.version == active_version %}<span class="status-pill status-pill--ok">当前</span>{% else %}—{% endif %}</td></tr>{% empty %}<tr><td colspan="10">暂无任务。</td></tr>{% endfor %}</tbody></table></div>{% if jobs_page.paginator.num_pages > 1 %}<nav>{% if jobs_page.has_previous %}<a class="button button-small" href="?{% if jobs_querystring %}{{ jobs_querystring }}&amp;{% endif %}page={{ jobs_page.previous_page_number }}">上一页</a>{% endif %} 第 {{ jobs_page.number }} / {{ jobs_page.paginator.num_pages }} 页 {% if jobs_page.has_next %}<a class="button button-small" href="?{% if jobs_querystring %}{{ jobs_querystring }}&amp;{% endif %}page={{ jobs_page.next_page_number }}">下一页</a>{% endif %}</nav>{% endif %}</section>
-</div><script>document.querySelector('[data-publish-confirm]')?.addEventListener('submit',e=>{if(e.submitter?.value==='publish'&&!confirm('确认创建静态发布任务？任务将在后台生成，全部校验通过后才切换活动版本。'))e.preventDefault();});</script>
+<script>
+(function(){
+  const scope = document.getElementById('id_publish-scope');
+  const journal = document.querySelector('[data-publish-field="journal"]');
+  const paths = document.querySelector('[data-publish-field="paths"]');
+  const scopeHelp = document.querySelector('[data-publish-scope-help]');
+  const scopeHelpText = {
+    full: '全站发布会重建主站、子期刊目录、所有启用子期刊、栏目、文章和搜索页，适合首次建站或全局改版。',
+    journal: '本刊发布会自动更新该子期刊主页、栏目、期次、关联文章，并同步更新子期刊总目录，适合日常发布。',
+    selective: '指定路径只适合发布管理员处理明确的单页故障；每行填写一个公开 URL 或输出路径。'
+  };
+  function sync(){
+    const isJournal = scope?.value === 'journal';
+    const isSelective = scope?.value === 'selective';
+    if(journal) journal.hidden = !isJournal;
+    if(paths) paths.hidden = !isSelective;
+    if(scopeHelp) scopeHelp.textContent = scopeHelpText[scope?.value] || '请选择发布范围。';
+  }
+  scope?.addEventListener('change', sync);
+  sync();
+  document.querySelector('[data-publish-confirm]')?.addEventListener('submit', function(event){
+    if(event.submitter?.value === 'publish' && !window.confirm('确认创建发布任务？系统会先生成并校验 staging，成功后才切换活动版本。')) event.preventDefault();
+  });
+})();
+</script>
 {% endblock %}

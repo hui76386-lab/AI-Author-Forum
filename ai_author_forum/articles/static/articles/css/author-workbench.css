@@ -418,6 +418,17 @@ body.author-shell {
   text-align: center;
   font-size: 13px;
 }
+.author-access-denied__actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+}
+.author-access-denied__actions form {
+  margin: 0;
+}
+.author-access-denied__actions .author-button--wide {
+  margin-top: 0;
+}
 .author-auth-card h1 {
   font-size: 34px;
   margin-bottom: 8px;

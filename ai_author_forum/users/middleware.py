@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.http import HttpResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 
@@ -108,7 +108,7 @@ class RequiredPasswordChangeMiddleware:
                 },
                 ip_address=request_ip(request),
             )
-            return HttpResponse("作者账号无权访问编辑后台。", status=403)
+            return render(request, "author/admin_forbidden.html", status=403)
 
         is_password_change_resource = (
             request.method in {"GET", "HEAD"}

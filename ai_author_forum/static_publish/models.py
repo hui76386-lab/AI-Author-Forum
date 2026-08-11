@@ -14,6 +14,7 @@ class StaticPublishJob(models.Model):
 
     class Scope(models.TextChoices):
         FULL = "full", "全站发布"
+        JOURNAL = "journal", "本刊发布"
         SELECTIVE = "selective", "指定路径"
         RETRY = "retry", "失败目标重试"
         ROLLBACK = "rollback", "版本回滚"

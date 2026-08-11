@@ -1,12 +1,35 @@
+import re
+
 from django import forms
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.validators import UnicodeUsernameValidator
+from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 
 from ai_author_forum.users.services import SUPER_ADMIN_GROUP_NAME
 
-from .models import Journal, JournalEditorAssignment
+from .models import Journal, JournalEditorAssignment, JournalStatus
 
 
 class JournalProfileForm(forms.ModelForm):
+    def __init__(self, *args, actor=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if actor and actor.groups.filter(name=SUPER_ADMIN_GROUP_NAME).exists():
+            self.fields["status"] = forms.ChoiceField(
+                choices=JournalStatus.choices,
+                label="前台发布状态",
+                help_text="草稿不会进入前台；启用前请先完成主编辑和内容准备。",
+            )
+            self.fields["static_site_path"] = forms.CharField(
+                max_length=255,
+                required=False,
+                label="静态主页输出路径",
+                help_text="通常保持自动生成的 /journals/{slug}/index.html。",
+            )
+            self.initial["status"] = self.instance.status
+            self.initial["static_site_path"] = self.instance.static_site_path
+
     class Meta:
         model = Journal
         fields = (
@@ -54,6 +77,7 @@ class EditorialProfileForm(forms.Form):
             "show_publicly": assignment.show_publicly,
             "responsibilities": assignment.responsibilities,
         }
+
         initial.update(kwargs.pop("initial", {}))
         super().__init__(*args, initial=initial, **kwargs)
         if not can_manage:
@@ -70,6 +94,48 @@ class EditorialProfileForm(forms.Form):
         ]
         if value not in allowed:
             raise forms.ValidationError("前台角色名称与任命角色不匹配。")
+        return value
+
+
+class JournalCreateForm(forms.ModelForm):
+    """Small first-step form for creating a journal safely."""
+
+    slug = forms.SlugField(
+        max_length=255,
+        validators=[
+            RegexValidator(
+                r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "Slug 只能使用小写字母、数字和连字符，例如 ai-research。",
+            )
+        ],
+        help_text="用于前台地址：/journals/{slug}/，保存后不能直接修改。",
+    )
+
+    class Meta:
+        model = Journal
+        fields = ("name", "name_cn", "slug", "az_group", "sort_order")
+        labels = {
+            "name": "英文名称",
+            "name_cn": "中文名称",
+            "slug": "前台地址标识（slug）",
+            "az_group": "A-Z 分组",
+            "sort_order": "列表排序",
+        }
+        help_texts = {
+            "name": "前台英文标题和后台识别名称。",
+            "name_cn": "中文后台和中文前台显示名称，建议填写。",
+            "az_group": "填写一个 A-Z 字母；非英文名称可填写 #。",
+            "sort_order": "数值越小越靠前。",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["az_group"].widget.attrs.setdefault("maxlength", 1)
+
+    def clean_az_group(self):
+        value = self.cleaned_data["az_group"].strip().upper()
+        if value and not re.fullmatch(r"[A-Z#]", value):
+            raise ValidationError("A-Z 分组只能是 A-Z 或 #。")
         return value
 
 
@@ -120,6 +186,46 @@ class AppointEditorForm(forms.Form):
         ):
             self.add_error("public_role_label", "前台角色名称与任命角色不匹配。")
         return cleaned
+
+
+class JournalEditorAccountCreateForm(forms.Form):
+    role = forms.ChoiceField(
+        choices=JournalEditorAssignment.Role.choices,
+        initial=JournalEditorAssignment.Role.CHIEF_EDITOR,
+        label="角色",
+    )
+    username = forms.CharField(
+        max_length=150,
+        validators=[UnicodeUsernameValidator()],
+        label="用户名",
+        widget=forms.TextInput(attrs={"autocomplete": "off"}),
+    )
+    temporary_password = forms.CharField(
+        strip=False,
+        label="初始密码",
+        help_text="账号首次登录后必须修改密码。",
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+    email = forms.EmailField(label="邮箱")
+    display_name = forms.CharField(max_length=120, label="姓名")
+    institution = forms.CharField(max_length=255, required=False, label="单位")
+
+    def clean_username(self):
+        username = self.cleaned_data["username"].strip()
+        if get_user_model().objects.filter(username=username).exists():
+            raise ValidationError("该用户名已被使用。")
+        return username
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        if get_user_model().objects.filter(email__iexact=email).exists():
+            raise ValidationError("该邮箱已被使用。")
+        return email
+
+    def clean_temporary_password(self):
+        password = self.cleaned_data["temporary_password"]
+        validate_password(password)
+        return password
 
 
 class ReplaceEditorForm(forms.Form):

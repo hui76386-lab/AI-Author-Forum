@@ -15,7 +15,7 @@ from ai_author_forum.site_settings.models import AuditAction, AuditStatus
 from ai_author_forum.site_settings.services import record_audit_event
 
 from .models import StaticManifest, StaticPublishJob, StaticPublishTarget
-from .services import mark_publish_job_queue_failure
+from .services import get_journal_publish_paths, mark_publish_job_queue_failure
 
 PLACEMENT_CHANGE_COALESCE_KEY = "placement-change"
 PLACEMENT_CHANGE_TRIGGER = "placement_change"
@@ -35,6 +35,56 @@ def _snapshot(placement):
         "target_slug": placement.target_slug,
         "target_category_id": placement.target_category_id,
         "is_active": placement.is_active,
+    }
+
+
+def _active_manifest_journal_ids():
+    manifest = StaticManifest.objects.filter(is_active=True).first()
+    if manifest is None:
+        return None
+    return {
+        int(journal_id)
+        for target in (manifest.metadata or {}).get("targets", ())
+        if target.get("target_type") == "journal_page"
+        for journal_id in (target.get("dependencies") or {}).get("journal_ids", ())
+    }
+
+
+def placement_publish_plan(events):
+    """Use a complete journal baseline until the journal exists in the manifest."""
+    from ai_author_forum.journals.models import Journal
+
+    snapshots = [_snapshot(event) for event in events if event]
+    paths = sorted(_paths_for_placement_events(snapshots))
+    plan = {
+        "scope": StaticPublishJob.Scope.SELECTIVE,
+        "paths": paths,
+        "summary": {},
+    }
+    active_journal_ids = _active_manifest_journal_ids()
+    if active_journal_ids is None:
+        return plan
+
+    journal_slugs = {
+        (event.get("target_slug") or "").strip("/")
+        for event in snapshots
+        if event.get("target_type") == "journal" and event.get("target_slug")
+    }
+    if len(journal_slugs) != 1:
+        return plan
+    journal = Journal.objects.filter(slug=next(iter(journal_slugs))).first()
+    if journal is None or journal.pk in active_journal_ids:
+        return plan
+
+    return {
+        "scope": StaticPublishJob.Scope.JOURNAL,
+        "paths": sorted(get_journal_publish_paths(journal)),
+        "summary": {
+            "publish_mode": "journal_baseline",
+            "journal_id": journal.pk,
+            "journal_slug": journal.slug,
+            "journal_name": journal.name_cn or journal.name,
+        },
     }
 
 
@@ -62,11 +112,12 @@ def create_pending_placement_publish(
 ):
     """Create a publisher-owned pending selective job without executing it."""
     events = [_snapshot(placement) for placement in placements if placement]
-    paths = sorted(_paths_for_placement_events(events))
+    plan = placement_publish_plan(events)
+    paths = plan["paths"]
     if not paths:
         return None
     return StaticPublishJob.objects.create(
-        scope=StaticPublishJob.Scope.SELECTIVE,
+        scope=plan["scope"],
         requested_paths=paths,
         is_automatic=False,
         triggered_by=actor,
@@ -83,6 +134,7 @@ def create_pending_placement_publish(
             ),
             "publish_events": events,
             "authorized_paths": paths,
+            **plan["summary"],
         },
     )
 
@@ -93,7 +145,8 @@ def _queue_placement_publish(events, *, actor_id, reason):
         if actor_id is not None
         else None
     )
-    paths = sorted(_paths_for_placement_events(events))
+    plan = placement_publish_plan(events)
+    paths = plan["paths"]
     if not paths:
         return None
 
@@ -132,7 +185,7 @@ def _queue_placement_publish(events, *, actor_id, reason):
                 created = job is None
                 if created:
                     job = StaticPublishJob.objects.create(
-                        scope=StaticPublishJob.Scope.SELECTIVE,
+                        scope=plan["scope"],
                         requested_paths=paths,
                         is_automatic=True,
                         coalesce_key=coalesce_key,
@@ -145,6 +198,7 @@ def _queue_placement_publish(events, *, actor_id, reason):
                             "placement_ids": placement_ids,
                             "publish_events": events,
                             "authorized_paths": paths,
+                            **plan["summary"],
                         },
                     )
                 else:
@@ -178,15 +232,29 @@ def _queue_placement_publish(events, *, actor_id, reason):
                             event.get("is_active"),
                         )
                         known_events[key] = event
-                    summary["publish_events"] = list(known_events.values())
-                    job.requested_paths = sorted(
-                        set(job.requested_paths or []) | set(paths)
-                    )
+                    merged_events = list(known_events.values())
+                    merged_plan = placement_publish_plan(merged_events)
+                    summary["publish_events"] = merged_events
+                    for key in (
+                        "publish_mode",
+                        "journal_id",
+                        "journal_slug",
+                        "journal_name",
+                    ):
+                        summary.pop(key, None)
+                    summary.update(merged_plan["summary"])
+                    job.scope = merged_plan["scope"]
+                    job.requested_paths = merged_plan["paths"]
                     summary["authorized_paths"] = job.requested_paths
                     job.scheduled_at = scheduled_at
                     job.summary = summary
                     job.save(
-                        update_fields=("requested_paths", "scheduled_at", "summary")
+                        update_fields=(
+                            "scope",
+                            "requested_paths",
+                            "scheduled_at",
+                            "summary",
+                        )
                     )
 
                 record_audit_event(
@@ -195,9 +263,9 @@ def _queue_placement_publish(events, *, actor_id, reason):
                     actor=actor,
                     target=job,
                     message=(
-                        "Automatic selective static publish queued"
+                        "Automatic static publish queued"
                         if created
-                        else "Automatic selective static publish merged"
+                        else "Automatic static publish merged"
                     ),
                     metadata={
                         "trigger": PLACEMENT_CHANGE_TRIGGER,

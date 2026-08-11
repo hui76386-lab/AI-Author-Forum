@@ -112,6 +112,34 @@ class StaticPublisherTests(TestCase):
         self.assertNotIn("manifest.json", {item["path"] for item in manifest.files})
         self.assertEqual(job.targets.count(), 2)
 
+    def test_journal_snapshot_runs_readiness_for_only_requested_journal(self):
+        TARGETS.clear()
+        TARGETS.update(
+            {"/journals/scoped-journal/": b"<html>scoped journal</html>"}
+        )
+        job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.JOURNAL,
+            requested_paths=["/journals/scoped-journal/"],
+            summary={"journal_id": 42, "journal_slug": "scoped-journal"},
+            triggered_by=self.admin,
+        )
+        readiness = ContentReadinessResult(configured=True)
+
+        with (
+            patch(
+                "ai_author_forum.static_publish.services.requires_content_readiness",
+                return_value=True,
+            ),
+            patch(
+                "ai_author_forum.static_publish.services.check_content_readiness",
+                return_value=readiness,
+            ) as check_readiness,
+        ):
+            self.publisher._snapshot_targets(job, job.requested_paths)
+
+        self.assertEqual(check_readiness.call_count, 1)
+        self.assertEqual(check_readiness.call_args.kwargs["journal_ids"], [42])
+
     def test_rendering_uses_frozen_target_bytes_after_snapshot(self):
         job = StaticPublishJob.objects.create(
             scope=StaticPublishJob.Scope.FULL,

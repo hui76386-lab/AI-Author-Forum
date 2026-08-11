@@ -107,7 +107,7 @@ python manage.py seed_journal_demo_data --publish-static-site --operator-id 1
 | 常务副编辑 | `executive_editor` | 被任命子期刊的日常维护、分派、初审和投放；不能终审 |
 | 副编辑 | `associate_editor` | 被任命子期刊的初审及所分配的固定维护职责；不能终审 |
 
-超级管理员通过 `/admin/accounts/new/` 创建实名账号并分配任命。主编辑、常务副编辑和副编辑自动加入“子期刊编辑基础访问”技术组，但数据范围始终由有效 `JournalEditorAssignment` 和统一权限 service 决定；禁止通过直接修改 Group 成员关系授予子期刊业务角色。
+超级管理员可通过 `/admin/accounts/new/` 创建实名账号并分配任命，也可在当前子期刊的“编辑团队”页面使用角色预设直接创建本刊账号。快捷入口固定当前期刊并锁定角色职责，账号和任命在同一事务中创建。主编辑、常务副编辑和副编辑自动加入“子期刊编辑基础访问”技术组，但数据范围始终由有效 `JournalEditorAssignment` 和统一权限 service 决定；禁止通过直接修改 Group 成员关系授予子期刊业务角色。
 
 ## 跨模块接口
 

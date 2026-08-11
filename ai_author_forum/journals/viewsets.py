@@ -2,11 +2,14 @@
 
 import re
 
+from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, Q
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
+from django.utils import timezone
 
 from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.placements.models import ArticlePlacement
@@ -15,11 +18,21 @@ from ai_author_forum.site_settings.access_control import (
     filter_accessible_journals,
 )
 from ai_author_forum.site_settings.admin_views import PermissionedModuleViewSet
+from ai_author_forum.site_settings.models import AuditAction, AuditStatus
+from ai_author_forum.site_settings.navigation import get_active_navigation_set
 from ai_author_forum.site_settings.permissions import get_admin_permission_context
+from ai_author_forum.site_settings.services import record_audit_event
 from ai_author_forum.static_publish.models import StaticManifest
 from ai_author_forum.utils.admin_i18n import admin_text
 
-from .models import Journal, JournalCategory, JournalStatus
+from .editor_forms import JournalCreateForm
+from .models import (
+    Journal,
+    JournalCategory,
+    JournalCategoryStatus,
+    JournalEditorAssignment,
+    JournalStatus,
+)
 
 _ORDERING = {
     "name": ("name", "pk"),
@@ -81,6 +94,25 @@ def _status_choices():
     return [(value, labels.get(value, label)) for value, label in JournalStatus.choices]
 
 
+def _prepared_chief_editor_count(journal):
+    """Count a chief assignment that can become effective after activation."""
+    now = timezone.now()
+    return (
+        JournalEditorAssignment.objects.filter(
+            journal=journal,
+            role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            is_active=True,
+            user__is_active=True,
+            user__account_status="active",
+        )
+        .filter(
+            Q(starts_at__isnull=True) | Q(starts_at__lte=now),
+            Q(ends_at__isnull=True) | Q(ends_at__gt=now),
+        )
+        .count()
+    )
+
+
 class JournalsViewSet(PermissionedModuleViewSet):
     name = "journals"
     menu_label = admin_text("journals")
@@ -92,6 +124,67 @@ class JournalsViewSet(PermissionedModuleViewSet):
     description = admin_text("journals.description")
     owner = "B：journals 应用；A 提供工程、菜单、权限和审计基线。"
     integration_points = ("get_active_journals()", "get_journal_context(slug)")
+
+    def create_view(self, request):
+        if (
+            not self.has_access(request)
+            or not request.user.groups.filter(name="超级管理员").exists()
+        ):
+            raise PermissionDenied
+
+        form = JournalCreateForm(request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            with transaction.atomic():
+                journal = form.save(commit=False)
+                # A journal must have a chief editor before it can be activated.
+                # Keeping new records as drafts makes that dependency explicit.
+                journal.status = JournalStatus.DRAFT
+                journal.full_clean()
+                journal.save()
+                JournalCategory.objects.create(
+                    journal=journal,
+                    name="主栏目",
+                    code="MAIN",
+                    slug="main",
+                    depth=1,
+                    path_cache="main",
+                    description="系统生成的默认主栏目，可在栏目工作台中调整。",
+                    sort_order=0,
+                    status=JournalCategoryStatus.ACTIVE,
+                    show_in_navigation=True,
+                    generate_static_page=True,
+                    created_by=request.user,
+                    updated_by=request.user,
+                )
+                record_audit_event(
+                    request=request,
+                    actor=request.user,
+                    action=AuditAction.CONFIGURE,
+                    status=AuditStatus.SUCCESS,
+                    target=journal,
+                    message="创建子期刊并初始化默认栏目。",
+                    metadata={
+                        "operation": "create_journal_onboarding",
+                        "journal_id": journal.pk,
+                        "slug": journal.slug,
+                        "status": journal.status,
+                    },
+                )
+            messages.success(
+                request,
+                "子期刊已创建。默认导航和主栏目已准备好，请按工作台的下一步继续。",
+            )
+            return redirect("journals:workspace", journal_id=journal.pk)
+
+        return render(
+            request,
+            "wagtailadmin/journals/create.html",
+            {
+                "title": "新建子期刊",
+                "form": form,
+                "back_url": reverse("journals:index"),
+            },
+        )
 
     def index_view(self, request):
         if not self.has_access(request):
@@ -200,7 +293,7 @@ class JournalsViewSet(PermissionedModuleViewSet):
                 "can_change": can_change,
                 "can_view_snippets": flags["can_view_journals"] or can_change,
                 "import_url": reverse("journals_import_dashboard"),
-                "add_url": reverse("wagtailsnippets_journals_journal:add"),
+                "add_url": reverse("journals:new"),
                 "snippet_list_url": reverse("wagtailsnippets_journals_journal:list"),
             },
         )
@@ -225,6 +318,14 @@ class JournalsViewSet(PermissionedModuleViewSet):
             journal.slug,
         )
         category_count = JournalCategory.objects.filter(journal=journal).count()
+        approved_primary_article_count = primary_articles.filter(
+            review_status__in=("approved", "published")
+        ).count()
+        placement_action_label = (
+            "管理本刊投放" if flags["can_manage_placement"] else "查看本刊投放"
+        )
+        chief_editor_count = _prepared_chief_editor_count(journal)
+        navigation_set = get_active_navigation_set(journal=journal)
 
         actions = {
             "edit": (
@@ -254,11 +355,63 @@ class JournalsViewSet(PermissionedModuleViewSet):
                 else ""
             ),
             "static_publish": (
-                reverse("static_publish:center")
+                f"{reverse('static_publish:center')}?journal={journal.slug}"
                 if flags["can_view_static_publish"] or flags["can_publish_static"]
                 else ""
             ),
+            "navigation": (
+                f"{reverse('managed_navigation_admin')}?mode=journal&journal={journal.pk}"
+                if navigation_set and journal.status == JournalStatus.ACTIVE
+                else ""
+            ),
         }
+        steps = [
+            {
+                "title": "主编辑",
+                "description": "先任命且仅保留一名有效主编辑，完成后再启用子期刊。",
+                "complete": chief_editor_count == 1,
+                "url": actions["editorial_team"],
+                "action": "管理编辑团队",
+            },
+            {
+                "title": "导航与栏目",
+                "description": "创建时已复制默认导航并生成主栏目，可按本刊内容继续调整。",
+                "complete": bool(navigation_set and category_count),
+                "url": actions["navigation"] or actions["categories"],
+                "action": "管理本刊导航" if actions["navigation"] else "管理本刊栏目",
+            },
+            {
+                "title": "启用子期刊",
+                "description": "资料、主编辑和栏目准备好后再启用；草稿不会进入前台目录。",
+                "complete": journal.status == JournalStatus.ACTIVE,
+                "url": actions["edit"],
+                "action": "启用子期刊",
+            },
+            {
+                "title": "正式内容",
+                "description": "文章必须完成审核；仅保存草稿或导入成功不会进入前台。",
+                "complete": approved_primary_article_count > 0,
+                "url": actions["articles"] or actions["import_articles"],
+                "action": "查看或导入文章",
+            },
+            {
+                "title": "前台投放",
+                "description": "审核通过后还要投放到本刊版位，发布时才会生成对应展示内容。",
+                "complete": current_placements.count() > 0,
+                "url": actions["placements"],
+                "action": placement_action_label,
+            },
+            {
+                "title": "静态发布",
+                "description": "预估本刊目标后入队；成功并切换活动 manifest 才算上线。",
+                "complete": static_state["is_published"],
+                "url": actions["static_publish"],
+                "action": (
+                    "查看本刊发布" if static_state["is_published"] else "发布本刊"
+                ),
+            },
+        ]
+        next_step = next((step for step in steps if not step["complete"]), steps[-1])
         return render(
             request,
             "wagtailadmin/journals/workspace.html",
@@ -278,6 +431,10 @@ class JournalsViewSet(PermissionedModuleViewSet):
                 "current_placement_count": current_placements.count(),
                 "static_state": static_state,
                 "active_manifest_version": manifest.version if manifest else "",
+                "chief_editor_count": chief_editor_count,
+                "navigation_set": navigation_set,
+                "onboarding_steps": steps,
+                "next_step": next_step,
                 "actions": actions,
                 "placement_action_label": (
                     "管理本刊投放" if flags["can_manage_placement"] else "查看本刊投放"
@@ -289,6 +446,7 @@ class JournalsViewSet(PermissionedModuleViewSet):
     def get_urlpatterns(self):
         return [
             path("", self.index_view, name="index"),
+            path("new/", self.create_view, name="new"),
             path(
                 "<int:journal_id>/workspace/",
                 self.workspace_view,

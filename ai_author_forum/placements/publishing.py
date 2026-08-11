@@ -20,6 +20,7 @@ from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditSta
 from ai_author_forum.static_publish.automatic import (
     _paths_for_placement_events,
     _snapshot,
+    placement_publish_plan,
 )
 from ai_author_forum.static_publish.models import StaticPublishJob
 
@@ -101,7 +102,10 @@ def require_automatic_placement_publish_job(job):
     """Recheck a journal editor's exact automatic job inside the worker."""
     summary = dict(job.summary or {})
     if (
-        job.scope != StaticPublishJob.Scope.SELECTIVE
+        job.scope not in {
+            StaticPublishJob.Scope.SELECTIVE,
+            StaticPublishJob.Scope.JOURNAL,
+        }
         or not job.is_automatic
         or summary.get("requires_publisher_approval")
         or summary.get("trigger") not in {"placement_batch", "placement_change"}
@@ -126,10 +130,12 @@ def require_automatic_placement_publish_job(job):
     )
     if sorted(summary.get("placement_ids") or []) != event_placement_ids:
         raise PermissionDenied("Journal publish placement ids do not match its events.")
-    calculated_paths = sorted(_paths_for_placement_events(events))
+    plan = placement_publish_plan(events)
+    calculated_paths = plan["paths"]
     authorized_paths = sorted(summary.get("authorized_paths") or calculated_paths)
     if (
-        authorized_paths != calculated_paths
+        job.scope != plan["scope"]
+        or authorized_paths != calculated_paths
         or sorted(job.requested_paths or []) != authorized_paths
     ):
         raise PermissionDenied("Journal publish paths do not match placement changes.")
@@ -188,9 +194,10 @@ def supersede_pending_chief_publish_jobs(job_ids):
             raise PermissionDenied(
                 "The chief editor no longer owns this journal scope."
             )
-        paths = sorted(_paths_for_placement_events(events))
+        plan = placement_publish_plan(events)
+        paths = plan["paths"]
         replacement = StaticPublishJob.objects.create(
-            scope=StaticPublishJob.Scope.SELECTIVE,
+            scope=plan["scope"],
             requested_paths=paths,
             is_automatic=True,
             coalesce_key=f"chief-transition:{actor.pk}:{ids[0]}-{ids[-1]}",
@@ -203,6 +210,7 @@ def supersede_pending_chief_publish_jobs(job_ids):
                 "publish_events": events,
                 "authorized_paths": paths,
                 "requires_publisher_approval": False,
+                **plan["summary"],
             },
         )
         PlacementBatch.objects.filter(publish_job_id__in=ids).update(
@@ -249,14 +257,15 @@ def supersede_pending_chief_publish_jobs(job_ids):
 
 def create_batch_publish(*, batch, events, actor):
     """Create exactly one static-publish job for a successfully committed batch."""
-    paths = sorted(_paths_for_placement_events(events))
+    publish_events = _publish_events(events)
+    plan = placement_publish_plan(publish_events)
+    paths = plan["paths"]
     if not paths:
         return None, batch.PublishStatus.NOT_STARTED
-    publish_events = _publish_events(events)
     automatic = can_publish_automatically(actor, publish_events)
     coalesce_key = f"placement-batch:{batch.pk}" if automatic else ""
     job = StaticPublishJob.objects.create(
-        scope=StaticPublishJob.Scope.SELECTIVE,
+        scope=plan["scope"],
         requested_paths=paths,
         is_automatic=automatic,
         coalesce_key=coalesce_key,
@@ -275,6 +284,7 @@ def create_batch_publish(*, batch, events, actor):
             "publish_events": publish_events,
             "authorized_paths": paths,
             "requires_publisher_approval": not automatic,
+            **plan["summary"],
         },
     )
     if automatic:

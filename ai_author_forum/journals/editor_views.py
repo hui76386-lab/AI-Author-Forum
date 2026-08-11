@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 
 from ai_author_forum.site_settings.access_control import (
@@ -14,11 +15,13 @@ from .editor_forms import (
     EditorialProfileForm,
     EditorialTeamSettingsForm,
     EndAssignmentForm,
+    JournalEditorAccountCreateForm,
     JournalProfileForm,
     ReplaceEditorForm,
 )
 from .editor_services import (
     appoint_journal_editor,
+    create_journal_editor_account,
     end_journal_editor_assignment,
     replace_chief_editor,
     replace_executive_editor,
@@ -75,6 +78,8 @@ def editorial_team_index(request, journal_id=None):
 
     if request.method == "POST":
         action = request.POST.get("action")
+        if action == "create-account" and not can_assign:
+            return HttpResponseForbidden("只有超级管理员可以创建期刊角色账号。")
         try:
             if action == "settings":
                 form = EditorialTeamSettingsForm(request.POST, prefix="settings")
@@ -135,6 +140,17 @@ def editorial_team_index(request, journal_id=None):
                         "show_publicly": data["show_publicly"],
                     },
                 )
+            elif action == "create-account":
+                form = JournalEditorAccountCreateForm(
+                    request.POST, prefix="create-account"
+                )
+                if not form.is_valid():
+                    raise ValidationError(form.errors.as_text())
+                create_journal_editor_account(
+                    actor=request.user,
+                    journal=journal,
+                    **form.cleaned_data,
+                )
             elif action == "replace":
                 if not can_assign:
                     raise PermissionDenied
@@ -188,7 +204,10 @@ def editorial_team_index(request, journal_id=None):
                 raise
             messages.error(request, _error_text(exc))
         else:
-            messages.success(request, "编辑团队已更新。")
+            if action == "create-account":
+                messages.success(request, "角色账号已创建并加入当前期刊。")
+            else:
+                messages.success(request, "编辑团队已更新。")
         return redirect("journals_editorial_team", journal_id=journal.pk)
 
     rows = []
@@ -247,6 +266,14 @@ def editorial_team_index(request, journal_id=None):
                 else None
             ),
             "appoint_form": AppointEditorForm(prefix="appoint") if can_assign else None,
+            "create_account_form": (
+                JournalEditorAccountCreateForm(prefix="create-account")
+                if can_assign
+                else None
+            ),
+            "locked_responsibilities": (
+                JournalEditorAssignment.Responsibility.choices if can_assign else ()
+            ),
         },
     )
 
@@ -259,7 +286,11 @@ def journal_profile(request, journal_id):
         JournalEditorAssignment.Responsibility.JOURNAL_PROFILE,
     ):
         raise PermissionDenied
-    form = JournalProfileForm(request.POST or None, instance=journal)
+    form = JournalProfileForm(
+        request.POST or None,
+        instance=journal,
+        actor=request.user,
+    )
     if request.method == "POST" and form.is_valid():
         try:
             update_journal_profile(
