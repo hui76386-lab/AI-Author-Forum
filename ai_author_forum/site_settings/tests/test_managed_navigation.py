@@ -359,6 +359,22 @@ class ManagedNavigationInitializationTests(ManagedNavigationFixtureMixin, TestCa
             list(self.template.groups.values_list("code", flat=True)),
             list(self.nav_set.groups.values_list("code", flat=True)),
         )
+        configs = ContentColumnConfig.objects.filter(
+            navigation_item__group__navigation_set=self.nav_set
+        )
+        self.assertTrue(configs.exists())
+        self.assertFalse(configs.exclude(minimum_publish_items=0).exists())
+        self.assertFalse(
+            configs.exclude(empty_behavior="editorial_message").exists()
+        )
+        config = configs.first()
+        config.full_clean()
+        config.minimum_publish_items = 1
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Journal content columns do not enforce a publish minimum; use 0.",
+        ):
+            config.full_clean()
 
     def test_template_changes_do_not_propagate_to_existing_journal(self):
         template_group = self.template.groups.order_by("sort_order", "pk").first()

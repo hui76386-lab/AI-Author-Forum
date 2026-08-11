@@ -79,11 +79,11 @@ output/                      # 构建中间产物，不直接对外服务
 - 目标子期刊主页、导航、栏目、期次和静态信息页；
 - 主属或相关关系指向目标子期刊且满足审核、投放条件的文章详情页。
 
-本刊发布依赖现有活动 manifest 作为增量基线；没有活动 manifest 时必须先完成一次全站发布。构建前主编辑、导航、期次、栏目最低内容和投放检查应限制在目标子期刊，不得因其他无关子期刊未就绪而阻断。本刊任务只有在新 manifest 完整校验并切换为 current 后才算完成，后台应同时提供期刊工作台、前台主页和总目录验证入口。
+本刊发布依赖现有活动 manifest 作为增量基线；没有活动 manifest 时必须先完成一次全站发布。构建前主编辑、导航配置和已有投放内容检查应限制在目标子期刊，不得因其他无关子期刊未就绪而阻断。本刊任务只有在新 manifest 完整校验并切换为 current 后才算完成，后台应同时提供期刊工作台、前台主页和总目录验证入口。
 
-导航业务就绪检查只处理活动导航集中状态为 `active`、可见且所属分组同样活动可见的条目。`hidden`、`archived`、`is_visible=False` 或停用条目不触发当前期次、期次归档和内容栏目最低数量阻断；其历史路径、删除目标和实际进入构建快照的资源仍需通过 manifest、链接和文件完整性校验。
+导航业务就绪检查只处理活动导航集中状态为 `active`、可见且所属分组同样活动可见的条目。`hidden`、`archived`、`is_visible=False` 或停用条目不参与本次构建。子期刊尚无已发布期次时，Current issue / Browse issues 视为可选目标，不阻断首次发布；其历史路径、删除目标和实际进入构建快照的资源仍需通过 manifest、链接和文件完整性校验。
 
-内容栏目的 `minimum_publish_items` 只统计投向该栏目 `placement_target_slug` 的有效 `SECTION` `ArticlePlacement`。Journal hero 或其他期刊版位投放、仅给栏目配置关联分类，都不会计入栏目最低数量。`empty_behavior=block_publish` 时数量不足阻断发布；`hide_navigation` 时记录 warning，并在达到最低数量前隐藏该导航入口。
+子期刊内容栏目不设最低发布文章数量：`minimum_publish_items` 固定迁移为 `0`，空栏目仍生成页面并显示 `empty_message`，不产生 blocker 或 warning。主站内容栏目继续按配置统计投向 `placement_target_slug` 的有效 `SECTION` `ArticlePlacement`；主站的 `block_publish`、`hide_navigation` 和最低数量规则保持不变。
 
 投放自动发布根据活动 manifest 决定范围：目标子期刊已上线时使用受影响路径增量发布；目标子期刊尚未上线时提升为本刊完整发布，并执行该刊内容就绪检查。非全站任务的分类投放一致性校验只覆盖本次任务依赖的子期刊；全站任务仍执行全局一致性校验。
 

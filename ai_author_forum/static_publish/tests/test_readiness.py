@@ -38,7 +38,10 @@ from ai_author_forum.site_settings.models import (
     NavigationTargetType,
 )
 from ai_author_forum.site_settings.navigation import ensure_main_navigation_set
-from ai_author_forum.static_publish.providers import PublishTarget
+from ai_author_forum.static_publish.providers import (
+    PublishTarget,
+    WagtailPageTargetProvider,
+)
 from ai_author_forum.static_publish.readiness import (
     check_content_readiness,
     check_homepage_readiness,
@@ -203,6 +206,44 @@ class ContentReadinessTests(TestCase):
         self.assertIn("column_minimum_not_met", self.finding_codes(result))
         self.assertEqual(result.checked_columns, 1)
         self.assertEqual(result.checked_placements, 0)
+
+    def test_empty_journal_columns_and_issues_do_not_block_first_publish(self):
+        journal_items = NavigationItem.objects.filter(
+            group__navigation_set__journal=self.journal
+        )
+        journal_items.update(
+            is_active=True,
+            is_visible=True,
+            status=NavigationEntryStatus.ACTIVE,
+        )
+        column_items = journal_items.filter(
+            target_type=NavigationTargetType.CONTENT_COLUMN
+        )
+        self.assertTrue(column_items.exists())
+
+        targets = [
+            target
+            for target in WagtailPageTargetProvider().get_targets()
+            if self.journal.pk in target.dependencies.get("journal_ids", [])
+        ]
+        self.assertTrue(targets)
+        result = check_content_readiness(
+            targets=targets,
+            journal_ids=[self.journal.pk],
+        )
+        blocker_codes = {finding.code for finding in result.blockers}
+        warning_codes = {finding.code for finding in result.warnings}
+
+        for code in (
+            "column_minimum_not_met",
+            "column_hidden_until_minimum",
+            "current_issue_missing",
+            "issue_archive_empty",
+        ):
+            with self.subTest(code=code):
+                self.assertNotIn(code, blocker_codes)
+                self.assertNotIn(code, warning_codes)
+        self.assertTrue(result.is_ready, result.to_dict())
 
     def test_active_journal_requires_exactly_one_effective_chief_editor(self):
         journal = Journal.objects.create(

@@ -831,9 +831,18 @@ class ContentColumnConfig(models.Model):
                 )
         if self.page_size < 1:
             errors["page_size"] = "Page size must be at least 1."
-        if self.minimum_publish_items < 1:
+        is_journal_column = bool(
+            item
+            and item.group_id
+            and item.group.navigation_set.scope == NavigationScope.JOURNAL
+        )
+        if is_journal_column and self.minimum_publish_items != 0:
             errors["minimum_publish_items"] = (
-                "Minimum publish items must be at least 1."
+                "Journal content columns do not enforce a publish minimum; use 0."
+            )
+        elif not is_journal_column and self.minimum_publish_items < 1:
+            errors["minimum_publish_items"] = (
+                "Main-site minimum publish items must be at least 1."
             )
         if errors:
             raise ValidationError(errors)

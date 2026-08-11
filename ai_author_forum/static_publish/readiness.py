@@ -391,6 +391,8 @@ def _check_navigation_target(result, item, *, static_paths=None):
         if not PublicationIssue.objects.filter(
             **_published_issue_filter(item, current=True)
         ).exists():
+            if item.group.navigation_set.journal_id:
+                return
             result.block(
                 "current_issue_missing",
                 f"Navigation item '{item.label}' has no published current issue.",
@@ -401,6 +403,8 @@ def _check_navigation_target(result, item, *, static_paths=None):
         if not PublicationIssue.objects.filter(
             **_published_issue_filter(item)
         ).exists():
+            if item.group.navigation_set.journal_id:
+                return
             result.block(
                 "issue_archive_empty",
                 f"Navigation item '{item.label}' has no published issue.",
@@ -460,13 +464,17 @@ def _check_column(result, item, at, *, article_static_paths=None):
         if placement.article.review_status in PUBLIC_REVIEW_STATUSES
         and placement.article.primary_journal.status == "active"
     }
-    minimum = max(1, int(config.minimum_publish_items or 1))
-    if len(publishable_article_ids) < minimum:
+    nav_set = item.group.navigation_set
+    minimum = (
+        0
+        if nav_set.journal_id
+        else max(1, int(config.minimum_publish_items or 1))
+    )
+    if minimum and len(publishable_article_ids) < minimum:
         message = (
             f"Content column '{item.label}' has {len(publishable_article_ids)} "
             f"publishable article(s); minimum is {minimum}."
         )
-        nav_set = item.group.navigation_set
         is_core = (not nav_set.journal_id) and item.managed_code in CORE_COLUMN_CODES
         if is_core or config.empty_behavior == ColumnEmptyBehavior.BLOCK_PUBLISH:
             result.block("column_minimum_not_met", message, target=config, path=path)

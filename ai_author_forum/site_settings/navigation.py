@@ -541,7 +541,10 @@ def copy_template_to_journal(
                 if item.target_type == NavigationTargetType.CONTENT_COLUMN:
                     ContentColumnConfig.objects.create(
                         navigation_item=new_item,
-                        **_content_column_defaults(new_item.managed_code),
+                        **_content_column_defaults(
+                            new_item.managed_code,
+                            journal_scoped=True,
+                        ),
                     )
         _record(
             AuditAction.CONFIGURE,
@@ -594,17 +597,24 @@ def _create_groups(nav_set, groups: Iterable[dict], *, site, template=False):
             if target_type == NavigationTargetType.CONTENT_COLUMN:
                 ContentColumnConfig.objects.create(
                     navigation_item=item,
-                    **_content_column_defaults(item.managed_code),
+                    **_content_column_defaults(
+                        item.managed_code,
+                        journal_scoped=nav_set.scope == NavigationScope.JOURNAL,
+                    ),
                 )
 
 
-def _content_column_defaults(code):
+def _content_column_defaults(code, *, journal_scoped=False):
     configured = CONTENT_COLUMN_DEFAULTS.get(code, {})
     return {
         "template_variant": configured.get("template_variant", "chronological"),
         "default_sort": "published_desc",
-        "minimum_publish_items": 1,
-        "empty_behavior": "block_publish",
+        "minimum_publish_items": 0 if journal_scoped else 1,
+        "empty_behavior": (
+            ColumnEmptyBehavior.EDITORIAL_MESSAGE
+            if journal_scoped
+            else ColumnEmptyBehavior.BLOCK_PUBLISH
+        ),
         "show_open_access_badge": configured.get("show_open_access_badge", False),
         "show_authors": True,
         "show_abstract": True,
