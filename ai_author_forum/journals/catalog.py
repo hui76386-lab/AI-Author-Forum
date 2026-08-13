@@ -95,26 +95,38 @@ def group_journals_by_discipline(
 ) -> tuple[JournalDisciplineGroup, ...]:
     """Group journals in the exact Top 120 document order.
 
-    ``Journal.sort_order`` is the catalogue position maintained with the 120
-    journal records. Existing slugs and legacy A-Z metadata remain untouched.
-    Any non-catalogue record is retained in a final fallback group so that an
-    editor cannot accidentally hide an active journal from the directory.
+    ``Journal.az_group`` is the editor-controlled catalogue group. Historical
+    Top 120 records may predate that field being populated correctly, so their
+    1-120 ``sort_order`` remains a compatibility fallback. Any record that
+    matches neither source is retained in a final group so an editor cannot
+    accidentally hide an active journal from the directory.
     """
 
     grouped = {definition.code: [] for definition in JOURNAL_DISCIPLINE_DEFINITIONS}
+    definitions_by_code = {
+        definition.code: definition for definition in JOURNAL_DISCIPLINE_DEFINITIONS
+    }
     uncategorized = []
 
     for journal in journals:
-        for definition in JOURNAL_DISCIPLINE_DEFINITIONS:
-            if (
-                definition.first_sort_order
-                <= journal.sort_order
-                <= definition.last_sort_order
-            ):
-                grouped[definition.code].append(journal)
-                break
-        else:
+        group_code = str(getattr(journal, "az_group", "") or "").strip().upper()
+        definition = definitions_by_code.get(group_code)
+        if definition is None:
+            sort_order = getattr(journal, "sort_order", 0)
+            definition = next(
+                (
+                    candidate
+                    for candidate in JOURNAL_DISCIPLINE_DEFINITIONS
+                    if candidate.first_sort_order
+                    <= sort_order
+                    <= candidate.last_sort_order
+                ),
+                None,
+            )
+        if definition is None:
             uncategorized.append(journal)
+        else:
+            grouped[definition.code].append(journal)
 
     result = tuple(
         JournalDisciplineGroup(

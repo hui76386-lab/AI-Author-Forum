@@ -15,7 +15,7 @@
   <section class="publish-context" aria-labelledby="publish-context-title">
     <div>
       <p class="publish-card__eyebrow">当前发布范围</p>
-      <h2 id="publish-context-title">本刊发布：{{ requested_journal.name_cn|default:requested_journal.name }}</h2>
+      <h2 id="publish-context-title">本刊发布：{{ requested_journal }}</h2>
       <p>系统会自动选择 <code>/journals/{{ requested_journal.slug }}/</code> 下的主页、栏目、期次、导航页，以及属于本刊的文章详情页。</p>
     </div>
     <div class="publish-context__actions">
@@ -58,7 +58,7 @@
   {% if can_publish %}
   <section class="publish-card">
     <h2>新建发布任务</h2>
-    <p class="publish-impact"><strong>发布不会直接覆盖前台。</strong>系统先在独立 staging 目录生成目标，再校验页面、资源和 manifest；全部通过后才切换活动版本。任务失败时，旧版本继续提供服务。</p>
+    <p class="publish-impact"><strong>发布不会直接覆盖前台。</strong> 系统先在独立 staging 目录生成目标，再校验页面、资源和 manifest；全部通过后才切换活动版本。任务失败时，旧版本继续提供服务。</p>
     <form method="post" data-publish-confirm>
       {% csrf_token %}
       <div class="publish-form-grid">

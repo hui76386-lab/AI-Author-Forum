@@ -1,8 +1,9 @@
 {% extends "wagtailadmin/base.html" %}
-{% load wagtailadmin_tags %}
+{% load i18n wagtailadmin_tags %}
 
 {% block titletag %}{{ title }}{% endblock %}
 {% block content %}
+{% get_current_language as LANGUAGE_CODE %}
 {% include "wagtailadmin/shared/header.html" with title=title subtitle="先创建资料，再按工作台完成发布" icon="doc-full" only %}
 <div class="nice-padding journal-create-page">
   <nav class="journal-create-breadcrumb" aria-label="当前位置">
@@ -18,7 +19,7 @@
     <ol class="journal-create-flow" aria-label="子期刊发布流程">
       <li class="is-current"><span>1</span>创建资料</li>
       <li><span>2</span>任命主编辑</li>
-      <li><span>3</span>启用子期刊</li>
+      <li><span>3</span>{% if LANGUAGE_CODE|slice:":2" == "zh" %}启用子期刊{% else %}Activate journal{% endif %}</li>
       <li><span>4</span>准备内容</li>
       <li><span>5</span>完成投放</li>
       <li><span>6</span>静态发布</li>

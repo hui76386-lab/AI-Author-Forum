@@ -1,6 +1,8 @@
 {% extends "placements/admin/v2/base.html" %}
+{% load i18n %}
 
 {% block workflow_content %}
+{% get_current_language as LANGUAGE_CODE %}
 <div class="result-page">
   <section class="result-hero {% if batch.status == 'succeeded' %}result-hero--success{% elif batch.status == 'failed' %}result-hero--failure{% else %}result-hero--progress{% endif %}" aria-labelledby="result-title">
     <div class="result-hero__signal" aria-hidden="true"><span></span><span></span><span></span></div>
@@ -8,7 +10,7 @@
       <p class="result-hero__eyebrow">投放批次 / Placement batch</p>
       {% if batch.status == 'succeeded' %}
         <h2 id="result-title">投放已完成</h2>
-        <p>已完成 {{ batch.success_count }} 篇文章的投放。静态发布状态将在下方持续更新。</p>
+        <p>{% if LANGUAGE_CODE|slice:":2" == "zh" %}已完成 {{ batch.success_count }} 篇文章的投放。静态发布状态将在下方持续更新。{% else %}Completed {{ batch.success_count }} article{{ batch.success_count|pluralize }}. Static publishing status will continue updating below.{% endif %}</p>
       {% elif batch.status == 'failed' %}
         <h2 id="result-title">投放未能完成</h2>
         <p>部分文章或后续发布未成功，请查看执行明细和处理建议后再继续操作。</p>
@@ -24,7 +26,7 @@
     </div>
     <div class="result-hero__summary" aria-label="投放范围">
       <span>投放范围</span>
-      <strong>{{ batch.items.all|length }} 篇文章</strong>
+      <strong>{% if LANGUAGE_CODE|slice:":2" == "zh" %}{{ batch.items.all|length }} 篇文章{% else %}{{ batch.items.all|length }} article{{ batch.items.all|length|pluralize }}{% endif %}</strong>
       <small>{{ batch.get_operation_display }} · {{ batch.get_target_type_display }}{% if batch.target_slug %} / {{ batch.target_slug }}{% endif %}</small>
     </div>
   </section>
@@ -76,7 +78,7 @@
             <p class="result-panel__eyebrow">Records</p>
             <h3 id="result-items-title">逐篇执行记录</h3>
           </div>
-          <span class="muted">共 {{ batch.items.all|length }} 篇</span>
+          <span class="muted">{% if LANGUAGE_CODE|slice:":2" == "zh" %}共 {{ batch.items.all|length }} 篇{% else %}{{ batch.items.all|length }} article{{ batch.items.all|length|pluralize }} total{% endif %}</span>
         </div>
         <div class="table-shell result-table-shell">
           <table>

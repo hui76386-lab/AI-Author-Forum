@@ -81,6 +81,8 @@ output/                      # 构建中间产物，不直接对外服务
 
 本刊发布依赖现有活动 manifest 作为增量基线；没有活动 manifest 时必须先完成一次全站发布。构建前主编辑、导航配置和已有投放内容检查应限制在目标子期刊，不得因其他无关子期刊未就绪而阻断。本刊任务只有在新 manifest 完整校验并切换为 current 后才算完成，后台应同时提供期刊工作台、前台主页和总目录验证入口。
 
+子期刊总目录的分组以后台保存的 `Journal.az_group` 为准。历史 Top 120 数据只有在该字段为空或不是现有目录分组代码时，才按 `sort_order` 的既有区间兜底；新建期刊即使尚未配置 Top 120 排序位置，也必须出现在后台所选分组中。分组修复需通过新的静态 release 和不可变 manifest 生效，不得直接修改已激活目录。
+
 导航业务就绪检查只处理活动导航集中状态为 `active`、可见且所属分组同样活动可见的条目。`hidden`、`archived`、`is_visible=False` 或停用条目不参与本次构建。子期刊尚无已发布期次时，Current issue / Browse issues 视为可选目标，不阻断首次发布；其历史路径、删除目标和实际进入构建快照的资源仍需通过 manifest、链接和文件完整性校验。
 
 子期刊内容栏目不设最低发布文章数量：`minimum_publish_items` 固定迁移为 `0`，空栏目仍生成页面并显示 `empty_message`，不产生 blocker 或 warning。主站内容栏目继续按配置统计投向 `placement_target_slug` 的有效 `SECTION` `ArticlePlacement`；主站的 `block_publish`、`hide_navigation` 和最低数量规则保持不变。

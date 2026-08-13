@@ -549,6 +549,521 @@ ADMIN_ENGLISH_LABELS.update(
 )
 
 
+# Complete workflow copy for the journal onboarding, placement, and static
+# publishing pages.  These pages contain sentence-level guidance, so translate
+# the full phrases before the shorter shared labels below can fragment them.
+ADMIN_ENGLISH_LABELS.update(
+    {
+        # Journal onboarding.
+        "先创建资料，再按工作台完成发布": (
+            "Create the journal profile before publishing"
+        ),
+        "当前位置": "Current location",
+        "新建子期刊": "New journal",
+        "第一步 / 建立主对象": "Step 1 / Create the primary record",
+        "创建一个新的子期刊": "Create a new journal",
+        "保存后系统会自动生成默认导航和主栏目，并直接进入这个子期刊的工作台。这里不会立即把内容发布到前台。": (
+            "After saving, the system creates the default navigation and main "
+            "category, then opens the journal workspace. This does not publish "
+            "content to the public site."
+        ),
+        "子期刊发布流程": "Journal publishing workflow",
+        "创建资料": "Create profile",
+        "任命主编辑": "Appoint editor-in-chief",
+        "启用子期刊": "Activate journal",
+        "启用子期刊 / Activate journal": "Activate journal",
+        "准备内容": "Prepare content",
+        "完成投放": "Complete placement",
+        "基础资料": "Basic profile",
+        "带 * 的字段必须填写。新建记录会先保存为“草稿”，完成主编辑和基础配置后，再从工作台启用。": (
+            "Fields marked * are required. New journals are saved as drafts; "
+            "activate the journal from its workspace after appointing an "
+            "editor-in-chief and completing the basic setup."
+        ),
+        "创建并进入工作台": "Create and open workspace",
+        "创建后自动准备的内容": "Items prepared after creation",
+        "创建后会自动准备": "Prepared automatically",
+        "工作台": "Workspace",
+        "默认导航": "Default navigation",
+        "复制一份独立的子期刊导航，之后可单独调整。": (
+            "Creates independent journal navigation that can be adjusted later."
+        ),
+        "生成一个可编辑的“主栏目”，用于承接本刊文章。": (
+            'Creates an editable "Main category" for this journal\'s articles.'
+        ),
+        "保存后会直接进入当前子期刊，页面只突出当前该做的一步。": (
+            "Opens the new journal workspace and highlights the next required step."
+        ),
+        "前台上线条件": "Public launch requirements",
+        "启用状态、有效主编辑、已审核文章、有效投放和活动 manifest 缺一不可。": (
+            "An active journal, an effective editor-in-chief, approved articles, "
+            "valid placements, and an active manifest are all required."
+        ),
+        "英文名称": "English name",
+        "中文名称": "Chinese name",
+        "前台地址标识（slug）": "Public URL slug",
+        "A-Z 分组": "A-Z group",
+        "列表排序": "List order",
+        "前台英文标题和后台识别名称。": (
+            "English public title and administrative name."
+        ),
+        "中文后台和中文前台显示名称，建议填写。": (
+            "Name shown in the Chinese admin and public site; recommended."
+        ),
+        "用于前台地址：/journals/{slug}/，保存后不能直接修改。": (
+            "Used in the public URL: /journals/{slug}/. It cannot be edited "
+            "directly after saving."
+        ),
+        "填写一个 A-Z 字母；非英文名称可填写 #。": (
+            "Enter one A-Z letter; use # for names that do not begin with an "
+            "English letter."
+        ),
+        "数值越小越靠前。": "Lower numbers appear first.",
+        # Placement rules and review.
+        "设置展示规则 / Set display rules": "Set display rules",
+        "预检查与确认 / Preflight review": "Preflight review",
+        "执行结果 / Execution result": "Execution result",
+        "默认使用文章原有的标题、摘要和封面。只在这次投放需要不同展示时填写覆盖内容；这些修改不会改动原文章。": (
+            "The article title, summary, and cover are used by default. Add "
+            "overrides only when this placement needs different display content; "
+            "the original article is not changed."
+        ),
+        "展示内容": "Display content",
+        "可选。留空即沿用文章内容。": (
+            "Optional. Leave blank to use the article content."
+        ),
+        "仅本次投放": "This placement only",
+        "展示标题": "Display title",
+        "留空则使用文章标题": "Leave blank to use the article title",
+        "投放页面显示的标题，不会修改文章标题。": (
+            "The title shown for this placement; the article title is unchanged."
+        ),
+        "展示摘要": "Display summary",
+        "留空则使用文章摘要": "Leave blank to use the article summary",
+        "适用于卡片、列表等展示区域，不会修改文章摘要。": (
+            "Used in cards, lists, and similar areas; the article summary is unchanged."
+        ),
+        "展示图片": "Display image",
+        "可选。不选择覆盖图片时，系统使用文章封面。": (
+            "Optional. The article cover is used when no override image is selected."
+        ),
+        "当前使用覆盖图片": "Current override image",
+        "当前覆盖图片不可用": "Current override image is unavailable",
+        "原始图片文件已丢失，严格投放会被阻止。": (
+            "The original image file is missing, so strict placement is blocked."
+        ),
+        "请在下方重新选择可用图片，或点击“使用文章封面”。": (
+            'Select an available image below or choose "Use article cover".'
+        ),
+        "当前使用文章封面": "Current article cover",
+        "将沿用文章封面的图片说明；不需要填写下方的覆盖图片说明。": (
+            "The article cover description will be used; no override image "
+            "description is required below."
+        ),
+        "封面缺少图片说明。这不是覆盖图片错误；请在文章编辑中补充封面说明，或选择/上传覆盖图片并填写说明。": (
+            "The cover has no image description. Add one in the article editor, "
+            "or select or upload an override image and provide its description."
+        ),
+        "文章没有可用封面": "The article has no usable cover",
+        "封面文件不可用或缺少图片说明；请在下方选择一张可用图片。": (
+            "The cover file is unavailable or lacks a description. Select an "
+            "available image below."
+        ),
+        "选择覆盖图片": "Select override image",
+        "搜索全部图库图片": "Search all library images",
+        "搜索图片": "Search images",
+        "显示全部": "Show all",
+        "使用文章封面": "Use article cover",
+        "本地上传图片": "Upload image",
+        "支持 JPG、PNG、WebP、GIF，最大 10 MB": ("JPG, PNG, WebP, or GIF; up to 10 MB"),
+        "上传并选用": "Upload and select",
+        "默认显示全部可用图片。只有选择或上传覆盖图片后，才需要填写其图片说明。": (
+            "All available images are shown by default. An image description is "
+            "required only after selecting or uploading an override."
+        ),
+        "正在加载可用图片...": "Loading available images...",
+        "加载更多图片": "Load more images",
+        "本次覆盖图片说明（Alt）": "Override image description (alt text)",
+        "选择覆盖图片后必填": "Required after selecting an override",
+        "选择或上传覆盖图片后，用简短文字说明图片内容": (
+            "Briefly describe the selected or uploaded image"
+        ),
+        "仅用于本次投放的覆盖图片；不修改文章封面的图片说明。": (
+            "Used only for this placement's override image; the article cover "
+            "description is unchanged."
+        ),
+        "投放时间与排序": "Placement schedule and order",
+        "不设置结束时间时，投放会持续生效，直到后续调整或撤下。": (
+            "Without an end time, the placement remains active until it is "
+            "changed or removed."
+        ),
+        "置顶显示": "Pin placement",
+        "置顶文章会优先出现在同一版位。": (
+            "Pinned articles appear first in the same slot."
+        ),
+        "开始展示时间": "Start time",
+        "留空则在投放完成后立即生效。": (
+            "Leave blank to activate immediately after placement."
+        ),
+        "停止展示时间": "End time",
+        "留空则持续展示。": "Leave blank to keep displaying the placement.",
+        "批量投放固定为严格模式：任一失败都会阻止整批执行。 / Bulk placement is always strict: any failure blocks the entire batch.": (
+            "Bulk placement is always strict: any failure blocks the entire batch."
+        ),
+        "返回目标设置": "Back to target settings",
+        "保存并进入复核": "Save and review",
+        "未命名图片": "Untitled image",
+        "将沿用文章封面的图片说明；不需要填写本次覆盖图片说明。": (
+            "The article cover description will be used; no override image "
+            "description is required."
+        ),
+        "请在文章编辑中补充说明，或选择/上传覆盖图片并填写说明。": (
+            "Add a description in the article editor, or select or upload an "
+            "override image and provide its description."
+        ),
+        "未设置可用文章封面": "No usable article cover",
+        "请在下方选择图库图片，或上传本地图片作为本次投放的覆盖图片。": (
+            "Select a library image below or upload one as this placement's override."
+        ),
+        "当前使用本次覆盖图片": "Current placement override",
+        "请填写下方的本次覆盖图片说明后进入复核。": (
+            "Provide the override image description below before continuing to review."
+        ),
+        "没有找到可用图片。可调整关键词、显示全部，或上传本地图片。": (
+            "No available images found. Change the search, show all images, or "
+            "upload a local image."
+        ),
+        "图片列表加载失败，请稍后重试；也可以使用文章封面或上传本地图片。": (
+            "The image list could not be loaded. Try again, use the article cover, "
+            "or upload a local image."
+        ),
+        "正在上传图片...": "Uploading image...",
+        "图片上传失败，请稍后重试。": "Image upload failed. Try again.",
+        "图片已上传并选为本次覆盖图片。请填写图片说明。": (
+            "The image was uploaded and selected. Add an image description."
+        ),
+        "请使用上传操作提交图片。": "Submit the image using the upload action.",
+        "请选择一张本地图片。": "Select a local image.",
+        "图片文件不能超过 10 MB。": "The image file cannot exceed 10 MB.",
+        "无法识别该图片。请上传 JPG、PNG、WebP 或 GIF 文件。": (
+            "The image could not be recognized. Upload a JPG, PNG, WebP, or GIF file."
+        ),
+        "图片无法保存。请更换为有效的常见图片格式后重试。": (
+            "The image could not be saved. Use a valid common image format and try again."
+        ),
+        "确认投放前，系统会验证文章、目标版位和展示设置。严格投放中，任何问题都会阻止整批创建。": (
+            "Before placement, the system validates the articles, target slot, "
+            "and display settings. In strict mode, any issue blocks the entire batch."
+        ),
+        "本次投放摘要": "Placement summary",
+        "目标子期刊": "Target journal",
+        "展示版位": "Display slot",
+        "已选文章": "Selected articles",
+        "可以投放。": "Ready for placement.",
+        "所有预检查均已通过。执行时系统还会再次核验，避免并发操作造成错误。": (
+            "All preflight checks passed. The system validates again during "
+            "execution to prevent concurrent changes from causing errors."
+        ),
+        "暂时无法投放": "Placement is currently blocked",
+        "严格投放尚未执行，未创建任何正式投放记录。请按下面提示修改后重新复核。": (
+            "Strict placement has not run and no formal placement records were "
+            "created. Resolve the issues below and review again."
+        ),
+        "覆盖图片不可用": "Override image unavailable",
+        "这张图片在素材库中仍有记录，但原始文件无法读取，因此不能发布。": (
+            "The image record exists in the library, but its original file cannot "
+            "be read, so it cannot be published."
+        ),
+        "图片说明未完成": "Image description required",
+        "请为展示图片填写简短、准确的替代文字，方便读屏软件理解图片内容。": (
+            "Add concise, accurate alternative text so screen readers can describe "
+            "the display image."
+        ),
+        "文章封面不可用": "Article cover unavailable",
+        "文章默认封面不能发布。请返回选择一张可用的覆盖图片，并填写图片说明。": (
+            "The default article cover cannot be published. Select an available "
+            "override image and add its description."
+        ),
+        "需要处理的投放条件": "Placement issue",
+        "返回处理图片": "Fix image",
+        "返回修改设置": "Back to settings",
+        "文章检查结果": "Article check results",
+        "每篇文章均符合当前投放条件。": (
+            "Every article meets the current placement requirements."
+        ),
+        "即使文章检查通过，公共展示设置存在问题时也不能执行投放。": (
+            "Placement cannot run while public display settings contain issues, "
+            "even if the article checks pass."
+        ),
+        "检查结果": "Check result",
+        "无需处理": "No action required",
+        "尚未选择文章。": "No articles selected.",
+        "返回处理问题": "Back to resolve issues",
+        "保存并退出": "Save and exit",
+        "正在投放...": "Placing...",
+        "确认严格投放": "Confirm strict placement",
+        "可选": "Optional",
+        "改用文章封面": "Use article cover instead",
+        "必填": "Required",
+        "当前使用文章封面；该封面仍需在文章编辑中补充说明": (
+            "Current article cover; add its description in the article editor"
+        ),
+        "当前使用文章封面，不需要填写此项": (
+            "Current article cover; no override description is required"
+        ),
+        "封面缺少图片说明。这不是覆盖图片错误；请在文章编辑中补充说明，或选择/上传覆盖图片并填写说明。": (
+            "The cover has no image description. Add one in the article editor, "
+            "or select or upload an override image and provide its description."
+        ),
+        "已显示第 ": "Showing page ",
+        " 页可用图片": " of available images",
+        "，可继续加载更多": ", more available",
+        "通过": "Passed",
+        # Placement execution result.
+        "投放批次 / Placement batch": "Placement batch",
+        "投放已完成": "Placement completed",
+        "已完成 ": "Completed ",
+        " 篇文章的投放。静态发布状态将在下方持续更新。": (
+            " article placements. Static publishing status will continue updating below."
+        ),
+        "投放未能完成": "Placement could not be completed",
+        "部分文章或后续发布未成功，请查看执行明细和处理建议后再继续操作。": (
+            "Some articles or the subsequent publish did not succeed. Review the "
+            "execution details and recommended actions before continuing."
+        ),
+        "投放正在处理": "Placement in progress",
+        "批次已提交，执行和静态发布状态会在此页面同步更新。": (
+            "The batch was submitted. Execution and static publishing status "
+            "will update on this page."
+        ),
+        "批次号": "Batch number",
+        "执行于": "Executed at",
+        "投放范围": "Placement scope",
+        " 篇文章": " articles",
+        "执行统计": "Execution summary",
+        "成功投放": "Successful placements",
+        "已写入目标版位": "Written to the target slot",
+        "投放失败": "Failed placements",
+        "已跳过": "Skipped",
+        "查看明细了解原因": "See details for the reason",
+        "没有跳过的文章": "No articles were skipped",
+        "任务 #": "Job #",
+        "尚未创建发布任务": "No publishing job created",
+        "摘要 / Summary": "Summary",
+        "本次投放": "This placement",
+        "投放方式": "Placement mode",
+        "严格投放": "Strict placement",
+        "常规投放": "Standard placement",
+        "逐篇执行记录": "Per-article execution records",
+        "所属子期刊": "Journal",
+        "执行结果": "Execution result",
+        "处理说明": "Action required",
+        "投放完成，无需处理": "Placement completed; no action required",
+        "本次批次没有文章记录": "This batch contains no article records",
+        "发布状态与后续操作": "Publishing status and next steps",
+        "正在生成并校验前台页面。完成后会原子切换到新的静态版本。": (
+            "Public pages are being generated and validated. The active release "
+            "will switch atomically when complete."
+        ),
+        "静态发布正在等待具备发布权限的人员确认。": (
+            "Static publishing is awaiting confirmation from an authorized publisher."
+        ),
+        "静态版本已生成并激活，投放内容已可由前台静态站点读取。": (
+            "The static release was generated and activated. The placement is now "
+            "available on the public static site."
+        ),
+        "静态发布没有完成，投放记录已保留。请查看任务错误后再发起重试。": (
+            "Static publishing did not complete. The placement record was retained; "
+            "review the job error before retrying."
+        ),
+        "本次批次暂未创建静态发布任务。": (
+            "No static publishing job has been created for this batch."
+        ),
+        "发布范围": "Publishing scope",
+        "版本": "Version",
+        "任务错误": "Job error",
+        "后续操作": "Next steps",
+        "查看投放清单": "View placement list",
+        "查看批次详情": "View batch details",
+        "返回投放总览": "Back to placement overview",
+        "尚未选择": "Not selected",
+        # Static publishing center and form copy.
+        "把审核通过并已投放的内容生成固定 HTML，并切换活动版本": (
+            "Build and activate a fixed-HTML release"
+        ),
+        "当前发布范围": "Current publishing scope",
+        "本刊发布：": "Journal publish: ",
+        "系统会自动选择 ": "The system automatically selects ",
+        " 下的主页、栏目、期次、导航页，以及属于本刊的文章详情页。": (
+            " home, category, issue, and navigation pages, plus article pages "
+            "belonging to this journal."
+        ),
+        "返回本刊工作台": "Back to journal workspace",
+        "查看前台地址": "View public site",
+        "静态发布步骤": "Static publishing steps",
+        "步骤 1": "Step 1",
+        "步骤 2": "Step 2",
+        "步骤 3": "Step 3",
+        "步骤 4": "Step 4",
+        "选择发布范围": "Select publishing scope",
+        "子期刊日常更新选“本刊发布”；全站发布只用于首次建站或全局改版。": (
+            'Use "Journal publish" for routine updates. Use full-site publishing '
+            "only for an initial launch or site-wide redesign."
+        ),
+        "预估影响": "Estimate impact",
+        "先看预计页面数量和示例路径，不会写入活动目录。": (
+            "Review the estimated page count and sample paths without writing "
+            "to the active directory."
+        ),
+        "确认并入队": "Confirm and queue",
+        "任务在后台生成 staging，全部校验通过后才切换 current。": (
+            "The job builds staging in the background and switches current only "
+            "after all validations pass."
+        ),
+        "验证上线": "Verify publication",
+        "任务必须显示“已成功并切换”，再打开前台地址检查。": (
+            'Wait for "Succeeded and activated", then inspect the public URL.'
+        ),
+        "当前活动版本": "Current active release",
+        "切换时间：": "Activated at: ",
+        "前台当前读取的是这个 manifest 对应的 current 目录。新任务失败时，它会继续保持不变。": (
+            "The public site reads the current directory for this manifest. A "
+            "failed new job leaves it unchanged."
+        ),
+        "没有活动 manifest": "No active manifest",
+        "这是首次发布环境。本刊发布需要复制现有活动版本，请先完成一次全站发布建立基线。": (
+            "This environment has no published baseline. Complete one full-site "
+            "publish before publishing an individual journal."
+        ),
+        "发布环境健康检查": "Publishing environment health",
+        "可发布": "Ready to publish",
+        "存在阻断": "Blocked",
+        "数据库": "Database",
+        "输出目录": "Output directory",
+        "活动版本": "Active release",
+        "任务队列": "Job queue",
+        "正常": "Healthy",
+        "异常": "Error",
+        "已连接发布数据库": "Publishing database connected",
+        "发布目录可写": "Publishing directory is writable",
+        "活动版本文件完整": "Active release files are complete",
+        "后台发布队列可用": "Background publishing queue is available",
+        "检查通过": "Check passed",
+        "新建发布任务": "New publishing job",
+        "发布不会直接覆盖前台。": "Publishing does not overwrite the public site directly.",
+        "系统先在独立 staging 目录生成目标，再校验页面、资源和 manifest；全部通过后才切换活动版本。任务失败时，旧版本继续提供服务。": (
+            "The system builds targets in an isolated staging directory, then "
+            "validates pages, assets, and the manifest. It activates the release "
+            "only after all checks pass; the old release remains available if the "
+            "job fails."
+        ),
+        "请选择发布范围。选择“本刊发布”时，系统会自动包含子期刊主页、栏目、期次、关联文章和子期刊总目录。": (
+            "Select a publishing scope. Journal publishing automatically includes "
+            "the journal homepage, categories, issues, related articles, and the "
+            "journal directory."
+        ),
+        "确认并进入队列": "Confirm and queue",
+        "预估只读数据；确认后才会创建任务。": (
+            "Estimation is read only; a job is created only after confirmation."
+        ),
+        "预估结果": "Estimated impact",
+        "预计生成 ": "Estimated targets: ",
+        " 个页面目标。以下统计仅用于确认范围，实际结果以任务详情为准。": (
+            " pages. These counts confirm scope only; see the job details for "
+            "actual results."
+        ),
+        "查看示例路径": "View sample paths",
+        "仅展示前 20 条。": "Showing the first 20 paths only.",
+        "回滚入口": "Rollback",
+        "回滚只切换到已验证的历史 manifest。执行前必须查看版本差异并填写原因，不能把数据库内容回退到任意历史状态。": (
+            "Rollback switches only to a validated historical manifest. Review "
+            "the release diff and provide a reason first; rollback never rewinds "
+            "database content to an arbitrary historical state."
+        ),
+        "查看差异并确认": "Review diff and confirm",
+        "最近任务": "Recent jobs",
+        "“已成功并切换”表示新版本已经成为前台使用的活动版本；“失败”只表示本次尝试失败，不会覆盖旧版本。点击任务编号查看逐页错误。": (
+            '"Succeeded and activated" means the new release is live. "Failed" '
+            "means only this attempt failed and the old release was not replaced. "
+            "Open a job number to inspect per-page errors."
+        ),
+        "筛选任务": "Filter jobs",
+        "任务": "Job",
+        "清除": "Clear",
+        "范围": "Scope",
+        "触发方式": "Trigger",
+        "成功 / 失败 / 总数": "Succeeded / failed / total",
+        "发起人": "Started by",
+        "前台验证": "Public verification",
+        "投放变更自动合并": "Automatically merged placement changes",
+        "人工发起": "Started manually",
+        "系统": "System",
+        "当前": "Current",
+        "打开前台": "Open public site",
+        "暂无任务。": "No jobs yet.",
+        "全站发布会重建主站、子期刊目录、所有启用子期刊、栏目、文章和搜索页，适合首次建站或全局改版。": (
+            "Full-site publishing rebuilds the main site, journal directory, all "
+            "active journals, categories, articles, and search pages. Use it for "
+            "an initial launch or site-wide redesign."
+        ),
+        "本刊发布会自动更新该子期刊主页、栏目、期次、关联文章，并同步更新子期刊总目录，适合日常发布。": (
+            "Journal publishing updates the journal homepage, categories, issues, "
+            "related articles, and journal directory. Use it for routine updates."
+        ),
+        "指定路径只适合发布管理员处理明确的单页故障；每行填写一个公开 URL 或输出路径。": (
+            "Selected paths are for publishers resolving known single-page issues. "
+            "Enter one public URL or output path per line."
+        ),
+        "请选择发布范围。": "Select a publishing scope.",
+        "确认创建发布任务？系统会先生成并校验 staging，成功后才切换活动版本。": (
+            "Create this publishing job? The system builds and validates staging "
+            "before activating the release."
+        ),
+        "请选择发布范围": "Select a publishing scope",
+        "全站发布：重建整个站点（首次发布或全局改版）": (
+            "Full site: rebuild the entire site (initial launch or site-wide redesign)"
+        ),
+        "本刊发布：更新一个子期刊及其前台目录入口（推荐）": (
+            "Journal: update one journal and its public directory entry (recommended)"
+        ),
+        "指定路径：仅用于已知输出路径的故障修复": (
+            "Selected paths: repair known output paths only"
+        ),
+        "指定路径": "Selected paths",
+        "每行一个公开 URL 或输出路径；选择“指定路径”时必填。": (
+            'One public URL or output path per line; required for "Selected paths".'
+        ),
+        "请选择子期刊": "Select a journal",
+        "请选择历史版本": "Select a historical release",
+        "“本刊发布”会自动计算该刊的主页、栏目、期次和关联文章目标。": (
+            "Journal publishing automatically calculates the journal homepage, "
+            "category, issue, and related article targets."
+        ),
+        "全部状态": "All statuses",
+        "全部范围": "All scopes",
+        "目标状态": "Target status",
+        "全部目标状态": "All target statuses",
+        "版本状态": "Release status",
+        "全部版本": "All releases",
+        "可回滚版本": "Rollback release",
+        "开始日期": "Start date",
+        "结束日期": "End date",
+        "等待中": "Queued",
+        "生成中": "Publishing",
+        "已成功并切换": "Succeeded and activated",
+        "部分失败": "Partially failed",
+        "已回滚": "Rolled back",
+        "全站发布": "Full site",
+        "本刊发布": "Journal",
+        "失败目标重试": "Retry failed targets",
+        "版本回滚": "Release rollback",
+        " 个": "",
+        "第 ": "Page ",
+        " 页": "",
+    }
+)
+
+
 # Custom dashboard copy predates the shared translation catalogs. Keep complete
 # phrase translations here so the English dashboard remains useful instead of
 # degrading into generic placeholders.

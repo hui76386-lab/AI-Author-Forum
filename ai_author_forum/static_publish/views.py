@@ -17,6 +17,7 @@ from ai_author_forum.site_settings.models import (
     AuditStatus,
 )
 from ai_author_forum.site_settings.services import record_audit_event
+from ai_author_forum.utils.admin_ui import translate_form_to_english
 
 from .forms import (
     PublishForm,
@@ -124,6 +125,8 @@ def publish_center(request):
     )
     filter_form = PublishJobFilterForm(request.GET or None)
     rollback_select_form = RollbackSelectForm(prefix="rollback")
+    for form in (publish_form, filter_form, rollback_select_form):
+        translate_form_to_english(form)
     estimate = None
     if request.method == "POST":
         if not _can_publish(request.user):

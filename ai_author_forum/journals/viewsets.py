@@ -24,6 +24,7 @@ from ai_author_forum.site_settings.permissions import get_admin_permission_conte
 from ai_author_forum.site_settings.services import record_audit_event
 from ai_author_forum.static_publish.models import StaticManifest
 from ai_author_forum.utils.admin_i18n import admin_text
+from ai_author_forum.utils.admin_ui import translate_form_to_english
 
 from .editor_forms import JournalCreateForm
 from .models import (
@@ -133,6 +134,7 @@ class JournalsViewSet(PermissionedModuleViewSet):
             raise PermissionDenied
 
         form = JournalCreateForm(request.POST or None)
+        translate_form_to_english(form)
         if request.method == "POST" and form.is_valid():
             with transaction.atomic():
                 journal = form.save(commit=False)

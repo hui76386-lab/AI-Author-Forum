@@ -14,6 +14,7 @@ from ai_author_forum.articles.models import (
     ArticlePage,
 )
 from ai_author_forum.journals.models import Journal, JournalCategory
+from ai_author_forum.placements.models import LayoutSlot, PlacementBatch
 from ai_author_forum.test_helpers import (
     formally_approve_test_article,
     grant_business_super_admin,
@@ -66,6 +67,7 @@ class EnglishAdminPageContractTests(TestCase):
         ArticlePage.objects.filter(pk=article.pk).update(
             publication_status=ArticlePage.PublicationStatus.PUBLISHED
         )
+        cls.article = ArticlePage.objects.get(pk=article.pk)
 
     def setUp(self):
         self.client.force_login(self.user)
@@ -108,6 +110,8 @@ class EnglishAdminPageContractTests(TestCase):
             (reverse("placements:bulk_new"), "Bulk placement"),
             (reverse("placements:list"), "Placement list"),
             (reverse("placements:batches"), "Placement batches"),
+            (reverse("journals:new"), "Create a new journal"),
+            (reverse("static_publish:center"), "Publishing environment health"),
             (article_add_url, "New: Article page"),
             (
                 reverse("wagtailsnippetchoosers_journals_journal:choose"),
@@ -154,6 +158,56 @@ class EnglishAdminPageContractTests(TestCase):
                     self.assertNotIn("Recent batches / Recent batches", body)
                     self.assertNotIn("Needs attention / Needs attention", body)
 
+    def test_placement_rules_review_and_result_render_english_only(self):
+        slot = LayoutSlot.objects.create(
+            code="english_contract_journal_slot",
+            title="English contract journal slot",
+            scope=LayoutSlot.Scope.JOURNAL,
+            max_items=5,
+            is_active=True,
+        )
+        batch = PlacementBatch.objects.create(
+            mode=PlacementBatch.Mode.SINGLE,
+            operation=PlacementBatch.Operation.CREATE,
+            current_step="rules",
+            created_by=self.user,
+            updated_by=self.user,
+            target_type="journal",
+            target_slug=self.journal.slug,
+            slot=slot,
+        )
+        batch.items.create(article=self.article, sort_order=1)
+
+        pages = (
+            (
+                reverse("placements:single_rules", kwargs={"batch_id": batch.pk}),
+                "Set display and schedule",
+            ),
+            (
+                reverse("placements:single_review", kwargs={"batch_id": batch.pk}),
+                "Preflight review",
+            ),
+        )
+        for url, expected_text in pages:
+            with self.subTest(url=url):
+                self.assert_english_html(self.client.get(url), expected_text)
+
+        PlacementBatch.objects.filter(pk=batch.pk).update(
+            status=PlacementBatch.Status.SUCCEEDED,
+            current_step="review",
+            success_count=1,
+        )
+        batch.items.update(
+            validation_status="passed",
+            execution_status="created",
+        )
+        self.assert_english_html(
+            self.client.get(
+                reverse("placements:batch_result", kwargs={"batch_id": batch.pk})
+            ),
+            "Placement completed",
+        )
+
     def test_journal_chooser_modal_payload_is_english(self):
         response = self.client.get(
             reverse("wagtailsnippetchoosers_journals_journal:choose")
@@ -167,6 +221,13 @@ class EnglishAdminPageContractTests(TestCase):
         self.assertIn("English Journal", body)
         self.assertNotIn("Content unavailable in English", body)
         self.assertIsNone(self.han_pattern.search(body))
+
+    def test_placement_image_upload_errors_use_the_admin_language(self):
+        response = self.client.post(reverse("placements:image_upload_api"))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["message"], "Select a local image.")
+        self.assertIsNone(self.han_pattern.search(response.content.decode("utf-8")))
 
     def test_journal_string_uses_the_active_admin_language(self):
         with translation.override("en"):

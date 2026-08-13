@@ -1,5 +1,7 @@
 {% extends "placements/admin/v2/base.html" %}
+{% load i18n %}
 {% block workflow_content %}
+{% get_current_language as LANGUAGE_CODE %}
 {% include "placements/admin/v2/stepper.html" %}
 <div class="page-heading">
   <div>
@@ -11,7 +13,7 @@
 <section class="review-context" aria-label="本次投放摘要">
   <span>目标子期刊 <strong>{{ batch.target_slug }}</strong></span>
   <span>展示版位 <strong>{{ batch.slot }}</strong></span>
-  <span>已选文章 <strong>{{ batch.items.count }} 篇</strong></span>
+  <span>已选文章 <strong>{% if LANGUAGE_CODE|slice:":2" == "zh" %}{{ batch.items.count }} 篇{% else %}{{ batch.items.count }} article{{ batch.items.count|pluralize }}{% endif %}</strong></span>
 </section>
 
 {% if result.ok %}

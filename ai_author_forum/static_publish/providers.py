@@ -394,6 +394,7 @@ class WagtailPageTargetProvider:
                 )
             )
 
+        journals = list(get_active_journals())
         targets.append(
             PublishTarget(
                 "/journals/",
@@ -403,11 +404,11 @@ class WagtailPageTargetProvider:
                 canonical_path="/journals/",
                 dependencies={
                     **_empty_dependencies(),
+                    "journal_ids": [journal.pk for journal in journals],
                     **self._navigation_dependencies(path="/journals/"),
                 },
             )
         )
-        journals = list(get_active_journals())
         targets.extend(self._journal_targets(journals))
 
         targets.extend(self._category_targets(publication_time=publication_time))

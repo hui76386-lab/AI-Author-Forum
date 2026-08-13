@@ -32,6 +32,7 @@ from ai_author_forum.site_settings.access_control import (
 from ai_author_forum.site_settings.admin_views import PermissionedModuleViewSet
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 from ai_author_forum.utils.admin_i18n import admin_text
+from ai_author_forum.utils.admin_ui import english_admin_text
 
 from .batch_operations import (
     create_maintenance_batch,
@@ -496,12 +497,21 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
         if self._guard(request):
             raise PermissionDenied
         if request.method != "POST":
-            return JsonResponse({"message": "请使用上传操作提交图片。"}, status=405)
+            return JsonResponse(
+                {"message": english_admin_text("请使用上传操作提交图片。")},
+                status=405,
+            )
         uploaded_file = request.FILES.get("file")
         if uploaded_file is None:
-            return JsonResponse({"message": "请选择一张本地图片。"}, status=400)
+            return JsonResponse(
+                {"message": english_admin_text("请选择一张本地图片。")},
+                status=400,
+            )
         if uploaded_file.size > PLACEMENT_IMAGE_UPLOAD_MAX_BYTES:
-            return JsonResponse({"message": "图片文件不能超过 10 MB。"}, status=400)
+            return JsonResponse(
+                {"message": english_admin_text("图片文件不能超过 10 MB。")},
+                status=400,
+            )
         try:
             uploaded_file.seek(0)
             with PillowImage.open(uploaded_file) as probe:
@@ -509,7 +519,11 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             uploaded_file.seek(0)
         except (OSError, UnidentifiedImageError, ValueError):
             return JsonResponse(
-                {"message": "无法识别该图片。请上传 JPG、PNG、WebP 或 GIF 文件。"},
+                {
+                    "message": english_admin_text(
+                        "无法识别该图片。请上传 JPG、PNG、WebP 或 GIF 文件。"
+                    )
+                },
                 status=400,
             )
 
@@ -522,7 +536,11 @@ class PlacementsWorkflowV2ViewSet(PermissionedModuleViewSet):
             image.save()
         except (OSError, ValidationError, ValueError):
             return JsonResponse(
-                {"message": "图片无法保存。请更换为有效的常见图片格式后重试。"},
+                {
+                    "message": english_admin_text(
+                        "图片无法保存。请更换为有效的常见图片格式后重试。"
+                    )
+                },
                 status=400,
             )
 
