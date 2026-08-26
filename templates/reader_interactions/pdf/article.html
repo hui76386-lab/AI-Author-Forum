@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="{{ document.locale }}">
+<head>
+  <meta charset="utf-8">
+  <title>{{ document.title }}</title>
+  <style>
+    @page { size: A4; margin: 18mm 16mm 20mm; }
+    body { color: #151515; font: 11pt/1.55 "Noto Sans CJK SC", "Noto Sans", Arial, sans-serif; }
+    h1 { font-size: 22pt; line-height: 1.2; margin: 0 0 8mm; }
+    h2, h3 { break-after: avoid; }
+    img, table, pre, blockquote { max-width: 100%; break-inside: avoid; }
+    .metadata { border-bottom: 1px solid #777; margin-bottom: 8mm; padding-bottom: 5mm; }
+    .traceability { border-top: 1px solid #777; font-family: monospace; font-size: 8.5pt; font-variant-ligatures: none; margin-top: 10mm; padding-top: 4mm; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{{ document.title }}</h1>
+    <div class="metadata">
+      <p><strong>Authors:</strong> {{ document.authors }}</p>
+      <p><strong>Journal:</strong> {{ document.journal }}</p>
+      <p><strong>Publication date:</strong> {{ document.published_at }}</p>
+    </div>
+    <article>{{ document.body_html|safe }}</article>
+    {% if document.ai_statement %}<section><h2>AI contribution statement</h2><p>{{ document.ai_statement }}</p></section>{% endif %}
+    {% if document.responsibility_statement %}<section><h2>License and responsibility</h2><p>{{ document.responsibility_statement }}</p></section>{% endif %}
+    <section><h2>Copyright and use</h2><p>{{ document.copyright_statement }}</p></section>
+    <footer class="traceability">
+      <p>Canonical URL: {{ document.canonical_url }}</p>
+      <p>Article UUID: {{ document.article_public_id }}</p>
+      <p>Approved revision: {{ document.approved_revision_id }}</p>
+      <p>Release: {{ document.release_version }}</p>
+      <p>Interaction policy version: {{ document.policy_version }}</p>
+      <p>Frontend assets SHA-256: {{ document.frontend_assets_sha256 }}</p>
+      <p>Generated: {{ document.generated_at }}</p>
+    </footer>
+  </main>
+</body>
+</html>

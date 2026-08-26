@@ -9,6 +9,8 @@ https://docs.djangoproject.com/en/stable/ref/settings/
 """
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
+import base64
+import hashlib
 import os
 
 import dj_database_url
@@ -54,6 +56,8 @@ INSTALLED_APPS = [
     "ai_author_forum.placements",
     "ai_author_forum.static_publish",
     "ai_author_forum.site_settings",
+    "ai_author_forum.reader_access",
+    "ai_author_forum.reader_interactions",
     "wagtail.contrib.table_block",
     "wagtail.contrib.settings",
     "wagtail.contrib.forms",
@@ -80,6 +84,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "ai_author_forum.reader_interactions.observability.ReaderObservabilityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "ai_author_forum.site_settings.middleware.AdminLocaleMiddleware",
@@ -127,13 +132,34 @@ WSGI_APPLICATION = "ai_author_forum.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/stable/ref/settings/#databases
 
+_DATABASE_CONN_MAX_AGE = int(os.environ.get("READER_DATABASE_CONN_MAX_AGE", "60"))
+_DATABASE_STATEMENT_TIMEOUT_MS = int(
+    os.environ.get("READER_DATABASE_STATEMENT_TIMEOUT_MS", "5000")
+)
 DATABASES = {
     "default": dj_database_url.config(
         default="sqlite:///" + os.path.join(BASE_DIR, "db.sqlite3"),
-        conn_max_age=600,
+        conn_max_age=_DATABASE_CONN_MAX_AGE,
         conn_health_checks=True,
-    )
+    ),
+    "interactions": dj_database_url.parse(
+        os.environ.get(
+            "INTERACTIONS_DATABASE_URL",
+            "sqlite:///" + os.path.join(BASE_DIR, "interactions.sqlite3"),
+        ),
+        conn_max_age=_DATABASE_CONN_MAX_AGE,
+        conn_health_checks=True,
+    ),
 }
+for _database in DATABASES.values():
+    if _database["ENGINE"] == "django.db.backends.postgresql":
+        _database.setdefault("OPTIONS", {}).setdefault(
+            "options", f"-c statement_timeout={_DATABASE_STATEMENT_TIMEOUT_MS}"
+        )
+
+DATABASE_ROUTERS = [
+    "ai_author_forum.reader_interactions.routers.ReaderInteractionsRouter"
+]
 
 
 # Password validation
@@ -330,18 +356,22 @@ DEFAULT_PER_PAGE = 8
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        "redact_reader_bearer_paths": {
+            "()": "ai_author_forum.settings.log_filters.RedactReaderBearerPaths"
+        }
+    },
     "handlers": {
         # Send logs with at least INFO level to the console.
         "console": {
             "level": "INFO",
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
+            "formatter": "json",
+            "filters": ["redact_reader_bearer_paths"],
         },
     },
     "formatters": {
-        "verbose": {
-            "format": "[%(asctime)s][%(process)d][%(levelname)s][%(name)s] %(message)s"
-        }
+        "json": {"()": "ai_author_forum.settings.log_filters.JsonPrivacyFormatter"}
     },
     "loggers": {
         "ai_author_forum": {
@@ -408,6 +438,31 @@ PLACEMENTS_BATCH_MAX_ITEMS = int(os.environ.get("PLACEMENTS_BATCH_MAX_ITEMS", "1
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 CELERY_TASK_DEFAULT_QUEUE = os.environ.get("CELERY_TASK_DEFAULT_QUEUE", "celery")
+CELERY_TASK_ROUTES = {
+    "ai_author_forum.static_publish.tasks.*": {"queue": "static_publish"},
+    "ai_author_forum.reader_interactions.tasks.send_magic_link": {
+        "queue": "reader_email"
+    },
+    "ai_author_forum.reader_interactions.tasks.cleanup_reader_security_records": {
+        "queue": "reader_email"
+    },
+    "ai_author_forum.reader_interactions.tasks.refresh_comment_snapshot": {
+        "queue": "reader_comments"
+    },
+    "ai_author_forum.reader_access.tasks.apply_capability_projection": {
+        "queue": "reader_comments"
+    },
+    "ai_author_forum.reader_access.tasks.reconcile_capability_projections": {
+        "queue": "reader_comments"
+    },
+    "ai_author_forum.reader_access.tasks.apply_moderation_command": {
+        "queue": "reader_comments"
+    },
+    "ai_author_forum.reader_access.tasks.reconcile_moderation_commands": {
+        "queue": "reader_comments"
+    },
+    "ai_author_forum.reader_access.tasks.render_pdf": {"queue": "reader_pdf"},
+}
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", 3600))
 STATIC_PUBLISH_HEALTHCHECK_BROKER = (
@@ -415,6 +470,225 @@ STATIC_PUBLISH_HEALTHCHECK_BROKER = (
 )
 STATIC_PUBLISH_BROKER_HEALTHCHECK_TIMEOUT = float(
     os.environ.get("STATIC_PUBLISH_BROKER_HEALTHCHECK_TIMEOUT", "2")
+)
+
+# Reader-facing capabilities remain fail-closed until their implementation card
+# has passed its own acceptance gate and an operator explicitly enables it.
+READER_INTERACTIONS_ENABLED = os.environ.get(
+    "READER_INTERACTIONS_ENABLED", "false"
+).lower() in {"1", "true", "yes", "on"}
+READER_EMAIL_VERIFICATION_ENABLED = os.environ.get(
+    "READER_EMAIL_VERIFICATION_ENABLED", "false"
+).lower() in {"1", "true", "yes", "on"}
+READER_COMMENTS_WRITE_ENABLED = os.environ.get(
+    "READER_COMMENTS_WRITE_ENABLED", "false"
+).lower() in {"1", "true", "yes", "on"}
+READER_PDF_GRANTS_ENABLED = os.environ.get(
+    "READER_PDF_GRANTS_ENABLED", "false"
+).lower() in {"1", "true", "yes", "on"}
+READER_SHARE_UI_ENABLED = os.environ.get(
+    "READER_SHARE_UI_ENABLED", "false"
+).lower() in {"1", "true", "yes", "on"}
+READER_SNAPSHOT_READ_FALLBACK = os.environ.get(
+    "READER_SNAPSHOT_READ_FALLBACK", "false"
+).lower() in {"1", "true", "yes", "on"}
+READER_COMMENT_RISK_ENABLED = os.environ.get(
+    "READER_COMMENT_RISK_ENABLED", "true"
+).lower() in {"1", "true", "yes", "on"}
+READER_COMMENT_RISK_TIMEOUT_SECONDS = float(
+    os.environ.get("READER_COMMENT_RISK_TIMEOUT_SECONDS", "1")
+)
+READER_COMMENT_MAX_CHARS = int(os.environ.get("READER_COMMENT_MAX_CHARS", "2000"))
+READER_COMMENT_MAX_BYTES = int(os.environ.get("READER_COMMENT_MAX_BYTES", "8000"))
+READER_COMMENT_PAGE_SIZE = int(os.environ.get("READER_COMMENT_PAGE_SIZE", "20"))
+READER_COMMENT_CACHE_SECONDS = int(os.environ.get("READER_COMMENT_CACHE_SECONDS", "30"))
+READER_COMMENT_INTERVAL_SECONDS = int(
+    os.environ.get("READER_COMMENT_INTERVAL_SECONDS", "10")
+)
+READER_COMMENT_HOURLY_LIMIT = int(os.environ.get("READER_COMMENT_HOURLY_LIMIT", "20"))
+READER_COMMENT_DAILY_LIMIT = int(os.environ.get("READER_COMMENT_DAILY_LIMIT", "100"))
+READER_COMMENT_ARTICLE_HOURLY_LIMIT = int(
+    os.environ.get("READER_COMMENT_ARTICLE_HOURLY_LIMIT", "10")
+)
+READER_COMMENT_IP_HOURLY_LIMIT = int(
+    os.environ.get("READER_COMMENT_IP_HOURLY_LIMIT", "60")
+)
+READER_REPORT_DAILY_LIMIT = int(os.environ.get("READER_REPORT_DAILY_LIMIT", "20"))
+READER_REPORT_IP_DAILY_LIMIT = int(
+    os.environ.get("READER_REPORT_IP_DAILY_LIMIT", "100")
+)
+READER_COMMENT_SNAPSHOT_ROOT = os.environ.get(
+    "READER_COMMENT_SNAPSHOT_ROOT", os.path.join(BASE_DIR, "comment_snapshots")
+)
+READER_PRIVATE_STORAGE_BACKEND = (
+    os.environ.get("READER_PRIVATE_STORAGE_BACKEND", "filesystem").strip().lower()
+)
+READER_PRIVATE_STORAGE_ROOT = os.environ.get(
+    "READER_PRIVATE_STORAGE_ROOT", os.path.join(BASE_DIR, "protected_pdfs")
+)
+READER_PDF_MAX_BYTES = int(
+    os.environ.get("READER_PDF_MAX_BYTES", str(100 * 1024 * 1024))
+)
+READER_PDF_RENDER_TIMEOUT_SECONDS = int(
+    os.environ.get("READER_PDF_RENDER_TIMEOUT_SECONDS", "60")
+)
+READER_PDF_RENDERER_VERSION = os.environ.get(
+    "READER_PDF_RENDERER_VERSION", "playwright-python/1.61.0-chromium"
+)
+READER_PDF_BUILD_WAIT_SECONDS = int(
+    os.environ.get("READER_PDF_BUILD_WAIT_SECONDS", "900")
+)
+READER_PDF_BUILD_POLL_SECONDS = float(
+    os.environ.get("READER_PDF_BUILD_POLL_SECONDS", "0.5")
+)
+READER_DOWNLOAD_GRANT_TTL_SECONDS = int(
+    os.environ.get("READER_DOWNLOAD_GRANT_TTL_SECONDS", "300")
+)
+READER_PDF_GRANT_REDIS_URL = os.environ.get(
+    "READER_PDF_GRANT_REDIS_URL",
+    os.environ.get("READER_RATE_LIMIT_REDIS_URL")
+    or os.environ.get("CACHE_LOCATION", ""),
+)
+READER_DOWNLOAD_ARTICLE_HOURLY_LIMIT = int(
+    os.environ.get("READER_DOWNLOAD_ARTICLE_HOURLY_LIMIT", "5")
+)
+READER_DOWNLOAD_DAILY_LIMIT = int(os.environ.get("READER_DOWNLOAD_DAILY_LIMIT", "50"))
+READER_DOWNLOAD_IP_HOURLY_LIMIT = int(
+    os.environ.get("READER_DOWNLOAD_IP_HOURLY_LIMIT", "20")
+)
+READER_PDF_X_ACCEL_PREFIX = os.environ.get(
+    "READER_PDF_X_ACCEL_PREFIX", "/_protected_pdf/"
+)
+READER_S3_BUCKET = os.environ.get("READER_S3_BUCKET", "")
+READER_S3_ENDPOINT_URL = os.environ.get("READER_S3_ENDPOINT_URL", "")
+READER_S3_REGION = os.environ.get("READER_S3_REGION", "")
+READER_S3_ACCESS_KEY_ID = os.environ.get("READER_S3_ACCESS_KEY_ID", "")
+READER_S3_SECRET_ACCESS_KEY = os.environ.get("READER_S3_SECRET_ACCESS_KEY", "")
+
+
+def _derived_reader_secret(label):
+    return hashlib.sha256(f"{SECRET_KEY}:{label}".encode()).hexdigest()
+
+
+def _derived_fernet_key(label):
+    digest = hashlib.sha256(f"{SECRET_KEY}:{label}".encode()).digest()
+    return base64.urlsafe_b64encode(digest).decode()
+
+
+# Development derives isolated values from its local SECRET_KEY. Production
+# validates that explicit secret-manager values are present before reader
+# identity features can be enabled.
+READER_SESSION_COOKIE_NAME = os.environ.get(
+    "READER_SESSION_COOKIE_NAME", "reader_session"
+)
+READER_SESSION_ABSOLUTE_SECONDS = int(
+    os.environ.get("READER_SESSION_ABSOLUTE_SECONDS", str(30 * 24 * 60 * 60))
+)
+READER_SESSION_IDLE_SECONDS = int(
+    os.environ.get("READER_SESSION_IDLE_SECONDS", str(14 * 24 * 60 * 60))
+)
+READER_SESSION_TOUCH_INTERVAL_SECONDS = int(
+    os.environ.get("READER_SESSION_TOUCH_INTERVAL_SECONDS", "300")
+)
+READER_TRUST_PROXY_CLIENT_IP = os.environ.get(
+    "READER_TRUST_PROXY_CLIENT_IP", "false"
+).lower() in {"1", "true", "yes", "on"}
+READER_SESSION_COOKIE_SECURE = os.environ.get(
+    "READER_SESSION_COOKIE_SECURE", "false"
+).lower() in {"1", "true", "yes", "on"}
+READER_EMAIL_LOOKUP_KEY = os.environ.get("READER_EMAIL_LOOKUP_KEY") or (
+    _derived_reader_secret("reader-email-lookup")
+)
+READER_EMAIL_ENCRYPTION_KEYS = (
+    os.environ.get("READER_EMAIL_ENCRYPTION_KEYS")
+    or f"1:{_derived_fernet_key('reader-email-encryption')}"
+)
+READER_TOKEN_PEPPER = os.environ.get("READER_TOKEN_PEPPER") or (
+    _derived_reader_secret("reader-token-pepper")
+)
+READER_MAGIC_LINK_TTL_SECONDS = int(
+    os.environ.get("READER_MAGIC_LINK_TTL_SECONDS", "900")
+)
+READER_DEVICE_FLOW_TTL_SECONDS = int(
+    os.environ.get("READER_DEVICE_FLOW_TTL_SECONDS", "900")
+)
+READER_DEVICE_FLOW_POLL_INTERVAL_SECONDS = int(
+    os.environ.get("READER_DEVICE_FLOW_POLL_INTERVAL_SECONDS", "5")
+)
+READER_DEVICE_FLOW_ATTEMPT_LIMIT = int(
+    os.environ.get("READER_DEVICE_FLOW_ATTEMPT_LIMIT", "5")
+)
+READER_DEVICE_FLOW_STATUS_LIMIT = int(
+    os.environ.get("READER_DEVICE_FLOW_STATUS_LIMIT", "120")
+)
+READER_DEVICE_FLOW_CLAIM_LIMIT = int(
+    os.environ.get("READER_DEVICE_FLOW_CLAIM_LIMIT", "10")
+)
+READER_DEVICE_FLOW_STATUS_WINDOW_SECONDS = int(
+    os.environ.get("READER_DEVICE_FLOW_STATUS_WINDOW_SECONDS", "60")
+)
+READER_DEVICE_FLOW_COOKIE_NAME = os.environ.get(
+    "READER_DEVICE_FLOW_COOKIE_NAME", "reader_device_flow"
+)
+READER_DEVICE_FLOW_COOKIE_SECURE = os.environ.get(
+    "READER_DEVICE_FLOW_COOKIE_SECURE",
+    os.environ.get("READER_SESSION_COOKIE_SECURE", "false"),
+).lower() in {"1", "true", "yes", "on"}
+READER_DEVICE_FLOW_COOKIE_MAX_AGE = int(
+    os.environ.get("READER_DEVICE_FLOW_COOKIE_MAX_AGE", "900")
+)
+READER_PUBLIC_BASE_URL = os.environ.get(
+    "READER_PUBLIC_BASE_URL", WAGTAILADMIN_BASE_URL
+).rstrip("/")
+READER_EMAIL_FROM = os.environ.get("READER_EMAIL_FROM", "reader-security@localhost")
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "25"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+EMAIL_TIMEOUT = float(os.environ.get("EMAIL_TIMEOUT", "10"))
+READER_RATE_LIMIT_REDIS_URL = os.environ.get(
+    "READER_RATE_LIMIT_REDIS_URL"
+) or os.environ.get("CACHE_LOCATION", "")
+READER_CAPABILITY_REDIS_URL = (
+    os.environ.get("READER_CAPABILITY_REDIS_URL") or READER_RATE_LIMIT_REDIS_URL
+)
+READER_COMMENT_CACHE_REDIS_URL = (
+    os.environ.get("READER_COMMENT_CACHE_REDIS_URL") or READER_CAPABILITY_REDIS_URL
+)
+READER_INTERNAL_SERVICE_TOKEN = os.environ.get("READER_INTERNAL_SERVICE_TOKEN", "")
+READER_VERIFICATION_IP_LIMIT = int(os.environ.get("READER_VERIFICATION_IP_LIMIT", "5"))
+READER_VERIFICATION_EMAIL_LIMIT = int(
+    os.environ.get("READER_VERIFICATION_EMAIL_LIMIT", "3")
+)
+READER_VERIFICATION_GLOBAL_LIMIT = int(
+    os.environ.get("READER_VERIFICATION_GLOBAL_LIMIT", "1000")
+)
+READER_VERIFICATION_WINDOW_SECONDS = int(
+    os.environ.get("READER_VERIFICATION_WINDOW_SECONDS", "3600")
+)
+READER_VERIFICATION_CONSUME_LIMIT = int(
+    os.environ.get("READER_VERIFICATION_CONSUME_LIMIT", "5")
+)
+READER_SECURITY_RETENTION_DAYS = int(
+    os.environ.get("READER_SECURITY_RETENTION_DAYS", "30")
+)
+READER_INTERACTIONS_DB_CONNECTION_LIMIT = int(
+    os.environ.get("READER_INTERACTIONS_DB_CONNECTION_LIMIT", "20")
 )
 
 # Article DOCX/Markdown import safety and capacity limits.

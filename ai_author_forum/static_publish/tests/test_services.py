@@ -2,6 +2,7 @@ import json
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -34,6 +35,7 @@ from ..models import StaticManifest, StaticPublishJob, StaticPublishTarget
 from ..providers import output_path_for_url
 from ..readiness import ContentReadinessResult, ReadinessFinding
 from ..services import (
+    NGINX_DIRECT_MARKER,
     AuditWriteError,
     PublishError,
     RenderedTargetSnapshot,
@@ -105,18 +107,219 @@ class StaticPublisherTests(TestCase):
         self.assertEqual(data["version"], job.version)
         self.assertTrue((current / "index.html").is_file())
         self.assertTrue((current / "articles/one/index.html").is_file())
+        self.assertTrue((current / NGINX_DIRECT_MARKER).is_file())
         self.assertEqual(manifest.files, data["files"])
         self.assertEqual(
             manifest.metadata["input_snapshot_at"], data["input_snapshot_at"]
         )
         self.assertNotIn("manifest.json", {item["path"] for item in manifest.files})
+        self.assertIn(NGINX_DIRECT_MARKER, {item["path"] for item in manifest.files})
         self.assertEqual(job.targets.count(), 2)
+
+    def test_selective_publish_refreshes_article_without_complete_reader_mount(self):
+        current = Path(self.temporary.name, "current")
+        current.mkdir(parents=True)
+        (current / "articles/stale/index.html").parent.mkdir(parents=True)
+        (current / "articles/stale/index.html").write_text(
+            '<html><section data-reader-interactions data-reader-comments></section></html>',
+            encoding="utf-8",
+        )
+        (current / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "targets": [
+                        {
+                            "target_type": "article_page",
+                            "output_path": "articles/stale/index.html",
+                            "action": "upsert",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.SELECTIVE,
+            requested_paths=["/sections/news/"],
+            triggered_by=self.admin,
+        )
+        selected = SimpleNamespace(output_path="sections/news/index.html")
+        refreshed = SimpleNamespace(
+            output_path="articles/stale/index.html",
+            target_type="article_page",
+            dependencies={"journal_ids": [7]},
+        )
+
+        with patch.object(
+            self.publisher,
+            "_targets",
+            side_effect=lambda paths: [refreshed] if paths is None else [selected],
+        ):
+            targets = self.publisher._refresh_stale_reader_article_targets(
+                job, [selected], job.requested_paths
+            )
+
+        self.assertEqual(
+            [target.output_path for target in targets],
+            ["sections/news/index.html", "articles/stale/index.html"],
+        )
+
+    def test_selective_publish_refreshes_article_with_stale_reader_release(self):
+        current = Path(self.temporary.name, "current")
+        current.mkdir(parents=True)
+        article_path = current / "articles/stale/index.html"
+        article_path.parent.mkdir(parents=True)
+        article_path.write_text(
+            '<html><section data-reader-interactions data-reader-comments '
+            'data-reader-share data-reader-copy data-reader-download '
+            'data-release="old-release"></section></html>',
+            encoding="utf-8",
+        )
+        (current / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "targets": [
+                        {
+                            "target_type": "article_page",
+                            "output_path": "articles/stale/index.html",
+                            "action": "upsert",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        job = StaticPublishJob.objects.create(
+            version="new-release",
+            scope=StaticPublishJob.Scope.SELECTIVE,
+            requested_paths=["/sections/news/"],
+            triggered_by=self.admin,
+        )
+        selected = SimpleNamespace(output_path="sections/news/index.html")
+        refreshed = SimpleNamespace(
+            output_path="articles/stale/index.html",
+            target_type="article_page",
+            dependencies={"journal_ids": [7]},
+        )
+
+        with patch.object(
+            self.publisher,
+            "_targets",
+            side_effect=lambda paths: [refreshed] if paths is None else [selected],
+        ):
+            targets = self.publisher._refresh_stale_reader_article_targets(
+                job, [selected], job.requested_paths
+            )
+
+        self.assertEqual(
+            [target.output_path for target in targets],
+            ["sections/news/index.html", "articles/stale/index.html"],
+        )
+
+    def test_required_pdf_failure_preserves_previous_current(self):
+        first, _manifest = self.build()
+        current_before = Path(
+            self.temporary.name, "current", "manifest.json"
+        ).read_bytes()
+        TARGETS["/"] = b"<html>release requiring a PDF</html>"
+        failed_job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.FULL,
+            triggered_by=self.admin,
+        )
+        with (
+            self.settings(READER_PDF_GRANTS_ENABLED=True),
+            patch(
+                "ai_author_forum.reader_access.pdfs.wait_for_protected_release",
+                side_effect=RuntimeError("required PDF failed"),
+            ),
+            self.assertRaisesMessage(RuntimeError, "required PDF failed"),
+        ):
+            self.publisher.build(failed_job)
+
+        failed_job.refresh_from_db()
+        self.assertEqual(failed_job.status, StaticPublishJob.Status.FAILED)
+        self.assertEqual(
+            Path(self.temporary.name, "current", "manifest.json").read_bytes(),
+            current_before,
+        )
+        self.assertEqual(
+            StaticManifest.objects.get(is_active=True).version, first.version
+        )
+        self.assertFalse(
+            StaticManifest.objects.get(version=failed_job.version).is_active
+        )
+
+    def test_pdf_enabled_activation_and_rollback_require_protected_pair(self):
+        first, _manifest = self.build()
+        TARGETS["/"] = b"<html>joint release</html>"
+        protected = type("Protected", (), {"sha256": "d" * 64})()
+        with (
+            self.settings(READER_PDF_GRANTS_ENABLED=True),
+            patch(
+                "ai_author_forum.reader_access.pdfs.wait_for_protected_release",
+                return_value=protected,
+            ),
+            patch(
+                "ai_author_forum.reader_access.pdfs.activate_protected_manifest",
+                return_value=protected,
+            ),
+        ):
+            second, _manifest = self.build()
+        current_before = Path(
+            self.temporary.name, "current", "manifest.json"
+        ).read_bytes()
+        with (
+            self.settings(READER_PDF_GRANTS_ENABLED=True),
+            patch(
+                "ai_author_forum.reader_access.pdfs.require_activated_protected_pair",
+                side_effect=RuntimeError("protected pair missing"),
+            ),
+            self.assertRaisesMessage(RuntimeError, "protected pair missing"),
+        ):
+            self.publisher.rollback(
+                first.version,
+                self.admin,
+                reason="protected pair regression fixture",
+            )
+        self.assertEqual(
+            Path(self.temporary.name, "current", "manifest.json").read_bytes(),
+            current_before,
+        )
+        self.assertEqual(
+            StaticManifest.objects.get(is_active=True).version, second.version
+        )
+
+    def test_capability_projection_preflight_failure_restores_previous_current(self):
+        first, _manifest = self.build()
+        current_before = Path(
+            self.temporary.name, "current", "manifest.json"
+        ).read_bytes()
+        TARGETS["/"] = b"<html>projection preflight release</html>"
+        failed_job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.FULL,
+            triggered_by=self.admin,
+        )
+        with (
+            self.settings(READER_INTERACTIONS_ENABLED=True),
+            patch(
+                "ai_author_forum.reader_access.services.publish_active_capability_projections",
+                side_effect=ValidationError("capability Redis unavailable"),
+            ),
+            self.assertRaisesMessage(ValidationError, "capability Redis unavailable"),
+        ):
+            self.publisher.build(failed_job)
+
+        self.assertEqual(
+            Path(self.temporary.name, "current", "manifest.json").read_bytes(),
+            current_before,
+        )
+        self.assertEqual(
+            StaticManifest.objects.get(is_active=True).version, first.version
+        )
 
     def test_journal_snapshot_runs_readiness_for_only_requested_journal(self):
         TARGETS.clear()
-        TARGETS.update(
-            {"/journals/scoped-journal/": b"<html>scoped journal</html>"}
-        )
+        TARGETS.update({"/journals/scoped-journal/": b"<html>scoped journal</html>"})
         job = StaticPublishJob.objects.create(
             scope=StaticPublishJob.Scope.JOURNAL,
             requested_paths=["/journals/scoped-journal/"],

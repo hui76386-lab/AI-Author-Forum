@@ -19,3 +19,33 @@ services:
       ARTICLE_DOCUMENT_IMPORT_ENABLED: "true"
       SIMPLE_JOURNAL_RBAC_ENABLED: "true"
       SIMPLE_JOURNAL_RBAC_SHADOW_MODE: "false"
+  reader-email-worker:
+    environment:
+      SEO_NOINDEX: "true"
+      TIME_ZONE: "Asia/Shanghai"
+      CELERY_TASK_DEFAULT_QUEUE: "ai-author-forum-test"
+      STATIC_PUBLISH_ENFORCE_CONTENT_READINESS: "true"
+      STATIC_PUBLISH_AUTO_ON_PLACEMENT_CHANGE: "true"
+      ARTICLE_DOCUMENT_IMPORT_ENABLED: "true"
+      SIMPLE_JOURNAL_RBAC_ENABLED: "true"
+      SIMPLE_JOURNAL_RBAC_SHADOW_MODE: "false"
+  reader-comments-worker:
+    environment:
+      SEO_NOINDEX: "true"
+      TIME_ZONE: "Asia/Shanghai"
+      CELERY_TASK_DEFAULT_QUEUE: "ai-author-forum-test"
+      STATIC_PUBLISH_ENFORCE_CONTENT_READINESS: "true"
+      STATIC_PUBLISH_AUTO_ON_PLACEMENT_CHANGE: "true"
+      ARTICLE_DOCUMENT_IMPORT_ENABLED: "true"
+      SIMPLE_JOURNAL_RBAC_ENABLED: "true"
+      SIMPLE_JOURNAL_RBAC_SHADOW_MODE: "false"
+  reader-pdf-worker:
+    environment:
+      SEO_NOINDEX: "true"
+      TIME_ZONE: "Asia/Shanghai"
+      CELERY_TASK_DEFAULT_QUEUE: "ai-author-forum-test"
+      STATIC_PUBLISH_ENFORCE_CONTENT_READINESS: "true"
+      STATIC_PUBLISH_AUTO_ON_PLACEMENT_CHANGE: "true"
+      ARTICLE_DOCUMENT_IMPORT_ENABLED: "true"
+      SIMPLE_JOURNAL_RBAC_ENABLED: "true"
+      SIMPLE_JOURNAL_RBAC_SHADOW_MODE: "false"

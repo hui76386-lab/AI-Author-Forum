@@ -1,7 +1,7 @@
 # AI Author Forum CMS 开发文档总览
 
-> 文档版本：v1.3
-> 基线日期：2026-08-07
+> 文档版本：v1.4
+> 基线日期：2026-08-14
 > 适用工程：`E:\AI Author Forum\news-template`
 > 文档性质：开发、联调、评审和发布的统一约定
 
@@ -37,6 +37,7 @@
 | [09-作者投稿角色开发任务书](./09-author-submission-role-development-spec.zh-CN.md) | 定义作者账号、对象级投稿关系、作者工作台、投稿状态、审核意见和投稿权限 |
 | [10-作者投稿实现与运维说明](./10-author-submission-implementation-and-operations.zh-CN.md) | 说明作者投稿功能的代码入口、迁移边界、启用条件和发布验收 |
 | [11-统一登录入口与作者工作台权限隔离开发任务书](./11-unified-login-author-workbench-development-spec.zh-CN.md) | 定义统一品牌登录入口、中立首次改密、作者工作台边界、双角色路由和重定向循环验收 |
+| [读者互动与受控 PDF：AI 可执行任务书](../reader-interactions/AI-IMPLEMENTATION-SPEC.zh-CN.md) | 单文件定义邮箱验证、评论、PDF、分享、高流量架构、`RI-*` 任务卡和上线验收；当前为待实施契约 |
 | [简化账号与子期刊角色迁移和回滚手册](../operations/simple-role-migration-and-rollback.zh-CN.md) | 说明显式映射、dry-run、幂等应用、旧授权快照和不删除新业务记录的回滚步骤 |
 | [远程中间件接入与生产部署](../remote-middleware.zh-CN.md) | 说明远程 PostgreSQL、Redis、Celery 的配置、隔离、本地 overlay 和验收 |
 

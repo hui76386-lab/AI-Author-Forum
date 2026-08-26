@@ -79,6 +79,16 @@ class FrontendI18nUtilityTests(SimpleTestCase):
             self.assertEqual(ui_label("search"), "Search")
             self.assertEqual(ui_label("missing-key", default="Fallback"), "Fallback")
 
+    def test_reader_action_labels_are_localized(self):
+        with translation.override(DEFAULT_LANGUAGE):
+            self.assertEqual(ui_label("article_actions"), "\u6587\u7ae0\u64cd\u4f5c")
+            self.assertEqual(ui_label("copy_link"), "\u590d\u5236\u94fe\u63a5")
+            self.assertEqual(ui_label("download_pdf"), "\u4e0b\u8f7d PDF")
+        with translation.override(ENGLISH_LANGUAGE):
+            self.assertEqual(ui_label("article_actions"), "Article actions")
+            self.assertEqual(ui_label("copy_link"), "Copy link")
+            self.assertEqual(ui_label("download_pdf"), "Download PDF")
+
 
 class AdminI18nUtilityTests(SimpleTestCase):
     def test_admin_text_uses_active_language(self):

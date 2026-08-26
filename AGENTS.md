@@ -47,3 +47,12 @@
 - `docs/cms-development/01-system-architecture.zh-CN.md`：架构与正式模型边界。
 - `docs/cms-development/02-core-business-workflows.zh-CN.md`：导入、审核、投放、静态发布和回滚流程。
 - `docs/cms-development/05-static-publishing-development-and-operations.zh-CN.md`：静态发布完整性与审计。
+
+## 5. 修改后立即部署
+
+- 每次完成任何修改（包括代码、模型、迁移、配置、模板、静态资源或本规约/文档）后，代理必须在同一工作周期内完成验证并立即部署到当前项目运行环境；不得仅停留在提交代码或要求用户稍后手工部署。
+- 部署前必须先执行本规约第 1 节要求的检查；涉及模型时必须先确认迁移文件已生成且 `makemigrations --check --dry-run` 通过。检查失败不得部署或激活新版本。
+- 部署必须使用当前环境已声明的入口（优先使用 `docker-compose.production.yml` 及项目发布命令），按“构建 -> 迁移（如需）-> 收集/构建静态资源 -> 服务更新 -> 健康检查”的顺序执行，并记录命令、版本标识、结果和已知限制。
+- 静态站点变更必须通过 `build_static_site` 生成新的不可变 release 和 manifest；只有完整性校验通过后才能原子切换 `current`。不得直接覆盖 `current`、绕过审核/正式投放或把草稿送到前台。
+- 部署完成后必须验证 Django `/healthz/`、`/readyz/` 和静态服务 `/__static_health__/`（适用时），并确认活动 manifest/release 与本次版本一致。验证失败时保留上一个已验证版本，按回滚规则恢复并写入审计日志。
+- 若当前环境没有明确的部署目标、必需凭据或可用运行入口，必须明确记录为部署阻塞并停止激活，不得猜测目标、重启不明进程或以未部署冒充完成。

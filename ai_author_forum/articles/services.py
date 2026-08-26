@@ -198,6 +198,7 @@ def get_article_context(slug, at=None, *, include_active_release=False):
     primary_category = live_categories.primary
     context = {
         "article": article,
+        "article_public_id": str(article.public_id),
         "page": article,
         "static_url": article.get_absolute_url(),
         "primary_journal": article.primary_journal,

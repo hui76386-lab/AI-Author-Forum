@@ -953,6 +953,10 @@ class StaticFrontendTests(TestCase):
                 article_html = (
                     current / "articles" / acceptance_article.static_slug / "index.html"
                 ).read_text(encoding="utf-8")
+                self.assertIn(
+                    f'data-article-id="{acceptance_article.public_id}"', article_html
+                )
+                self.assertIn(f'data-release="{job.version}"', article_html)
                 self.assertIn('class="c-article-content-list"', article_html)
                 self.assertIn('class="c-article-table"', article_html)
                 self.assertIn('class="c-article-document"', article_html)

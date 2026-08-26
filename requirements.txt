@@ -10,6 +10,7 @@ django-storages[s3]
 wagtail-storages
 openpyxl
 celery[redis]>=5.4,<6
+cryptography==49.0.0
 filelock>=3.16,<4
 # Document conversion dependencies are intentionally pinned for reproducible previews.
 mammoth==1.11.0

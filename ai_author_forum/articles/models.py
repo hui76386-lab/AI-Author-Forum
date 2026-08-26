@@ -344,6 +344,12 @@ class ArticlePage(Page):
         db_index=True,
         help_text=("静态 HTML 输出路径片段；留空时根据文章标题自动生成。"),
     )
+    public_id = models.UUIDField(
+        default=uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
     # Page already records revisions; these fields point to the decision version.
     approved_version = models.ForeignKey(
         "wagtailcore.Revision",
@@ -635,6 +641,7 @@ class ArticlePage(Page):
         bypass_article_permission_check=False,
         **kwargs,
     ):
+        self._raise_if_public_id_changed()
         if not bypass_article_permission_check:
             self._raise_if_user_cannot_save(user)
             self._raise_if_review_projection_written_directly()
@@ -680,6 +687,23 @@ class ArticlePage(Page):
                     },
                 )
                 sync_article_placement_status(self.pk)
+
+    def with_content_json(self, content):
+        revision_object = super().with_content_json(content)
+        revision_object.public_id = self.public_id
+        return revision_object
+
+    def _raise_if_public_id_changed(self):
+        if not self.pk:
+            return
+        previous_public_id = (
+            type(self)
+            .objects.filter(pk=self.pk)
+            .values_list("public_id", flat=True)
+            .first()
+        )
+        if previous_public_id and self.public_id != previous_public_id:
+            raise ValidationError({"public_id": "文章公开 UUID 创建后不可修改。"})
 
     def _raise_if_review_projection_written_directly(self):
         if not self.pk:

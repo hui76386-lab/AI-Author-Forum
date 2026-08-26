@@ -53,6 +53,7 @@ COPY --chown=wagtail . .
 RUN SECRET_KEY=none \
     MIDDLEWARE_MODE=local \
     DATABASE_URL=postgresql://build:build@database:5432/build \
+    INTERACTIONS_DATABASE_URL=postgresql://build:build@interactions-database:5432/build \
     CACHE_BACKEND=django.core.cache.backends.redis.RedisCache \
     CACHE_LOCATION=redis://redis:6379/1 \
     CELERY_BROKER_URL=redis://redis:6379/0 \
@@ -63,13 +64,6 @@ USER root
 RUN chmod +x /app/docker/entrypoint.sh
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
 
-# Runtime command that executes when "docker run" is called, it does the
-# following:
-#   1. Migrate the database.
-#   2. Start the application server.
-# WARNING:
-#   Migrating database at the same time as starting the server IS NOT THE BEST
-#   PRACTICE. The database should be migrated manually or using the release
-#   phase facilities of your hosting platform. This is used only so the
-#   Wagtail instance can be started with a simple "docker run" command.
-CMD set -xe; python manage.py createcachetable; python manage.py migrate --noinput; gunicorn ai_author_forum.wsgi:application
+# Schema and collected-static mutations belong to the explicit one-shot release
+# job. Every runtime replica starts the application only.
+CMD ["gunicorn", "ai_author_forum.wsgi:application"]

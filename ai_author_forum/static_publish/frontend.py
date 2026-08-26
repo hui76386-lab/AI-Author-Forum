@@ -33,6 +33,7 @@ from ai_author_forum.site_settings.navigation import (
     get_active_navigation_set,
     get_navigation_context,
 )
+from ai_author_forum.static_publish.render_context import get_static_release_version
 from ai_author_forum.utils.i18n import article_type_label, localized_journal_name
 from ai_author_forum.utils.public_i18n import (
     is_english,
@@ -1172,4 +1173,5 @@ def get_static_article_context(slug, at=None):
     )
     if journal_id:
         context["navigation_journal"] = journal
+    context["static_release_version"] = get_static_release_version()
     return context

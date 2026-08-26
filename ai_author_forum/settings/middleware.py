@@ -10,6 +10,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 REQUIRED_MIDDLEWARE_ENV = (
     "DATABASE_URL",
+    "INTERACTIONS_DATABASE_URL",
     "CACHE_BACKEND",
     "CACHE_LOCATION",
     "CELERY_BROKER_URL",
@@ -68,12 +69,21 @@ def validate_production_middleware_environment(
     database_url = _parse_url(
         "DATABASE_URL", env["DATABASE_URL"], {"postgres", "postgresql"}
     )
+    interactions_database_url = _parse_url(
+        "INTERACTIONS_DATABASE_URL",
+        env["INTERACTIONS_DATABASE_URL"],
+        {"postgres", "postgresql"},
+    )
     redis_urls = {
         name: _parse_url(name, env[name], {"redis", "rediss"}) for name in REDIS_URL_ENV
     }
 
     if mode == "remote":
-        urls = {"DATABASE_URL": database_url, **redis_urls}
+        urls = {
+            "DATABASE_URL": database_url,
+            "INTERACTIONS_DATABASE_URL": interactions_database_url,
+            **redis_urls,
+        }
         for name, parsed in urls.items():
             if (
                 parsed.hostname
@@ -83,3 +93,31 @@ def validate_production_middleware_environment(
                     f"{name} points to a local middleware host ({parsed.hostname}); "
                     "use MIDDLEWARE_MODE=local only with the local Compose overlay"
                 )
+
+    reader_enabled = env.get("READER_INTERACTIONS_ENABLED", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if reader_enabled:
+        if not database_url.username or not interactions_database_url.username:
+            raise ImproperlyConfigured(
+                "Production database URLs must include explicit least-privilege users"
+            )
+        if database_url.username == interactions_database_url.username:
+            raise ImproperlyConfigured(
+                "Reader interactions require a database user distinct from the control plane"
+            )
+        try:
+            connection_limit = int(
+                env.get("READER_INTERACTIONS_DB_CONNECTION_LIMIT", "0")
+            )
+        except ValueError as exc:
+            raise ImproperlyConfigured(
+                "READER_INTERACTIONS_DB_CONNECTION_LIMIT must be an integer"
+            ) from exc
+        if connection_limit < 1:
+            raise ImproperlyConfigured(
+                "READER_INTERACTIONS_DB_CONNECTION_LIMIT must be positive"
+            )

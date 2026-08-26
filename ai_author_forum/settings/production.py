@@ -2,6 +2,7 @@ import os
 
 from .base import *  # noqa
 from .middleware import validate_production_middleware_environment
+from .reader_security import validate_reader_security_environment
 
 DEBUG = False
 
@@ -12,8 +13,8 @@ STATIC_PUBLISH_ENFORCE_CONTENT_READINESS = os.environ.get(
 
 if not os.environ.get("SECRET_KEY"):
     raise RuntimeError("SECRET_KEY must be set in production")
-
 validate_production_middleware_environment()
+validate_reader_security_environment()
 
 
 # Security configuration
@@ -27,6 +28,11 @@ SESSION_COOKIE_SECURE = (
 # Ensure that the CSRF cookie is only sent by browsers under an HTTPS connection.
 # https://docs.djangoproject.com/en/stable/ref/settings/#csrf-cookie-secure
 CSRF_COOKIE_SECURE = os.environ.get("CSRF_COOKIE_SECURE", "true").lower() == "true"
+READER_SESSION_COOKIE_SECURE = True
+READER_DEVICE_FLOW_COOKIE_SECURE = True
+READER_TRUST_PROXY_CLIENT_IP = os.environ.get(
+    "READER_TRUST_PROXY_CLIENT_IP", "true"
+).lower() in {"1", "true", "yes", "on"}
 
 # Allow the redirect importer to work in load-balanced / cloud environments.
 # https://docs.wagtail.io/en/v2.13/reference/settings.html#redirects

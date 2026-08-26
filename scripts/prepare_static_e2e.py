@@ -40,6 +40,7 @@ EXPECTED_PAGES = (
     "explore-content/opinion/index.html",
     "explore-content/research-analysis/index.html",
     "articles/static-acceptance-article/index.html",
+    "articles/global-session-acceptance-article/index.html",
     "search/index.html",
 )
 
@@ -269,6 +270,29 @@ def seed_content():
         request_id="static-e2e-category-placement-sync",
     )
 
+    second_article = ArticlePage(
+        title="Global session acceptance article",
+        slug="global-session-acceptance-article-page",
+        static_slug="global-session-acceptance-article",
+        abstract="A second formally placed article for global reader-session acceptance.",
+        body=[("paragraph", "<p>Global reader-session acceptance body.</p>")],
+        authors="Acceptance editorial team",
+        article_type=ArticlePage.ArticleType.NEWS,
+        primary_journal=journal,
+        keywords="reader session, acceptance",
+    )
+    root.add_child(instance=second_article)
+    ensure_test_primary_category(second_article)
+    second_article.save_revision().publish()
+    second_article.refresh_from_db()
+    second_article = formally_approve_test_article(second_article, actor=review_actor)
+    sync_category_placements(
+        article_id=second_article.pk,
+        revision_id=second_article.approved_version_id,
+        actor=review_actor,
+        request_id="static-e2e-global-session-placement-sync",
+    )
+
     issue = PublicationIssue.objects.create(
         scope=PublicationIssueScope.JOURNAL,
         journal=journal,
@@ -338,6 +362,7 @@ def seed_content():
     fixture = {
         "journal": journal,
         "empty_journal": empty_journal,
+        "second_article_path": f"/articles/{second_article.static_slug}/",
         "navigation_set": navigation_set,
         "research_item": research_item,
         "empty_column_item": empty_column_item,
@@ -420,6 +445,7 @@ def build_and_rollback(
         "issue_archive_path": "/journals/acceptance-journal/issues/",
         "issue_detail_path": "/journals/acceptance-journal/issues/volume-1-issue-1/",
         "empty_journal_path": f"/journals/{fixture['empty_journal'].slug}/",
+        "second_article_path": fixture["second_article_path"],
         "long_group_label": fixture["long_group_label"],
         "long_item_label": fixture["long_item_label"],
         "main_navigation_group_lengths": [8, 1, 12, 2, 2],

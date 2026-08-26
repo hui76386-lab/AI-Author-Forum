@@ -128,3 +128,20 @@ static_publish -> articles/placements/site_settings（只读取已确认数据�
 ## 8. 作者投稿架构边界
 
 作者工作台是 canonical `ArticlePage` 的受控草稿入口，不是第二套文章模型或发布系统。作者对象权限由 `ArticleAuthorship` 提供，作者保存产生 Wagtail revision，提交复用统一审核 service；作者不能进入完整 Wagtail 页面树，也不能获得审核、投放、导入、Raw HTML 或静态发布权限。实现和运维细节见 `09-author-submission-role-development-spec.zh-CN.md` 与 `10-author-submission-implementation-and-operations.zh-CN.md`。
+
+## 9. 读者互动实施边界
+
+邮箱验证、评论、PDF 下载和分享已经形成待实施开发契约，详见 [读者互动与受控 PDF 开发文档](../reader-interactions/README.zh-CN.md)。该功能不得改变本文件的 canonical 文章、审核、投放和不可变静态发布边界：
+
+- 公开文章仍由 CDN/Nginx 直接读取活动静态 release，互动服务故障不能阻断正文阅读；
+- 评论是独立动态数据，不写入文章 revision，也不因评论变化重建文章 release；
+- 新增不可变 `ArticlePage.public_id` 作为互动引用，不能使用可变 `static_slug` 作为评论业务主键；
+- PDF 只能由冻结 approved revision 构建，放入私有存储，并通过与公共 release 配对的 protected manifest 激活；
+- 下载和评论政策属于受审计控制面，运行时通过版本化投影执行；草稿、未审核、未投放或非活动 release 文章一律 fail closed；
+- 主编辑、常务副编辑、副编辑的对象范围继续只来自有效 `JournalEditorAssignment`，互动功能不得恢复旧 Group 授权。
+
+截至 `RI-02`，不可变 `ArticlePage.public_id`、静态 HTML 的
+`data-article-id`、Nginx release-gated `try_files`、`default` 控制面模型和
+独立 `interactions` 数据面模型/router 已实施。两个数据库禁止跨库外键，生产
+release job 分别迁移；互动事实后台只读。邮箱验证、评论 API、受控 PDF、分享
+API 和政策编辑仍未上线，所有读者互动开关继续关闭，不能把模型骨架表述为可用功能。

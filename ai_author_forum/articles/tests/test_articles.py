@@ -252,6 +252,39 @@ class ArticlePageWorkflowTests(TestCase):
 
         return ArticlePage.objects.get(pk=article.pk)
 
+    def test_public_id_is_stable_when_static_slug_changes(self):
+        article = self.create_article("Stable Public Identifier")
+        public_id = article.public_id
+
+        article.static_slug = "stable-public-identifier-renamed"
+        article.save(user=self.editor)
+        article.refresh_from_db()
+
+        self.assertEqual(article.public_id, public_id)
+
+    def test_public_id_cannot_be_changed_after_creation(self):
+        article = self.create_article("Immutable Public Identifier")
+        original_public_id = article.public_id
+        article.public_id = uuid4()
+
+        with self.assertRaisesMessage(ValidationError, "文章公开 UUID 创建后不可修改"):
+            article.save(
+                clean=False,
+                bypass_article_permission_check=True,
+            )
+
+        article.refresh_from_db()
+        self.assertEqual(article.public_id, original_public_id)
+
+    def test_old_revision_content_preserves_current_public_id(self):
+        article = self.create_article("Revision Public Identifier")
+        old_revision_content = dict(article.get_latest_revision().content)
+        old_revision_content.pop("public_id", None)
+
+        revision_object = article.with_content_json(old_revision_content)
+
+        self.assertEqual(revision_object.public_id, article.public_id)
+
     @staticmethod
     def set_review_record_created_at(record, value):
         table = connection.ops.quote_name(ArticleReviewRecord._meta.db_table)
@@ -852,6 +885,47 @@ class ArticlePageWorkflowTests(TestCase):
             get_approved_articles(include_active_release=True),
         )
         self.assertFalse(ArticlePlacement.objects.available().filter(pk=placement.pk))
+        self.assertTrue(
+            ArticlePlacement.objects.available_for_static_release().filter(
+                pk=placement.pk
+            )
+        )
+
+    def test_active_manifest_keeps_published_article_visible_after_new_draft(self):
+        article = self.create_article("Published Article With New Draft")
+        ArticlePage.objects.filter(pk=article.pk).update(
+            review_status=ArticlePage.ReviewStatus.APPROVED,
+            approved_version_id=article.latest_revision_id,
+            publication_status=ArticlePage.PublicationStatus.PUBLISHED,
+            published_version="published-with-draft",
+        )
+        article.refresh_from_db()
+        placement = ArticlePlacement.objects.create(
+            slot=LayoutSlot.objects.get(code="journal_featured"),
+            article=article,
+            target_type=ArticlePlacement.TargetType.JOURNAL,
+            target_slug=self.journal.slug,
+        )
+        job = StaticPublishJob.objects.create(
+            scope=StaticPublishJob.Scope.FULL,
+            triggered_by=self.role_admin,
+            version="published-with-draft",
+        )
+        StaticManifest.objects.create(
+            version="published-with-draft",
+            job=job,
+            files=[],
+            is_active=True,
+        )
+
+        article.title = "Unpublished draft"
+        article.save_revision(bypass_article_permission_check=True)
+        article.refresh_from_db()
+        self.assertNotEqual(article.latest_revision_id, article.approved_version_id)
+        self.assertIn(
+            article,
+            get_approved_articles(include_active_release=True),
+        )
         self.assertTrue(
             ArticlePlacement.objects.available_for_static_release().filter(
                 pk=placement.pk

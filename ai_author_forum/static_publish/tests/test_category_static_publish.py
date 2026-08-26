@@ -146,7 +146,10 @@ class CategoryStaticPublishTests(TestCase):
             f"journals.JournalCategory:{self.category.pk}:page:1",
             target_type="category_page",
             target_id=f"category:{self.category.pk}:page:1",
-            dependencies={"journal_ids": [self.journal.pk], "category_ids": [self.category.pk]},
+            dependencies={
+                "journal_ids": [self.journal.pk],
+                "category_ids": [self.category.pk],
+            },
         )
 
         with TemporaryDirectory() as staging:
@@ -326,6 +329,21 @@ class CategoryStaticPublishTests(TestCase):
             self.assertIn(
                 "Moved permanently", redirect_html.read_text(encoding="utf-8")
             )
+            redirect_sentinel = Path(
+                output_root,
+                "current",
+                ".nginx-redirects",
+                f"{redirect_item['output_path']}.redirect",
+            )
+            self.assertEqual(
+                redirect_sentinel.read_text(encoding="utf-8").strip(),
+                self.category.get_absolute_url(),
+            )
+            self.assertIn(
+                redirect_sentinel.relative_to(Path(output_root, "current")).as_posix(),
+                {item["path"] for item in data["files"]},
+            )
+            self.assertFalse(redirect_sentinel.name.endswith(".html"))
             self.assertEqual(manifest.metadata["targets"], data["targets"])
 
     def test_selective_publish_can_remove_disabled_category_output(self):

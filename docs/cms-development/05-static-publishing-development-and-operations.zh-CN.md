@@ -1,5 +1,7 @@
 # 05 静态发布开发与运维
 
+> Reader PDF 联合激活（2026-08-17）：当 `READER_PDF_GRANTS_ENABLED=true` 时，public release 先记录为未激活候选并投递专用 `reader_pdf` 队列。所有 enabled 文章的 PDF、对象 checksum、protected manifest 和 capability deny marker 通过后，才在 public 文件切换的恢复窗口内同时激活 public/protected manifest；任一失败恢复旧 `current`。回滚前必须验证目标版本已有完整 activated protected pair。开关关闭时沿用既有 public-only 发布流程。
+
 ## 1. 运行边界
 
 生产前台必须由 Nginx/CDN/静态服务器直接服务已激活目录，不能依赖 Django 运行时读取文章数据库。
@@ -188,3 +190,17 @@ npm run test:e2e
 ### 12.2 英文页面的数据边界
 
 英文导航标签必须按 `NavigationGroup.code`、`NavigationItem.managed_code` 等稳定代码从受审阅词典解析；期刊和编辑身份优先使用独立英文字段。后台兼容层只翻译已知的旧中文界面标签，未知文本必须原样保留，因为它可能是文章标题、姓名、错误详情或其他需要操作者区分的业务数据。禁止对整页 HTML 使用“未知中文统一替换为占位符”的策略，也禁止让后台清洗器处理 `/en/` 前台正文。
+
+## 13. Nginx 活动 release 直出
+
+新 release 在 staging 内生成 `.nginx-direct-ready`，并为每个 manifest redirect
+生成 `.nginx-redirects/<output_path>.redirect` 哨兵。两类文件必须进入 release inventory、
+size 和 SHA-256 校验，随 `current` 一起原子切换：
+
+- 标记存在：普通首页、文章、栏目、manifest 由 Nginx `try_files`/`sendfile` 直出；
+- 标记不存在：视为 N-1 旧 release，所有前台路径回退无数据库的 `static-frontend`；
+- redirect 哨兵存在：对应请求回退 `static-frontend`，由 manifest 返回 301；
+- 内部标记 URL 固定 404，缺失页面固定 503，任何情况都不回退 Django 正文视图。
+
+发布、失败补偿和回滚仍只切换经过完整性验证的 release；禁止为了 Nginx 直出
+直接写 `current` 或在激活后补写哨兵。

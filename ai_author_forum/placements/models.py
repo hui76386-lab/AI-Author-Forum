@@ -99,7 +99,6 @@ class ArticlePlacementQuerySet(models.QuerySet):
             approval_filter |= Q(
                 article__publication_status="published",
                 article__published_version__in=active_versions,
-                article__latest_revision_id=F("article__approved_version_id"),
             )
         return (
             queryset.filter(
@@ -132,8 +131,8 @@ class ArticlePlacementQuerySet(models.QuerySet):
     def available_for_static_release(self, at=None):
         """Keep unchanged content from the active immutable release visible.
 
-        The carry-forward branch never admits a new article: it requires the exact
-        approved revision to already be present in the active manifest version.
+        The carry-forward branch never admits a new article: it requires the
+        article's already-published release to be the active manifest version.
         """
         return self._available(at=at or timezone.now(), include_active_release=True)
 

@@ -1,0 +1,21 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+{% block titletag %}读者互动政策{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title icon="cog" only %}
+<div class="nice-padding">
+  {% if not rows %}<p>没有可管理的有效期刊。</p>{% endif %}
+  {% for row in rows %}
+    <section style="margin: 0 0 2rem; border: 1px solid var(--w-color-border-furniture); padding: 1rem;">
+      <header style="display:flex; justify-content:space-between; gap:1rem; align-items:center;">
+        <h2 style="margin:0;">{{ row.journal.name_cn|default:row.journal.name }}</h2>
+        <a class="button" href="{% url 'reader_access_journal_policy_edit' row.journal.pk %}">编辑期刊政策</a>
+      </header>
+      <p>默认评论：{{ row.policy.get_default_comments_mode_display|default:"开放" }}；默认 PDF：{% if row.policy and row.policy.default_pdf_download_enabled %}启用{% else %}关闭{% endif %}；版本：{{ row.policy.version|default:0 }}</p>
+      <table class="listing"><thead><tr><th>文章</th><th>desired</th><th>applying</th><th>effective</th><th></th></tr></thead><tbody>
+      {% for item in row.articles %}<tr><td>{{ item.article.title }}</td><td>{{ item.status.desired.comments_mode }} / PDF {{ item.status.desired.download_enabled }}</td><td>{% if item.status.applying %}applying{% else %}ready{% endif %}</td><td>{{ item.status.effective.comments_mode }} / PDF {{ item.status.effective.download_enabled }}</td><td><a href="{% url 'reader_access_article_policy_edit' item.article.pk %}">编辑文章政策</a></td></tr>{% endfor %}
+      </tbody></table>
+    </section>
+  {% endfor %}
+</div>
+{% endblock %}

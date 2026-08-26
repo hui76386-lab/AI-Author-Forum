@@ -45,6 +45,9 @@ class StaticReleaseApplicationTests(SimpleTestCase):
         self.assertEqual(page["status"], "200 OK")
         self.assertEqual(page["body"], b"<main>offline</main>")
         self.assertEqual(page["headers"]["X-Static-Release"], "true")
+        self.assertIn("script-src 'self'", page["headers"]["Content-Security-Policy"])
+        self.assertIn("connect-src 'self'", page["headers"]["Content-Security-Policy"])
+        self.assertEqual(page["headers"]["X-Content-Type-Options"], "nosniff")
         self.assertEqual(manifest["status"], "200 OK")
         self.assertEqual(manifest["body"], b"")
 
@@ -119,3 +122,20 @@ class StaticReleaseApplicationTests(SimpleTestCase):
 
         self.assertEqual(missing["status"], "503 Service Unavailable")
         self.assertEqual(unsafe["status"], "400 Bad Request")
+
+    def test_internal_nginx_release_metadata_is_not_public(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            current = Path(directory, "current")
+            (current / ".nginx-redirects").mkdir(parents=True)
+            (current / ".nginx-direct-ready").write_text("ready", encoding="utf-8")
+            (current / ".nginx-redirects/old").write_text("/new/", encoding="utf-8")
+            app = StaticReleaseApplication(directory)
+
+            marker = self.request(app, "/.nginx-direct-ready")
+            redirect = self.request(app, "/.nginx-redirects/old")
+
+        self.assertEqual(marker["status"], "404 Not Found")
+        self.assertEqual(redirect["status"], "404 Not Found")

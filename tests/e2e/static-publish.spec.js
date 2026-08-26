@@ -9,6 +9,12 @@ const baseOrigin = new URL(
 const acceptance = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../../.e2e/acceptance.json"), "utf8"),
 );
+const staticReleaseVersion = JSON.parse(
+  fs.readFileSync(
+    path.join(__dirname, "../../static_publish_output/current/manifest.json"),
+    "utf8",
+  ),
+).version;
 
 function englishPath(pagePath) {
   const url = new URL(pagePath, "https://acceptance.invalid");
@@ -228,7 +234,7 @@ test("current issue and journal article detail both use journal navigation", asy
   await expect(page.locator('[data-managed-navigation-scope="journal"]')).toBeVisible();
   await expect(page.getByText("Static acceptance article", { exact: true })).toBeVisible();
 
-  await page.goto(englishPath("/articles/static-acceptance-article/"), {
+  await page.goto(new URL(englishPath("/articles/static-acceptance-article/"), baseOrigin).href, {
     waitUntil: "networkidle",
   });
   await expect(page.locator('[data-managed-navigation-scope="journal"]')).toBeVisible();
@@ -278,6 +284,31 @@ test("mobile navigation collapses and opens as an accordion without horizontal o
   await expect(page).toHaveScreenshot("mobile-main-navigation.png", { fullPage: true });
 });
 
+test("article exposes a stable UUID and fits the mobile viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(englishPath("/articles/static-acceptance-article/"), {
+    waitUntil: "networkidle",
+  });
+
+  const manifestResponse = await page.request.get("/manifest.json");
+  expect(manifestResponse.ok()).toBeTruthy();
+  const manifest = await manifestResponse.json();
+
+  await expect(page.locator("article[data-article-id]")).toHaveAttribute(
+    "data-article-id",
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+  await expect(page.locator("#reader-interactions")).toHaveAttribute(
+    "data-release",
+    manifest.version,
+  );
+  const dimensions = await page.evaluate(() => ({
+    viewportWidth: window.innerWidth,
+    documentWidth: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewportWidth);
+});
+
 test("manifest records every formal page, zero failures, and media references", async ({
   request,
 }) => {
@@ -300,6 +331,7 @@ test("manifest records every formal page, zero failures, and media references", 
   ).toBeTruthy();
 
   const manifestPaths = new Set(manifest.files.map((item) => item.path));
+  expect(manifestPaths.has(".nginx-direct-ready")).toBeTruthy();
   for (const expectedPage of acceptance.expected_pages) {
     expect(manifestPaths.has(expectedPage)).toBeTruthy();
   }
@@ -387,4 +419,588 @@ test("managed journal hero keeps fallback media, quick links, and nested navigat
   await expect(
     page.locator(".c-journal-home__subtopic", { hasText: "Neural Networks" }),
   ).toBeVisible();
+});
+
+test("reader comments are safe, operable, and responsive", async ({ page }) => {
+  const articleId = "11111111-1111-4111-8111-111111111111";
+  const readerId = "22222222-2222-4222-8222-222222222222";
+  const publicReaderId = "33333333-3333-4333-8333-333333333333";
+  const now = "2026-08-16T12:00:00+00:00";
+  let items = [
+    {
+      id: "44444444-4444-4444-8444-444444444444",
+      parent_id: null,
+      author: { id: publicReaderId, display_name: "Public Reader" },
+      body: "<img src=x onerror=window.commentXss=true> https://example.org",
+      withdrawn: false,
+      state: "published",
+      version: 1,
+      created_at: now,
+      updated_at: now,
+      owned_by_viewer: false,
+      pending_for_viewer: false,
+      replies: [],
+    },
+    {
+      id: "55555555-5555-4555-8555-555555555555",
+      parent_id: null,
+      author: { id: readerId, display_name: "Acceptance Reader" },
+      body: "My published comment",
+      withdrawn: false,
+      state: "published",
+      version: 1,
+      created_at: now,
+      updated_at: now,
+      owned_by_viewer: true,
+      pending_for_viewer: false,
+      replies: [],
+    },
+  ];
+
+  await page.route("**/reader-api/v1/**", async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    const respond = (data, status = 200, headers = {}) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        headers,
+        body: JSON.stringify({ data, request_id: "e2e-reader-comments" }),
+      });
+
+    if (pathname.endsWith("/session/")) {
+      await respond({
+        authenticated: true,
+        reader: { id: readerId, display_name: "Acceptance Reader", version: 1 },
+      });
+      return;
+    }
+    if (pathname.endsWith("/capabilities/")) {
+      await respond({
+        article_public_id: articleId,
+        active_release: staticReleaseVersion,
+        comments_mode: "open",
+        can_comment: true,
+        verification_required: false,
+        policy_version: 7,
+      });
+      return;
+    }
+    if (request.method() === "GET" && pathname.endsWith("/comments/")) {
+      await respond(
+        { items, next_cursor: null, etag: '"e2e-comments"' },
+        200,
+        { ETag: '"e2e-comments"' },
+      );
+      return;
+    }
+    if (request.method() === "POST" && pathname.endsWith("/comments/")) {
+      const body = request.postDataJSON();
+      const pending = {
+        id: "66666666-6666-4666-8666-666666666666",
+        parent_id: null,
+        author: { id: readerId, display_name: "Acceptance Reader" },
+        body: body.body,
+        withdrawn: false,
+        state: "pending",
+        version: 1,
+        created_at: now,
+        updated_at: now,
+        owned_by_viewer: true,
+        pending_for_viewer: true,
+        replies: [],
+      };
+      items = items.concat(pending);
+      await respond(pending, 202);
+      return;
+    }
+    if (pathname.endsWith("/reports/")) {
+      await respond({ id: "77777777-7777-4777-8777-777777777777", status: "open" }, 201);
+      return;
+    }
+    if (pathname.endsWith("/withdrawal/")) {
+      items = items.map((item) =>
+        item.id === "55555555-5555-4555-8555-555555555555"
+          ? { ...item, body: null, withdrawn: true, state: "withdrawn", version: 2 }
+          : item,
+      );
+      await respond(items[1]);
+      return;
+    }
+    await route.fulfill({ status: 404, body: "{}" });
+  });
+
+  await page.goto(englishPath("/articles/static-acceptance-article/"), {
+    waitUntil: "networkidle",
+  });
+  const comments = page.locator("#reader-interactions");
+  await comments.scrollIntoViewIfNeeded();
+  await expect(comments.getByText("Public Reader", { exact: true })).toBeVisible();
+  await expect(comments.getByText("<img src=x", { exact: false })).toBeVisible();
+  await expect(comments.locator("img")).toHaveCount(0);
+  await expect(comments.locator('a[href="https://example.org"]')).toHaveCount(0);
+  expect(await page.evaluate(() => window.commentXss)).toBeUndefined();
+
+  await comments.getByRole("button", { name: "Reply" }).first().click();
+  const reply = comments.getByLabel("Reply to Public Reader");
+  await expect(reply).toBeFocused();
+  await comments.getByRole("button", { name: "Cancel" }).click();
+
+  await comments.getByRole("button", { name: "Report" }).click();
+  await comments.getByRole("button", { name: "Submit report" }).click();
+  await expect(comments.locator("[data-reader-interactions-status]")).toHaveText(
+    "Report received.",
+  );
+
+  await comments.getByLabel("Add a comment").fill("Pending acceptance comment");
+  await comments.getByRole("button", { name: "Submit" }).first().click();
+  await expect(comments.getByText("Pending acceptance comment", { exact: true })).toBeVisible();
+  await expect(comments.getByText("Awaiting review", { exact: true })).toBeVisible();
+
+  await comments.getByRole("button", { name: "Withdraw" }).first().click();
+  await expect(
+    comments.getByText("This comment was withdrawn by its author.", { exact: true }),
+  ).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    document: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
+});
+
+async function installReaderActionApi(page, state) {
+  await page.route("**/reader-api/v1/**", async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    const respond = (data, status = 200, headers = {}) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        headers,
+        body: JSON.stringify({ data, request_id: "e2e-reader-actions" }),
+      });
+
+    if (pathname.endsWith("/session/")) {
+      await respond(
+        state.authenticated
+          ? {
+              authenticated: true,
+              reader: {
+                id: "22222222-2222-4222-8222-222222222222",
+                display_name: "Acceptance Reader",
+                version: 1,
+              },
+            }
+          : { authenticated: false, verification_required: true },
+      );
+      return;
+    }
+    if (pathname.endsWith("/capabilities/")) {
+      await respond({
+        article_public_id: "11111111-1111-4111-8111-111111111111",
+        active_release: staticReleaseVersion,
+        comments_mode: state.commentsMode || "read_only",
+        pdf_available: true,
+        can_comment: state.authenticated,
+        can_download: state.authenticated,
+        share_available: true,
+        can_share: state.authenticated,
+        verification_required: !state.authenticated,
+        policy_version: 7,
+        applying: false,
+        service_degraded: false,
+      });
+      return;
+    }
+    if (request.method() === "GET" && pathname.endsWith("/comments/")) {
+      await respond({ items: [], next_cursor: null, etag: '"reader-actions"' });
+      return;
+    }
+    if (request.method() === "POST" && pathname.endsWith("/share-events/")) {
+      state.shareEvents.push(request.postDataJSON());
+      await respond({ recorded: true, coalesced: false }, 202);
+      return;
+    }
+    if (request.method() === "POST" && pathname.endsWith("/download-grants/")) {
+      state.downloadRequests += 1;
+      await respond({ download_url: "/reader-api/v1/downloads/fake/token/" }, 201);
+      return;
+    }
+    if (request.method() === "POST" && pathname.endsWith("/email-verifications/")) {
+      state.verificationRequests.push(request.postDataJSON());
+      if (state.deviceFlow) {
+        state.deviceFlow.statusCalls = 0;
+        return respond({
+          accepted: true,
+          flow_id: "11111111-1111-4111-8111-111111111111",
+          expires_in: 900,
+          interval: 1,
+        }, 202);
+      }
+      await respond({ accepted: true }, 202);
+      return;
+    }
+    if (request.method() === "GET" && pathname.endsWith("/status/")) {
+      if (!state.deviceFlow) {
+        await route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+        return;
+      }
+      state.deviceFlow.statusCalls += 1;
+      await respond({
+        status: state.deviceFlow.approved ? "approved" : "pending",
+        retry_after: 1,
+        expires_in: Math.max(0, 900 - state.deviceFlow.statusCalls),
+      });
+      return;
+    }
+    if (request.method() === "POST" && pathname.endsWith("/claim/")) {
+      if (!state.deviceFlow) {
+        await route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+        return;
+      }
+      if (!state.deviceFlow.approved) {
+        await route.fulfill({ status: 409, contentType: "application/json", body: "{}" });
+        return;
+      }
+      state.deviceFlow.claims += 1;
+      state.authenticated = true;
+      await respond({
+        status: "claimed",
+        flow_id: "11111111-1111-4111-8111-111111111111",
+        authenticated: true,
+        already_claimed: false,
+      }, 200, { "Set-Cookie": "reader_session=desktop-session; Path=/; HttpOnly; SameSite=Lax" });
+      return;
+    }
+    if (request.method() === "POST" && pathname.endsWith("/comments/")) {
+      state.commentRequests += 1;
+      await respond({}, 201);
+      return;
+    }
+    await route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+  });
+}
+
+test("reader actions use Web Share in the gesture and report outcomes after completion", async ({
+  page,
+}) => {
+  const state = {
+    authenticated: true,
+    shareEvents: [],
+    verificationRequests: [],
+    downloadRequests: 0,
+    commentRequests: 0,
+  };
+  await page.addInitScript(() => {
+    window.shareCalls = [];
+    window.shareMode = "completed";
+    Object.defineProperty(navigator, "canShare", {
+      configurable: true,
+      value: () => true,
+    });
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: (payload) => {
+        window.shareCalls.push(payload);
+        if (window.shareMode === "cancelled") {
+          return Promise.reject(new DOMException("cancelled", "AbortError"));
+        }
+        return Promise.resolve();
+      },
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("clipboard denied")) },
+    });
+  });
+  await installReaderActionApi(page, state);
+
+  await page.goto(englishPath("/articles/static-acceptance-article/"), {
+    waitUntil: "networkidle",
+  });
+  const actions = page.locator("#reader-interactions");
+  await actions.scrollIntoViewIfNeeded();
+  const share = actions.getByRole("button", { name: "Share", exact: true });
+  await expect(share).toBeEnabled();
+  await share.click();
+  await expect(actions.locator("[data-reader-actions-status]")).toHaveText(
+    "System share completed.",
+  );
+  await expect.poll(() => state.shareEvents.length).toBe(1);
+
+  await page.evaluate(() => {
+    window.shareMode = "cancelled";
+  });
+  await share.click();
+  await expect(actions.locator("[data-reader-actions-status]")).toHaveText(
+    "System share cancelled.",
+  );
+  await expect.poll(() => state.shareEvents.length).toBe(2);
+
+  await actions.getByRole("button", { name: "Copy link" }).click();
+  await expect(actions.locator("[data-reader-actions-status]")).toHaveText(
+    "Link could not be copied.",
+  );
+  const urlFallback = actions.locator("[data-reader-share-url]");
+  await expect(urlFallback).toBeVisible();
+  await expect(urlFallback).toHaveAttribute("readonly", "");
+  await expect(urlFallback).toHaveValue(/^https?:\/\//);
+  await expect(urlFallback).toBeFocused();
+  await expect.poll(() => state.shareEvents.length).toBe(3);
+  expect(state.shareEvents).toEqual([
+    { action: "system_share", outcome: "completed" },
+    { action: "system_share", outcome: "cancelled" },
+    { action: "copy_link", outcome: "failed" },
+  ]);
+  const calls = await page.evaluate(() => window.shareCalls);
+  expect(Object.keys(calls[0]).sort()).toEqual(["title", "url"]);
+  expect(calls[0].url).toMatch(/^https?:\/\//);
+});
+
+test("unsupported Web Share keeps copy fallback and responsive keyboard targets", async ({ page }) => {
+  const state = {
+    authenticated: true,
+    shareEvents: [],
+    verificationRequests: [],
+    downloadRequests: 0,
+    commentRequests: 0,
+  };
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "share", { configurable: true, value: undefined });
+    window.copiedUrls = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (url) => {
+          window.copiedUrls.push(url);
+          return Promise.resolve();
+        },
+      },
+    });
+  });
+  await installReaderActionApi(page, state);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(englishPath("/articles/static-acceptance-article/"), {
+    waitUntil: "networkidle",
+  });
+  const actions = page.locator("#reader-interactions");
+  await actions.scrollIntoViewIfNeeded();
+  await expect(actions.getByRole("button", { name: "Share", exact: true })).toBeHidden();
+  const copy = actions.getByRole("button", { name: "Copy link" });
+  await expect(copy).toBeEnabled();
+  await copy.click();
+  await expect(actions.locator("[data-reader-actions-status]")).toHaveText("Link copied.");
+  await expect.poll(() => state.shareEvents).toEqual([
+    { action: "copy_link", outcome: "completed" },
+  ]);
+  expect(await page.evaluate(() => window.copiedUrls.length)).toBe(1);
+  await copy.focus();
+  await expect(copy).toBeFocused();
+  const sizes = await actions.locator("button:visible").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return { width: box.width, height: box.height };
+    }),
+  );
+  expect(sizes.every(({ width, height }) => width >= 44 && height >= 44)).toBeTruthy();
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    document: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
+});
+
+test("email link automatically approves desktop flow and restores the draft globally", async ({
+  browser,
+}) => {
+  const desktopContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const mobileContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    userAgent: "reader-e2e-mobile",
+  });
+  const page = await desktopContext.newPage();
+  const mobile = await mobileContext.newPage();
+  const state = {
+    authenticated: false,
+    commentsMode: "open",
+    shareEvents: [],
+    verificationRequests: [],
+    downloadRequests: 0,
+    commentRequests: 0,
+    deviceFlow: { approved: false, consumes: 0, statusCalls: 0, claims: 0 },
+  };
+  await installReaderActionApi(page, state);
+  await page.goto(new URL(englishPath("/articles/static-acceptance-article/"), baseOrigin).href, {
+    waitUntil: "networkidle",
+  });
+  const actions = page.locator("#reader-interactions");
+  await actions.scrollIntoViewIfNeeded();
+  const composer = actions.getByLabel("Add a comment");
+  await composer.fill("Draft retained for explicit confirmation");
+  await actions.getByRole("button", { name: "Submit" }).click();
+  await expect(actions.locator("[data-reader-verification-email]")).toBeFocused();
+  expect(state.commentRequests).toBe(0);
+
+  await actions.locator("[data-reader-verification-email]").fill("reader@example.org");
+  await expect(actions.locator("[data-reader-verification]")).toHaveAttribute("role", "dialog");
+  await expect(actions.locator("[data-reader-verification-close]")).toBeVisible();
+  expect(
+    await actions.locator("[data-reader-verification]").evaluate((element) => getComputedStyle(element).position),
+  ).toBe("fixed");
+  await actions.getByRole("button", { name: "Send verification link" }).click();
+  await expect.poll(() => state.verificationRequests.length).toBe(1);
+  expect(state.verificationRequests[0].intent).toBe("comment");
+  expect(state.verificationRequests[0].return_to).toMatch(
+    /^\/en\/articles\/static-acceptance-article\/#reader-interactions$/,
+  );
+
+  await expect.poll(() => state.deviceFlow.statusCalls).toBeGreaterThan(0);
+  expect(state.deviceFlow.claims).toBe(0);
+
+  const challengeId = "99999999-9999-4999-8999-999999999999";
+  const verificationPath = `/reader-api/v1/email-verifications/${challengeId}/`;
+  const consumePath = `${verificationPath}consume/`;
+  await mobile.route(`**${verificationPath}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      headers: { "Cache-Control": "no-store" },
+      body: `<!doctype html>
+        <html><head><meta charset="utf-8"><title>Confirm reader access</title></head>
+        <body><main>
+          <h1>Confirm reader access</h1>
+          <p>Verification requested for <strong>r*****@example.org</strong>.</p>
+          <p>Opening this link automatically unlocks the requesting computer.</p>
+          <form method="post" action="${consumePath}" data-reader-verification-form>
+            <input name="csrfmiddlewaretoken" value="mobile-csrf">
+            <input type="hidden" name="token" data-reader-verification-token>
+            <button type="submit" data-reader-verification-submit>Continue verification</button>
+          </form>
+          <p data-reader-verification-status aria-live="polite" hidden></p>
+          <script src="/static/reader_interactions/verify.js" defer></script>
+        </main></body></html>`,
+    });
+  });
+  await mobile.route(`**${consumePath}`, async (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.token).toBe("mobile-email-token");
+    expect(body.user_code).toBeUndefined();
+    state.deviceFlow.consumes += 1;
+    state.deviceFlow.approved = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: {
+        "Cache-Control": "no-store",
+        "Set-Cookie": "reader_session=mobile-session; Path=/; HttpOnly; SameSite=Lax",
+      },
+      body: JSON.stringify({
+        data: {
+          paired: true,
+          return_to: "/en/articles/static-acceptance-article/#reader-interactions",
+        },
+        request_id: "e2e-mobile-consume",
+      }),
+    });
+  });
+  await mobile.goto(new URL(`${verificationPath}#token=mobile-email-token`, baseOrigin).href, {
+    waitUntil: "networkidle",
+  });
+  await expect.poll(() => state.deviceFlow.consumes).toBe(1);
+  await expect(mobile).toHaveURL(/\/en\/articles\/static-acceptance-article\/#reader-interactions$/);
+
+  await expect.poll(() => state.deviceFlow.claims).toBe(1);
+  const restored = page.locator("#reader-interactions").getByLabel("Add a comment");
+  await expect(restored).toHaveValue("Draft retained for explicit confirmation");
+  await expect(restored).toBeFocused();
+  expect(state.commentRequests).toBe(0);
+  expect(state.downloadRequests).toBe(0);
+  expect(state.shareEvents).toEqual([]);
+
+  await actions.getByRole("button", { name: "Submit" }).click();
+  await expect.poll(() => state.commentRequests).toBe(1);
+
+  await page.goto(new URL(englishPath(acceptance.second_article_path), baseOrigin).href, {
+    waitUntil: "networkidle",
+  });
+  const secondArticleInteractions = page.locator("#reader-interactions");
+  await secondArticleInteractions.scrollIntoViewIfNeeded();
+  await expect(secondArticleInteractions.getByLabel("Add a comment")).toBeVisible();
+  await expect(secondArticleInteractions.locator("[data-reader-verification]")).toBeHidden();
+
+  const articleId = await page.locator("#reader-interactions").getAttribute("data-article-id");
+  await page.evaluate((id) => {
+    sessionStorage.setItem(
+      `reader-interactions:pending-intent:${id}:none`,
+      JSON.stringify({
+        articleId: id,
+        action: "download",
+        flowId: "",
+        email: "",
+        expiresAt: Date.now() + 60_000,
+      }),
+    );
+  }, articleId);
+  await page.reload({ waitUntil: "networkidle" });
+  await expect(
+    page.locator("#reader-interactions").getByRole("button", { name: "Download PDF" }),
+  ).toBeFocused();
+  expect(state.downloadRequests).toBe(0);
+  expect(state.commentRequests).toBe(1);
+
+  const desktopSession = (await desktopContext.cookies()).find(
+    (cookie) => cookie.name === "reader_session",
+  );
+  const mobileSession = (await mobileContext.cookies()).find(
+    (cookie) => cookie.name === "reader_session",
+  );
+  expect(desktopSession?.value).toBe("desktop-session");
+  expect(mobileSession?.value).toBe("mobile-session");
+  expect(desktopSession?.value).not.toBe(mobileSession?.value);
+  await desktopContext.close();
+  await mobileContext.close();
+});
+
+test("CSP, no-JavaScript, and API failure keep the static article readable", async ({
+  browser,
+  page,
+}) => {
+  const response = await page.goto(englishPath("/articles/static-acceptance-article/"));
+  expect(response.headers()["content-security-policy"]).toContain("script-src 'self'");
+  expect(response.headers()["content-security-policy"]).toContain("connect-src 'self'");
+
+  const noScript = await browser.newContext({ javaScriptEnabled: false });
+  const noScriptPage = await noScript.newPage();
+  await noScriptPage.goto(new URL(englishPath("/articles/static-acceptance-article/"), baseOrigin).href);
+  await expect(noScriptPage.getByRole("heading", { level: 1 })).toContainText(
+    "Static acceptance article",
+  );
+  await expect(noScriptPage.locator(".c-article-body")).toContainText(
+    "Static acceptance article body",
+  );
+  expect(
+    await noScriptPage
+      .locator("#reader-interactions .c-reader-interactions__actions button")
+      .evaluateAll((buttons) => buttons.every((button) => button.disabled)),
+  ).toBeTruthy();
+  await expect(noScriptPage.locator("[data-reader-verification]")).toBeHidden();
+  await noScript.close();
+
+  await page.route("**/reader-api/v1/**", (route) => route.abort("failed"));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const articleBody = page.locator(".c-article-body");
+  const interactions = page.locator("#reader-interactions");
+  await interactions.scrollIntoViewIfNeeded();
+  await expect(articleBody).toContainText("Static acceptance article body");
+  await expect(interactions.locator("[data-reader-actions-status]")).toHaveText(
+    "Reader actions are temporarily unavailable.",
+  );
+  expect(
+    await interactions
+      .locator(".c-reader-interactions__actions button")
+      .evaluateAll((buttons) => buttons.every((button) => button.disabled)),
+  ).toBeTruthy();
+  await expect(interactions.locator("[data-reader-verification]")).toBeHidden();
 });

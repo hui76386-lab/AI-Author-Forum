@@ -188,3 +188,21 @@ Wagtail Workflow 固定为“初审”和“终审”两个任务，自定义审
 作者只能在具备有效主编辑且开放投稿的 active 期刊创建 canonical `ArticlePage` 草稿。创建、保存、首次提交前改刊和提交均通过 `author_services.py`，并绑定有效 `ArticleAuthorship`、request id 和 expected revision。首次提交后文章锁定；编辑以单独的公开理由退回后作者可创建新 revision 并重新提交，但不能自行改刊。编辑受控转投会取消旧工作流、清除原分派、生成新 revision 和审核记录，并从目标期刊初审重新开始。
 
 作者投稿终审通过后仍只到达 approved/待投放状态。主编辑必须另行创建并执行正式投放，静态构建仍只读取审核通过且有效投放的数据。完整契约见 `09-author-submission-role-development-spec.zh-CN.md`。
+
+## 10. 读者互动与 PDF 发布流程（待实施）
+
+读者互动只消费已经激活的正式文章能力，不新增文章发布捷径：
+
+```text
+approved revision + 有效投放 + 文章互动政策
+  -> 冻结公共页面与 PDF 输入
+  -> 构建公共 release + 私有 PDF
+  -> 校验 public manifest + protected manifest
+  -> 原子激活配对版本
+  -> 投影 article_public_id 对应的评论/下载能力
+  -> 已验证邮箱读者按能力评论、分享或申请 PDF
+```
+
+评论提交、回复、举报、撤回和管理员隐藏只更新互动数据面及其独立评论快照，不回写正文 revision、投放或静态文章 manifest。评论区关闭和 PDF 禁用先在动态授权面 fail closed，再通过新静态 release 更新按钮和页面状态；不得直接覆盖 `current`。
+
+PDF 构建或 protected manifest 校验失败时，新 release 不激活并保留旧 current。静态回滚必须同时切换到与旧公共 manifest 配对且已验证的 protected manifest，不能把不同 release 的文章与 PDF 混合。完整状态、权限、接口和部署契约见 [读者互动文档总览](../reader-interactions/README.zh-CN.md)。

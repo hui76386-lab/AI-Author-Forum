@@ -906,6 +906,7 @@ class AuditAction(models.TextChoices):
     RETRY = "retry", "重试"
     CONFIGURE = "configure", "配置变更"
     PERMISSION = "permission", "权限变更"
+    MODERATION = "moderation", "内容审核"
 
 
 class AuditStatus(models.TextChoices):

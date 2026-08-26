@@ -1,0 +1,26 @@
+{% load static %}<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="referrer" content="no-referrer">
+    <title>Confirm reader access</title>
+  </head>
+  <body>
+    <main>
+      <h1>Confirm reader access</h1>
+      {% if masked_email %}<p>Verification requested for <strong>{{ masked_email }}</strong>.</p>{% endif %}
+      <p>Opening this link will automatically verify your email and unlock the computer that requested it.</p>
+      {% if consume_url %}
+      <form method="post" action="{{ consume_url }}" data-reader-verification-form>
+        {% csrf_token %}
+        <input type="hidden" name="token" data-reader-verification-token>
+        <button type="submit" data-reader-verification-submit hidden>Retry verification</button>
+      </form>
+      <p data-reader-verification-status aria-live="polite">Verifying your email...</p>
+      <script src="{% static 'reader_interactions/verify.js' %}" defer></script>
+      {% else %}
+      <p>This verification link is no longer available.</p>
+      {% endif %}
+    </main>
+  </body>
+</html>

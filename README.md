@@ -27,7 +27,8 @@ cd "E:\AI Author Forum\news-template"
 py -3.14 -m venv .venv
 .\.venv\Scripts\activate
 python -m pip install -r requirements.txt
-python manage.py migrate
+python manage.py migrate --database=default
+python manage.py migrate --database=interactions
 python manage.py seed_navigation
 python manage.py seed_roles
 ```
@@ -139,6 +140,7 @@ record_audit_event(
 - `DJANGO_SETTINGS_MODULE`：默认开发配置为 `ai_author_forum.settings.dev`。
 - `SECRET_KEY`：生产环境必填。
 - `DATABASE_URL`：可配置 PostgreSQL，未配置时开发环境使用 SQLite。
+- `INTERACTIONS_DATABASE_URL`：读者身份/评论数据面的独立数据库；开发默认使用 `interactions.sqlite3`，生产必须是独立 PostgreSQL 连接。
 - `CACHE_BACKEND`, `CACHE_LOCATION`: development may use local memory cache; production must use shared Redis cache.
 - `ALLOWED_HOSTS`、`CSRF_TRUSTED_ORIGINS`：逗号分隔的主机和来源列表。
 - `MEDIA_ROOT`、`STATIC_ROOT`、`STATIC_PUBLISH_ROOT`：媒体、静态资源和静态站点输出目录。
@@ -146,16 +148,24 @@ record_audit_event(
 - `WAGTAILADMIN_BASE_URL`：后台通知使用的站点根地址。
 - `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`: task queue and result storage; production must use remote Redis.
 - `STATIC_PUBLISH_HEALTHCHECK_BROKER`：在 `/readyz/` 中启用任务队列检查。
+- `READER_INTERACTIONS_ENABLED`、`READER_EMAIL_VERIFICATION_ENABLED`、`READER_COMMENTS_WRITE_ENABLED`、`READER_PDF_GRANTS_ENABLED`、`READER_SHARE_UI_ENABLED`、`READER_SNAPSHOT_READ_FALLBACK`：读者互动分层开关；默认全部关闭。
 
 ## 生产静态发布
 
 Production uses remote PostgreSQL, remote Redis/Celery, Gunicorn, and Nginx; the production Compose file does not start local database or Redis services.
 ```powershell
 Copy-Item .env.production.example .env.production
-# Fill the remote DATABASE_URL, CACHE_LOCATION, and CELERY_* URLs in the private server env file
-docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+# Fill both database URLs, CACHE_LOCATION, and CELERY_* URLs in the private server env file
+docker compose --env-file .env.production -f docker-compose.production.yml build
+docker compose --env-file .env.production -f docker-compose.production.yml --profile release run --rm release
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --no-build
 docker compose --env-file .env.production -f docker-compose.production.yml exec web python manage.py build_static_site
 ```
+
+`release` 是每个应用版本只运行一次的迁移/`collectstatic` job。Web 和 worker
+副本启动时只启动运行进程，不能执行迁移；发布记录格式见
+`docs/operations/reader-interactions-deployment-record-template.zh-CN.md`。
+该 job 固定先迁移 `default`，再迁移 `interactions`；任何一步失败都不得更新服务。
 
 The local middleware overlay is only for isolated acceptance:
 
