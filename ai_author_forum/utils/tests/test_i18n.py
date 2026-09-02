@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
-from django.template import Context, Template
 from django.test import RequestFactory, SimpleTestCase
 from django.utils import translation
 
@@ -16,10 +16,8 @@ from ai_author_forum.utils.i18n import (
     DEFAULT_LANGUAGE,
     ENGLISH_LANGUAGE,
     UI_TRANSLATIONS,
-    article_type_label,
     language_switch_options,
     localize_path,
-    localized_journal_name,
     localized_output_path,
     strip_public_language_prefix,
     ui_label,
@@ -81,38 +79,15 @@ class FrontendI18nUtilityTests(SimpleTestCase):
             self.assertEqual(ui_label("search"), "Search")
             self.assertEqual(ui_label("missing-key", default="Fallback"), "Fallback")
 
-    def test_article_type_label_uses_active_language(self):
+    def test_reader_action_labels_are_localized(self):
         with translation.override(DEFAULT_LANGUAGE):
-            self.assertEqual(article_type_label("AI Article"), "AI 文章")
-            self.assertEqual(article_type_label("News"), "新闻")
+            self.assertEqual(ui_label("article_actions"), "\u6587\u7ae0\u64cd\u4f5c")
+            self.assertEqual(ui_label("copy_link"), "\u590d\u5236\u94fe\u63a5")
+            self.assertEqual(ui_label("download_pdf"), "\u4e0b\u8f7d PDF")
         with translation.override(ENGLISH_LANGUAGE):
-            self.assertEqual(article_type_label("AI Article"), "AI Article")
-            self.assertEqual(article_type_label("AI 文章"), "AI Article")
-            self.assertEqual(article_type_label("News"), "News")
-
-    def test_article_type_template_filter_uses_active_language(self):
-        template = Template(
-            "{% load i18n_frontend %}{{ value|article_type_label }}"
-        )
-        with translation.override(DEFAULT_LANGUAGE):
-            self.assertEqual(
-                template.render(Context({"value": "AI Article"})), "AI 文章"
-            )
-        with translation.override(ENGLISH_LANGUAGE):
-            self.assertEqual(
-                template.render(Context({"value": "AI Article"})), "AI Article"
-            )
-
-    def test_journal_name_uses_the_public_language(self):
-        journal = type(
-            "Journal",
-            (),
-            {"name": "English Journal", "name_cn": "\u4e2d\u6587\u671f\u520a"},
-        )()
-        with translation.override(DEFAULT_LANGUAGE):
-            self.assertEqual(localized_journal_name(journal), "\u4e2d\u6587\u671f\u520a")
-        with translation.override(ENGLISH_LANGUAGE):
-            self.assertEqual(localized_journal_name(journal), "English Journal")
+            self.assertEqual(ui_label("article_actions"), "Article actions")
+            self.assertEqual(ui_label("copy_link"), "Copy link")
+            self.assertEqual(ui_label("download_pdf"), "Download PDF")
 
 
 class AdminI18nUtilityTests(SimpleTestCase):
@@ -131,7 +106,7 @@ class EnglishResponseSanitizerTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
 
-    def test_known_and_unknown_han_text_is_removed_in_english(self):
+    def test_known_labels_are_translated_and_unknown_content_is_preserved(self):
         content = (
             "<p>AI \u6587\u7ae0 / \u672a\u6536\u5f55\u7684\u52a8\u6001\u6587\u6848</p>"
         )
@@ -139,28 +114,41 @@ class EnglishResponseSanitizerTests(SimpleTestCase):
             sanitized = sanitize_english_admin_html(content)
 
         self.assertIn("AI Article", sanitized)
-        self.assertIn("Content unavailable in English", sanitized)
-        self.assertIsNone(self.han_pattern.search(sanitized))
+        self.assertIn("\u672a\u6536\u5f55\u7684\u52a8\u6001\u6587\u6848", sanitized)
+        self.assertNotIn("Content unavailable in English", sanitized)
 
     def test_chinese_response_is_not_rewritten(self):
         content = "<p>AI \u6587\u7ae0</p>"
         with translation.override(DEFAULT_LANGUAGE):
             self.assertEqual(sanitize_english_admin_html(content), content)
 
-    def test_middleware_covers_admin_and_english_public_html_only(self):
+    def test_explicit_fallback_remains_available_for_strict_callers(self):
+        with translation.override(ENGLISH_LANGUAGE):
+            sanitized = sanitize_english_admin_html(
+                "<p>未收录的动态文案</p>",
+                unknown_fallback="English translation required",
+            )
+
+        self.assertIn("English translation required", sanitized)
+        self.assertNotIn("Content unavailable in English", sanitized)
+        self.assertIsNone(self.han_pattern.search(sanitized))
+
+    def test_middleware_covers_admin_html_only(self):
         def html_response(_request):
             response = HttpResponse("<p>AI \u6587\u7ae0</p>", content_type="text/html")
             response["Content-Length"] = str(len(response.content))
             return response
 
         middleware = EnglishAdminResponseMiddleware(html_response)
-        for path in ("/admin/articles/", "/en/articles/example/"):
-            with self.subTest(path=path), translation.override(ENGLISH_LANGUAGE):
-                response = middleware(self.factory.get(path))
-                body = response.content.decode(response.charset)
-                self.assertIn("AI Article", body)
-                self.assertIsNone(self.han_pattern.search(body))
-                self.assertNotIn("Content-Length", response)
+        with translation.override(ENGLISH_LANGUAGE):
+            response = middleware(self.factory.get("/admin/articles/"))
+            body = response.content.decode(response.charset)
+            self.assertIn("AI Article", body)
+            self.assertIsNone(self.han_pattern.search(body))
+            self.assertNotIn("Content-Length", response)
+
+            public_response = middleware(self.factory.get("/en/articles/example/"))
+            self.assertContains(public_response, "AI \u6587\u7ae0")
 
         with translation.override(DEFAULT_LANGUAGE):
             response = middleware(self.factory.get("/admin/articles/"))
@@ -172,3 +160,16 @@ class EnglishResponseSanitizerTests(SimpleTestCase):
         with translation.override(ENGLISH_LANGUAGE):
             response = json_middleware(self.factory.get("/admin/articles/status/"))
             self.assertIn("\\u6587\\u7ae0", response.content.decode(response.charset))
+
+        chooser_middleware = EnglishAdminResponseMiddleware(
+            lambda _request: JsonResponse(
+                {"html": "<h1>\u9009\u62e9 journal</h1>", "step": "choose"}
+            )
+        )
+        with translation.override(ENGLISH_LANGUAGE):
+            response = chooser_middleware(
+                self.factory.get("/admin/snippets/choose/journals/journal/")
+            )
+            payload = json.loads(response.content.decode(response.charset))
+            self.assertEqual(payload["html"], "<h1>Select journal</h1>")
+            self.assertEqual(payload["step"], "choose")

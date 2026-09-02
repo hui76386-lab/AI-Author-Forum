@@ -61,10 +61,16 @@ def get_active_journals():
     )
 
 
-def get_journal_context(slug: str, at=None):
+def get_journal_context(slug: str, at=None, *, include_active_release=False):
     """Return the canonical static publishing context for one active journal."""
     journal = get_active_journals().get(slug=slug)
-    article_pages = list(get_articles_by_journal(journal.slug, at=at))
+    article_pages = list(
+        get_articles_by_journal(
+            journal.slug,
+            at=at,
+            include_active_release=include_active_release,
+        )
+    )
     legacy_articles = list(
         StaticArticle.objects.filter(
             journal=journal,
@@ -72,6 +78,7 @@ def get_journal_context(slug: str, at=None):
         ).order_by("sort_order", "title", "pk")
     )
     from .category_services import get_category_navigation
+    from .frontend import get_public_editorial_team
 
     return {
         "journal": journal,
@@ -83,6 +90,7 @@ def get_journal_context(slug: str, at=None):
         "article_pages": article_pages,
         "legacy_articles": legacy_articles,
         "category_navigation": get_category_navigation(journal=journal),
+        "editorial_team": get_public_editorial_team(journal, at=at),
         "seo": {
             "title": localized_journal_seo_title(journal),
             "description": localized_journal_description(journal),

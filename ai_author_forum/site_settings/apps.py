@@ -8,6 +8,8 @@ class SiteSettingsConfig(AppConfig):
     name = "ai_author_forum.site_settings"
 
     def ready(self):
+        from wagtail.models import Site
+
         from ai_author_forum.journals.models import Journal
         from ai_author_forum.site_settings.navigation import (
             ensure_default_journal_navigation_template,
@@ -19,7 +21,9 @@ class SiteSettingsConfig(AppConfig):
             if not created:
                 return
             try:
-                ensure_navigation_for_journal(instance)
+                if not Site.objects.exists():
+                    return
+                ensure_navigation_for_journal(instance, _system_bootstrap=True)
             except (OperationalError, ProgrammingError):
                 return
 
@@ -27,20 +31,24 @@ class SiteSettingsConfig(AppConfig):
             if sender.label != self.label:
                 return
             try:
+                if not Site.objects.exists():
+                    return
                 ensure_main_navigation_set()
                 ensure_default_journal_navigation_template()
                 for journal in Journal.objects.all().iterator():
-                    ensure_navigation_for_journal(journal)
+                    ensure_navigation_for_journal(journal, _system_bootstrap=True)
             except (OperationalError, ProgrammingError):
                 return
 
         post_save.connect(
             copy_default_navigation,
             sender=Journal,
+            weak=False,
             dispatch_uid="site_settings.copy_default_navigation_to_new_journal",
         )
         post_migrate.connect(
             bootstrap_managed_navigation,
             sender=self,
+            weak=False,
             dispatch_uid="site_settings.bootstrap_managed_navigation",
         )

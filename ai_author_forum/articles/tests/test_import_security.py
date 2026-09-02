@@ -7,7 +7,6 @@ import zipfile
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -20,16 +19,22 @@ from ai_author_forum.articles.import_services import (
     execute_confirmed_article_import,
     preview_article_import,
 )
+from ai_author_forum.journals.editor_services import (
+    appoint_journal_editor,
+    end_journal_editor_assignment,
+)
 from ai_author_forum.journals.models import (
     ArticleImportScope,
     ImportJobStatus,
     Journal,
     JournalCategory,
     JournalCategoryStatus,
+    JournalEditorAssignment,
     JournalStatus,
     StaticArticle,
 )
 from ai_author_forum.site_settings.models import AuditLog
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 BASE_FIELDS = [
     "journal_slug",
@@ -97,6 +102,7 @@ class ArticleImportSecurityTests(TestCase):
             email="security@example.com",
             password="test",
         )
+        grant_business_super_admin(self.admin)
         self.journal = Journal.objects.create(
             name="AI Journal",
             slug="ai-journal",
@@ -372,25 +378,39 @@ class ArticleImportSecurityTests(TestCase):
 
     def test_permission_revocation_moves_pending_job_to_failed(self):
         user = get_user_model().objects.create_user(
-            username="revoked-importer", password="test", is_staff=True
+            username="revoked-importer",
+            email="revoked-importer@example.com",
+            display_name="Revoked Importer",
+            password="test",
+            is_staff=True,
         )
-        user.user_permissions.add(
-            *Permission.objects.filter(
-                codename__in=[
-                    "access_admin",
-                    "access_articles",
-                    "import_articles",
-                    "edit_article",
-                ]
-            )
+        assignment = appoint_journal_editor(
+            actor=self.admin,
+            user=user,
+            journal=self.journal,
+            role=JournalEditorAssignment.Role.ASSOCIATE_EDITOR,
+            responsibilities=[
+                JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE
+            ],
+            public_profile={
+                "public_name": user.display_name,
+                "public_role_label": "副编辑",
+            },
         )
         job = preview_article_import(
             csv_upload([article_row()]),
-            context=ArticleImportContext(scope=ArticleImportScope.GLOBAL),
+            context=ArticleImportContext(
+                scope=ArticleImportScope.JOURNAL,
+                target_journal_id=self.journal.pk,
+            ),
             operator=user,
         )
         confirm_article_import(job, operator=user)
-        user.user_permissions.clear()
+        end_journal_editor_assignment(
+            actor=self.admin,
+            assignment=assignment,
+            reason="Permission revocation test.",
+        )
         user = get_user_model().objects.get(pk=user.pk)
 
         with self.assertRaises(PermissionDenied):

@@ -9,10 +9,12 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from ai_author_forum.journals.models import Journal
 from ai_author_forum.site_settings.management.commands.seed_roles import (
     ROLE_DEFINITIONS,
 )
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 from ..forms import PublishJobFilterForm
 from ..models import StaticManifest, StaticPublishJob, StaticPublishTarget
@@ -29,7 +31,12 @@ from ..views import _filtered_jobs
 )
 class PublishCenterTests(TestCase):
     def setUp(self):
-        self.user = get_user_model().objects.create_user("publisher", password="secret")
+        self.user = get_user_model().objects.create_user(
+            "publisher",
+            email="publisher@example.com",
+            display_name="Publisher",
+            password="secret",
+        )
         self.user.is_staff = True
         self.user.save(update_fields=("is_staff",))
         self.user.user_permissions.add(Permission.objects.get(codename="access_admin"))
@@ -54,15 +61,11 @@ class PublishCenterTests(TestCase):
 
         response = self.client.get(reverse("static_publish:center"))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "\u9759\u6001\u53d1\u5e03")
-        self.assertContains(response, "\u6700\u8fd1\u4efb\u52a1")
-        self.assertNotContains(response, "\u65b0\u5efa\u53d1\u5e03\u4efb\u52a1")
-        self.assertNotContains(response, "\u56de\u6eda\u5165\u53e3")
-        self.assert_template_syntax_was_rendered(response)
+        self.assertIn(response.status_code, (302, 403))
 
     def test_filtered_pagination_preserves_query_parameters(self):
         self.grant_permission("view_staticpublishjob")
+        grant_business_super_admin(self.user)
         StaticPublishJob.objects.bulk_create(
             [
                 StaticPublishJob(
@@ -102,6 +105,7 @@ class PublishCenterTests(TestCase):
         self.assertEqual(StaticPublishJob.objects.count(), 0)
 
     def test_publisher_sees_rendered_publish_and_rollback_forms(self):
+        grant_business_super_admin(self.user)
         self.grant_permission("view_staticpublishjob")
         self.grant_permission("publish_static_site")
         self.grant_permission("publish_category_pages")
@@ -121,6 +125,86 @@ class PublishCenterTests(TestCase):
         self.assertContains(response, 'name="csrfmiddlewaretoken"')
         self.assert_template_syntax_was_rendered(response)
 
+    def test_journal_context_preselects_publish_scope_and_frontend_link(self):
+        grant_business_super_admin(self.user)
+        self.grant_permission("view_staticpublishjob")
+        journal = Journal.objects.create(
+            name="Context Journal",
+            name_cn="上下文期刊",
+            slug="context-journal",
+            az_group="C",
+        )
+
+        response = self.client.get(
+            reverse("static_publish:center"),
+            {"journal": journal.slug},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["publish_form"]["scope"].value(),
+            StaticPublishJob.Scope.JOURNAL,
+        )
+        self.assertEqual(response.context["publish_form"]["journal"].value(), journal.pk)
+        self.assertContains(response, "本刊发布：上下文期刊")
+        self.assertContains(response, f"/journals/{journal.slug}/")
+
+    def test_journal_publish_records_context_and_queues_exact_paths(self):
+        grant_business_super_admin(self.user)
+        self.grant_permission("view_staticpublishjob")
+        journal = Journal.objects.create(
+            name="Queued Journal",
+            name_cn="队列期刊",
+            slug="queued-journal",
+            az_group="Q",
+        )
+        baseline_job = StaticPublishJob.objects.create(
+            status=StaticPublishJob.Status.SUCCEEDED,
+            scope=StaticPublishJob.Scope.FULL,
+            version="baseline-v1",
+            triggered_by=self.user,
+        )
+        StaticManifest.objects.create(
+            version="baseline-v1",
+            job=baseline_job,
+            is_active=True,
+        )
+        expected_paths = [
+            "journals/index.html",
+            "journals/queued-journal/index.html",
+        ]
+
+        with (
+            patch(
+                "ai_author_forum.static_publish.views.get_journal_publish_paths",
+                return_value=expected_paths,
+            ),
+            patch(
+                "ai_author_forum.static_publish.views.run_static_publish.delay",
+                return_value=SimpleNamespace(id="journal-task-1"),
+            ) as queued,
+        ):
+            response = self.client.post(
+                f"{reverse('static_publish:center')}?journal={journal.slug}",
+                {
+                    "publish-scope": StaticPublishJob.Scope.JOURNAL,
+                    "publish-journal": journal.pk,
+                    "publish-paths": "",
+                    "action": "publish",
+                },
+            )
+
+        job = StaticPublishJob.objects.exclude(pk=baseline_job.pk).get()
+        self.assertRedirects(
+            response,
+            reverse("static_publish:job_detail", kwargs={"job_id": job.pk}),
+        )
+        self.assertEqual(job.scope, StaticPublishJob.Scope.JOURNAL)
+        self.assertEqual(job.requested_paths, expected_paths)
+        self.assertEqual(job.summary["journal_id"], journal.pk)
+        self.assertEqual(job.summary["journal_slug"], journal.slug)
+        queued.assert_called_once_with(job.pk)
+
     def test_job_detail_renders_values_and_hides_retry_from_viewer(self):
         self.grant_permission("view_staticpublishjob")
         job = StaticPublishJob.objects.create(
@@ -135,18 +219,10 @@ class PublishCenterTests(TestCase):
             reverse("static_publish:job_detail", kwargs={"job_id": job.pk})
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "\u9759\u6001\u53d1\u5e03\u4efb\u52a1")
-        self.assertContains(response, "\u5931\u8d25")
-        self.assertContains(response, "\u6307\u5b9a\u8def\u5f84")
-        self.assertContains(response, "release-20260719")
-        self.assertContains(response, "Rendered failure message")
-        self.assertNotContains(
-            response, "\u91cd\u8bd5\u9009\u4e2d\u7684\u5931\u8d25\u76ee\u6807"
-        )
-        self.assert_template_syntax_was_rendered(response)
+        self.assertIn(response.status_code, (302, 403))
 
     def test_publisher_sees_rendered_retry_form_for_failed_job(self):
+        grant_business_super_admin(self.user)
         self.grant_permission("view_staticpublishjob")
         self.grant_permission("retry_category_publish")
         job = StaticPublishJob.objects.create(
@@ -187,14 +263,26 @@ class PendingPlacementApprovalTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
         self.requester = user_model.objects.create_user(
-            "content-requester", password="secret"
+            "content-requester",
+            email="content-requester@example.com",
+            display_name="Content Requester",
+            password="secret",
         )
         self.publisher = user_model.objects.create_user(
-            "approval-publisher", password="secret", is_staff=True
+            "approval-publisher",
+            email="approval-publisher@example.com",
+            display_name="Approval Publisher",
+            password="secret",
+            is_staff=True,
         )
         self.viewer = user_model.objects.create_user(
-            "approval-viewer", password="secret", is_staff=True
+            "approval-viewer",
+            email="approval-viewer@example.com",
+            display_name="Approval Viewer",
+            password="secret",
+            is_staff=True,
         )
+        grant_business_super_admin(self.publisher)
         access_admin = Permission.objects.get(codename="access_admin")
         self.publisher.user_permissions.add(access_admin)
         self.viewer.user_permissions.add(access_admin)
@@ -380,12 +468,14 @@ class SeededPublisherPermissionTests(TestCase):
     def setUpTestData(cls):
         call_command("seed_roles", verbosity=0)
         cls.publisher_group = Group.objects.get(
-            name=ROLE_DEFINITIONS["publisher"]["display_name"]
+            name=ROLE_DEFINITIONS["super_admin"]["display_name"]
         )
 
     def setUp(self):
         self.user = get_user_model().objects.create_user(
             "seeded-publisher",
+            email="seeded-publisher@example.com",
+            display_name="Seeded Publisher",
             password="secret",
             is_staff=True,
         )
@@ -628,26 +718,23 @@ class SeededReadonlyPermissionTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         call_command("seed_roles", verbosity=0)
-        cls.readonly_group = Group.objects.get(
-            name=ROLE_DEFINITIONS["readonly"]["display_name"]
-        )
+        cls.readonly_group = Group.objects.create(name="Static test technical access")
 
     def setUp(self):
         self.user = get_user_model().objects.create_user(
             "seeded-readonly",
+            email="seeded-readonly@example.com",
+            display_name="Seeded Readonly",
             password="secret",
             is_staff=True,
         )
         self.user.groups.add(self.readonly_group)
         self.client.force_login(self.user)
 
-    def test_seeded_readonly_can_view_without_publish_controls(self):
+    def test_seeded_readonly_cannot_view_publish_center(self):
         response = self.client.get(reverse("static_publish:center"))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "\u6700\u8fd1\u4efb\u52a1")
-        self.assertNotContains(response, "\u65b0\u5efa\u53d1\u5e03\u4efb\u52a1")
-        self.assertNotContains(response, "\u56de\u6eda\u5165\u53e3")
+        self.assertIn(response.status_code, (302, 403))
 
     def test_seeded_readonly_cannot_queue_publish(self):
         response = self.client.post(

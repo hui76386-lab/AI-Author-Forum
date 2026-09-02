@@ -1,6 +1,7 @@
 from datetime import datetime
 from xml.etree import ElementTree
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -11,6 +12,10 @@ from ai_author_forum.home.models import HomePage
 from ai_author_forum.journals.models import Journal
 from ai_author_forum.news.models import NewsListingPage
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class LatestArticlesFeedTests(TestCase):
@@ -38,6 +43,15 @@ class LatestArticlesFeedTests(TestCase):
             az_group="F",
         )
         cls.slot = LayoutSlot.objects.get(code="section_article_list")
+        cls.admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="feed-admin",
+                email="feed-admin@example.com",
+                display_name="Feed Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
 
         cls.published_article = cls.create_article(
             "Published RSS article",
@@ -75,12 +89,13 @@ class LatestArticlesFeedTests(TestCase):
             article_type=ArticlePage.ArticleType.NEWS,
             primary_journal=cls.journal,
             keywords="rss, canonical",
-            review_status=status,
         )
         (HomePage.objects.first() or Page.get_first_root_node()).add_child(
             instance=article
         )
         article.save_revision().publish()
+        if status == ArticlePage.ReviewStatus.APPROVED:
+            formally_approve_test_article(article, actor=cls.admin)
         ArticlePage.objects.filter(pk=article.pk).update(
             first_published_at=timezone.make_aware(datetime(2024, 1, 2, 9, 30))
         )

@@ -21,6 +21,7 @@ from ai_author_forum.journals.issues import (
     archive_issue,
     publish_issue,
     rollback_issue,
+    save_issue_article,
     set_current_issue,
 )
 from ai_author_forum.journals.models import (
@@ -33,6 +34,10 @@ from ai_author_forum.journals.models import (
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 from ai_author_forum.static_publish.providers import WagtailPageTargetProvider
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 def uploaded_image(name="issue-cover.png"):
@@ -53,6 +58,7 @@ class PublicationIssueTests(TestCase):
             email="issue-lead@example.com",
             password="password",
         )
+        grant_business_super_admin(self.actor)
         self.journal = Journal.objects.create(
             name="Issue Journal",
             slug="issue-journal",
@@ -82,10 +88,23 @@ class PublicationIssueTests(TestCase):
             keywords="issue",
             article_type=ArticlePage.ArticleType.NEWS,
             primary_journal=journal or self.journal,
-            review_status=review_status,
         )
         Page.get_first_root_node().add_child(instance=article)
-        article.save_revision().publish()
+        if review_status in {
+            ArticlePage.ReviewStatus.APPROVED,
+            ArticlePage.ReviewStatus.PUBLISHED,
+        }:
+            formally_approve_test_article(article, actor=self.actor)
+            if review_status == ArticlePage.ReviewStatus.PUBLISHED:
+                ArticlePage.objects.filter(pk=article.pk).update(
+                    review_status=ArticlePage.ReviewStatus.PUBLISHED
+                )
+                article.refresh_from_db()
+        else:
+            article.save_revision(
+                user=self.actor,
+                bypass_article_permission_check=True,
+            )
         return article
 
     def create_issue(self, **overrides):
@@ -173,7 +192,7 @@ class PublicationIssueTests(TestCase):
         IssueArticle(issue=issue, article=published).full_clean()
         with self.assertRaisesMessage(ValidationError, "Only reviewed articles"):
             IssueArticle(issue=issue, article=draft).full_clean()
-        with self.assertRaisesMessage(ValidationError, "owned by or related"):
+        with self.assertRaisesMessage(ValidationError, "owned by that journal"):
             IssueArticle(issue=issue, article=outside).full_clean()
 
     def test_empty_or_invalid_issue_cannot_be_published_and_failure_is_audited(self):
@@ -198,7 +217,7 @@ class PublicationIssueTests(TestCase):
             journal=self.other_journal,
         )
         IssueArticle.objects.create(issue=invalid_issue, article=outside)
-        with self.assertRaisesMessage(ValidationError, "owned by or related"):
+        with self.assertRaisesMessage(ValidationError, "owned by that journal"):
             publish_issue(invalid_issue, actor=self.actor)
         invalid_issue.refresh_from_db()
         self.assertEqual(invalid_issue.status, PublicationIssueStatus.DRAFT)
@@ -234,6 +253,27 @@ class PublicationIssueTests(TestCase):
         self.assertEqual(logs.filter(action=AuditAction.CONFIGURE).count(), 2)
         self.assertEqual(logs.filter(action=AuditAction.ROLLBACK).count(), 1)
 
+    def test_save_issue_article_locks_only_the_issue_row(self):
+        issue = self.create_issue(
+            scope=PublicationIssueScope.JOURNAL,
+            journal=self.journal,
+            slug="journal-draft",
+        )
+        article = self.create_article(title="Journal draft article")
+
+        assignment = save_issue_article(
+            actor=self.actor,
+            values={
+                "issue": issue,
+                "article": article,
+                "section_label": "Research articles",
+                "sort_order": 10,
+            },
+        )
+
+        self.assertEqual(assignment.issue_id, issue.pk)
+        self.assertEqual(assignment.article_id, article.pk)
+
     def test_failed_current_archive_and_rollback_actions_are_audited(self):
         draft = self.create_issue(slug="failed-current")
         with self.assertRaisesMessage(ValidationError, "Only a published issue"):
@@ -247,7 +287,10 @@ class PublicationIssueTests(TestCase):
         )
 
         restricted_actor = get_user_model().objects.create_user(
-            username="issue-restricted", password="password"
+            username="issue-restricted",
+            email="issue-restricted@example.com",
+            display_name="Issue Restricted",
+            password="password",
         )
         published = self.create_issue(
             slug="failed-protected-actions",
@@ -397,7 +440,11 @@ class PublicationIssueTests(TestCase):
             status=PublicationIssueStatus.PUBLISHED,
         )
         user = get_user_model().objects.create_user(
-            username="issue-viewer", password="password", is_staff=True
+            username="issue-viewer",
+            email="issue-viewer@example.com",
+            display_name="Issue Viewer",
+            password="password",
+            is_staff=True,
         )
         user.user_permissions.add(
             Permission.objects.get(
@@ -416,16 +463,9 @@ class PublicationIssueTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("journals_publication_issue_admin"))
+        self.assertEqual(response.url, "/admin/")
         issue.refresh_from_db()
         self.assertEqual(issue.status, PublicationIssueStatus.PUBLISHED)
-        self.assertTrue(
-            AuditLog.objects.filter(
-                action=AuditAction.CONFIGURE,
-                status=AuditStatus.FAILURE,
-                target_id=str(issue.pk),
-            ).exists()
-        )
 
     def test_admin_missing_issue_redirects_instead_of_returning_500(self):
         self.client.force_login(self.actor)

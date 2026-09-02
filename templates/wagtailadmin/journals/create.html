@@ -1,0 +1,65 @@
+{% extends "wagtailadmin/base.html" %}
+{% load i18n wagtailadmin_tags %}
+
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+{% get_current_language as LANGUAGE_CODE %}
+{% include "wagtailadmin/shared/header.html" with title=title subtitle="先创建资料，再按工作台完成发布" icon="doc-full" only %}
+<div class="nice-padding journal-create-page">
+  <nav class="journal-create-breadcrumb" aria-label="当前位置">
+    <a href="{{ back_url }}">子期刊</a><span aria-hidden="true">/</span><strong>新建子期刊</strong>
+  </nav>
+
+  <section class="journal-create-hero">
+    <div>
+      <p class="journal-create-eyebrow">第一步 / 建立主对象</p>
+      <h2>创建一个新的子期刊</h2>
+      <p>保存后系统会自动生成默认导航和主栏目，并直接进入这个子期刊的工作台。这里不会立即把内容发布到前台。</p>
+    </div>
+    <ol class="journal-create-flow" aria-label="子期刊发布流程">
+      <li class="is-current"><span>1</span>创建资料</li>
+      <li><span>2</span>任命主编辑</li>
+      <li><span>3</span>{% if LANGUAGE_CODE|slice:":2" == "zh" %}启用子期刊{% else %}Activate journal{% endif %}</li>
+      <li><span>4</span>准备内容</li>
+      <li><span>5</span>完成投放</li>
+      <li><span>6</span>静态发布</li>
+    </ol>
+  </section>
+
+  <div class="journal-create-layout">
+    <section class="journal-create-form-panel" aria-labelledby="journal-create-form-title">
+      <h2 id="journal-create-form-title">基础资料</h2>
+      <p class="journal-create-help">带 * 的字段必须填写。新建记录会先保存为“草稿”，完成主编辑和基础配置后，再从工作台启用。</p>
+      <form method="post" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="help-block help-critical">{{ form.non_field_errors }}</div>{% endif %}
+        {% for field in form %}
+          <div class="journal-create-field">
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}<p class="field-help">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}<p class="error-message">{{ error }}</p>{% endfor %}
+          </div>
+        {% endfor %}
+        <div class="journal-create-actions">
+          <a class="button button-secondary" href="{{ back_url }}">取消</a>
+          <button class="button button-primary" type="submit">创建并进入工作台</button>
+        </div>
+      </form>
+    </section>
+
+    <aside class="journal-create-side" aria-label="创建后自动准备的内容">
+      <h2>创建后会自动准备</h2>
+      <ul>
+        <li><strong>默认导航</strong><span>复制一份独立的子期刊导航，之后可单独调整。</span></li>
+        <li><strong>主栏目</strong><span>生成一个可编辑的“主栏目”，用于承接本刊文章。</span></li>
+        <li><strong>工作台</strong><span>保存后会直接进入当前子期刊，页面只突出当前该做的一步。</span></li>
+      </ul>
+      <div class="journal-create-warning"><strong>前台上线条件</strong><span>启用状态、有效主编辑、已审核文章、有效投放和活动 manifest 缺一不可。</span></div>
+    </aside>
+  </div>
+</div>
+<style>
+.journal-create-page{max-width:100rem}.journal-create-breadcrumb{display:flex;gap:.55rem;align-items:center;margin-bottom:1rem;color:var(--w-color-text-meta)}.journal-create-hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(24rem,36rem);gap:2rem;align-items:center;padding:1.5rem;border:1px solid var(--w-color-border-furniture);background:var(--w-color-surface-page)}.journal-create-eyebrow{margin:0 0 .35rem;color:var(--w-color-primary);font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.journal-create-hero h2{margin:.1rem 0 .5rem;font-size:2rem}.journal-create-hero p:last-child{max-width:55rem;margin:0;color:var(--w-color-text-meta);line-height:1.6}.journal-create-flow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.5rem;margin:0;padding:0;list-style:none}.journal-create-flow li{display:grid;gap:.45rem;color:var(--w-color-text-meta);font-size:.8rem;font-weight:600;line-height:1.25}.journal-create-flow span{display:grid;place-items:center;width:2rem;height:2rem;border:1px solid var(--w-color-border-furniture);border-radius:50%;font-weight:700}.journal-create-flow .is-current{color:var(--w-color-primary)}.journal-create-flow .is-current span{background:var(--w-color-primary);color:#fff;border-color:var(--w-color-primary)}.journal-create-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(18rem,1fr);gap:1rem;margin-top:1rem}.journal-create-form-panel,.journal-create-side{padding:1.5rem;border:1px solid var(--w-color-border-furniture);background:var(--w-color-surface-page)}.journal-create-form-panel h2,.journal-create-side h2{margin:0 0 .45rem}.journal-create-help{margin:0 0 1.2rem;color:var(--w-color-text-meta)}.journal-create-field{margin:1rem 0}.journal-create-field label{display:block;margin-bottom:.35rem;font-weight:700}.journal-create-field input,.journal-create-field select{width:100%;max-width:48rem}.journal-create-field input[type=number]{max-width:12rem}.field-help{margin:.35rem 0 0;color:var(--w-color-text-meta);font-size:.9rem}.error-message{margin:.35rem 0 0;color:var(--w-color-critical-100);font-weight:600}.journal-create-actions{display:flex;justify-content:flex-end;gap:.65rem;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--w-color-border-furniture)}.journal-create-side ul{display:grid;gap:1rem;margin:1.25rem 0;padding:0;list-style:none}.journal-create-side li{display:grid;gap:.2rem;padding-bottom:1rem;border-bottom:1px solid var(--w-color-border-furniture)}.journal-create-side li span,.journal-create-warning span{color:var(--w-color-text-meta);line-height:1.5}.journal-create-warning{display:grid;gap:.3rem;padding:1rem;border-inline-start:.35rem solid var(--w-color-warning-100);background:var(--w-color-surface-header)}@media(max-width:1100px){.journal-create-hero{grid-template-columns:1fr}.journal-create-flow{grid-template-columns:repeat(3,minmax(0,1fr));max-width:48rem}}@media(max-width:900px){.journal-create-layout{grid-template-columns:1fr}}@media(max-width:600px){.journal-create-hero h2{font-size:1.5rem}.journal-create-flow{grid-template-columns:1fr 1fr}.journal-create-actions{justify-content:stretch}.journal-create-actions>*{flex:1;text-align:center}}
+</style>
+{% endblock %}

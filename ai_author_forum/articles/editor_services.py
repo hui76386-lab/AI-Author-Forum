@@ -2,15 +2,13 @@ from collections import Counter
 
 from django.core.exceptions import ValidationError
 
+from ai_author_forum.site_settings.access_control import is_super_admin
+
 RAW_HTML_PERMISSION = "articles.use_raw_html"
 
 
 def user_can_use_raw_html(user):
-    return bool(
-        user
-        and user.is_active
-        and (user.is_superuser or user.has_perm(RAW_HTML_PERMISSION))
-    )
+    return bool(user and user.is_active and is_super_admin(user))
 
 
 def body_contains_raw_html(value):

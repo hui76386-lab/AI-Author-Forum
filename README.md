@@ -27,7 +27,8 @@ cd "E:\AI Author Forum\news-template"
 py -3.14 -m venv .venv
 .\.venv\Scripts\activate
 python -m pip install -r requirements.txt
-python manage.py migrate
+python manage.py migrate --database=default
+python manage.py migrate --database=interactions
 python manage.py seed_navigation
 python manage.py seed_roles
 ```
@@ -88,6 +89,7 @@ python manage.py seed_journal_demo_data --publish-static-site --operator-id 1
 - `文章管理`：`articles` 内容入口，需要 `site_settings.access_articles`。
 - `文章审核`：`articles` 审核入口，需要 `site_settings.access_article_review`。
 - `投放管理`：`placements` 投放入口，需要 `site_settings.access_placements`。
+- `账号管理`：`/admin/accounts/`，仅有效超级管理员可创建、暂停、停用、重置账号和维护任命。
 - `版位编排`：受控版位入口，需要 `site_settings.access_slots`。
 - `静态发布`：`static_publish` 发布入口，需要 `site_settings.access_static_publish`。
 - `设置 > 主站配置`：Wagtail Site Settings 中维护站点名称、Logo、SEO、默认图片和静态输出根目录。
@@ -97,18 +99,16 @@ python manage.py seed_journal_demo_data --publish-static-site --operator-id 1
 
 ## 标准角色
 
-`seed_roles` 会创建以下 Wagtail 用户组：
+`seed_roles` 只创建业务组“超级管理员”和技术组“子期刊编辑基础访问”。子期刊编辑的业务角色不使用 Group 表示，而由 `journals.JournalEditorAssignment` 按期刊保存。
 
-| 角色 | 菜单与能力边界 |
-| --- | --- |
-| 超级管理员 | 全局配置、用户权限、发布和回滚 |
-| 内容管理员 | 文章编辑、栏目编辑、文章投放和预览 |
-| 审核人员 | 文章审核、驳回和审核意见 |
-| 站点运营 | 子期刊资料、素材和 SEO 配置 |
-| 发布管理员 | 静态生成、发布、重试和回滚 |
-| 只读人员 | 查看配置、发布记录和审计日志 |
+| 业务角色 | 编码 | 范围与能力边界 |
+| --- | --- | --- |
+| 超级管理员 | `super_admin` | 全平台账号、配置、投放、静态发布和回滚；不能执行文章终审 |
+| 主编辑 | `chief_editor` | 被任命子期刊的团队、内容、初审、终审和投放 |
+| 常务副编辑 | `executive_editor` | 被任命子期刊的日常维护、分派、初审和投放；不能终审 |
+| 副编辑 | `associate_editor` | 被任命子期刊的初审及所分配的固定维护职责；不能终审 |
 
-角色组只定义权限，不自动把用户加入组；用户需要由超级管理员在 Wagtail 用户管理中分配用户组，并设置为可登录后台的用户。
+超级管理员可通过 `/admin/accounts/new/` 创建实名账号并分配任命，也可在当前子期刊的“编辑团队”页面使用角色预设直接创建本刊账号。快捷入口固定当前期刊并锁定角色职责，账号和任命在同一事务中创建。主编辑、常务副编辑和副编辑自动加入“子期刊编辑基础访问”技术组，但数据范围始终由有效 `JournalEditorAssignment` 和统一权限 service 决定；禁止通过直接修改 Group 成员关系授予子期刊业务角色。
 
 ## 跨模块接口
 
@@ -140,6 +140,7 @@ record_audit_event(
 - `DJANGO_SETTINGS_MODULE`：默认开发配置为 `ai_author_forum.settings.dev`。
 - `SECRET_KEY`：生产环境必填。
 - `DATABASE_URL`：可配置 PostgreSQL，未配置时开发环境使用 SQLite。
+- `INTERACTIONS_DATABASE_URL`：读者身份/评论数据面的独立数据库；开发默认使用 `interactions.sqlite3`，生产必须是独立 PostgreSQL 连接。
 - `CACHE_BACKEND`, `CACHE_LOCATION`: development may use local memory cache; production must use shared Redis cache.
 - `ALLOWED_HOSTS`、`CSRF_TRUSTED_ORIGINS`：逗号分隔的主机和来源列表。
 - `MEDIA_ROOT`、`STATIC_ROOT`、`STATIC_PUBLISH_ROOT`：媒体、静态资源和静态站点输出目录。
@@ -147,16 +148,24 @@ record_audit_event(
 - `WAGTAILADMIN_BASE_URL`：后台通知使用的站点根地址。
 - `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`: task queue and result storage; production must use remote Redis.
 - `STATIC_PUBLISH_HEALTHCHECK_BROKER`：在 `/readyz/` 中启用任务队列检查。
+- `READER_INTERACTIONS_ENABLED`、`READER_EMAIL_VERIFICATION_ENABLED`、`READER_COMMENTS_WRITE_ENABLED`、`READER_PDF_GRANTS_ENABLED`、`READER_SHARE_UI_ENABLED`、`READER_SNAPSHOT_READ_FALLBACK`：读者互动分层开关；默认全部关闭。
 
 ## 生产静态发布
 
 Production uses remote PostgreSQL, remote Redis/Celery, Gunicorn, and Nginx; the production Compose file does not start local database or Redis services.
 ```powershell
 Copy-Item .env.production.example .env.production
-# Fill the remote DATABASE_URL, CACHE_LOCATION, and CELERY_* URLs in the private server env file
-docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+# Fill both database URLs, CACHE_LOCATION, and CELERY_* URLs in the private server env file
+docker compose --env-file .env.production -f docker-compose.production.yml build
+docker compose --env-file .env.production -f docker-compose.production.yml --profile release run --rm release
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --no-build
 docker compose --env-file .env.production -f docker-compose.production.yml exec web python manage.py build_static_site
 ```
+
+`release` 是每个应用版本只运行一次的迁移/`collectstatic` job。Web 和 worker
+副本启动时只启动运行进程，不能执行迁移；发布记录格式见
+`docs/operations/reader-interactions-deployment-record-template.zh-CN.md`。
+该 job 固定先迁移 `default`，再迁移 `interactions`；任何一步失败都不得更新服务。
 
 The local middleware overlay is only for isolated acceptance:
 

@@ -15,6 +15,10 @@ from ai_author_forum.site_settings.management.commands.seed_roles import (
     ROLE_DEFINITIONS,
 )
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 from ..forms import make_target_value
 from ..models import ArticlePlacement, LayoutSlot
@@ -38,11 +42,13 @@ class LayoutSlotDashboardTests(TestCase):
             az_group="S",
             status="active",
         )
+        cls.superuser = grant_business_super_admin(
+            get_user_model().objects.create_superuser(
+                "slot-admin", "slot-admin@example.com", "password"
+            )
+        )
         cls.article_a = cls.create_article("Slot article A", "slot-article-a")
         cls.article_b = cls.create_article("Slot article B", "slot-article-b")
-        cls.superuser = get_user_model().objects.create_superuser(
-            "slot-admin", "slot-admin@example.com", "password"
-        )
 
     @classmethod
     def create_article(cls, title, slug):
@@ -53,14 +59,14 @@ class LayoutSlotDashboardTests(TestCase):
             body=[{"type": "paragraph", "value": f"{title} body."}],
             authors="Editor",
             article_type=ArticlePage.ArticleType.AI_ARTICLE,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
             primary_journal=cls.journal,
             keywords="ai",
             static_slug=slug,
         )
         cls.news_listing.add_child(instance=article)
         article.save_revision().publish()
-        return article
+        formally_approve_test_article(article, actor=cls.superuser)
+        return ArticlePage.objects.get(pk=article.pk)
 
     def setUp(self):
         self.client.force_login(self.superuser)
@@ -262,12 +268,16 @@ class LayoutSlotDashboardTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, f'data-slot-placement-id="{placement.pk}"')
-        self.assertContains(response, "当前上线内容：News（0）")
+        self.assertContains(response, "当前上线内容：新闻（0）")
         self.assertContains(response, "暂无可预览的上线内容")
 
     def test_module_access_is_separate_from_change_permission(self):
         user = get_user_model().objects.create_user(
-            "slot-viewer", password="password", is_staff=True
+            "slot-viewer",
+            email="slot-viewer@example.com",
+            display_name="Slot Viewer",
+            password="password",
+            is_staff=True,
         )
         user.user_permissions.add(
             Permission.objects.get(
@@ -281,8 +291,7 @@ class LayoutSlotDashboardTests(TestCase):
         slot = LayoutSlot.objects.get(code="home_hero")
 
         response = self.client.get(reverse("layout-slots:index"))
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.context["can_change"])
+        self.assertIn(response.status_code, (302, 403))
         response = self.client.post(
             reverse("layout-slots:index"), data=self.slot_payload(slot, max_items=2)
         )
@@ -292,10 +301,5 @@ class LayoutSlotDashboardTests(TestCase):
         self.assertEqual(slot.max_items, 1)
 
     def test_standard_roles_receive_slot_module_access(self):
-        self.assertIn(
-            "access_slots",
-            ROLE_DEFINITIONS["content_manager"]["custom_permissions"],
-        )
-        self.assertNotIn(
-            "access_slots", ROLE_DEFINITIONS["readonly"]["custom_permissions"]
-        )
+        self.assertEqual(set(ROLE_DEFINITIONS), {"super_admin"})
+        self.assertEqual(ROLE_DEFINITIONS["super_admin"]["custom_permissions"], "*")

@@ -21,6 +21,10 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python manage.py check
       - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py migrate --database=default --noinput
+      - run: python manage.py migrate --database=interactions --noinput
+      - run: python manage.py migrate --database=default --check
+      - run: python manage.py migrate --database=interactions --check
       - run: pytest -q
       - run: ruff check ai_author_forum tests scripts
       - run: black --check ai_author_forum tests scripts
@@ -73,7 +77,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate Docker Compose
-        env:
-          SECRET_KEY: ci-only-secret
-          POSTGRES_PASSWORD: ci-only-password
-        run: docker compose -f docker-compose.production.yml config --quiet
+        run: >-
+          docker compose --env-file .env.production.example
+          -f docker-compose.production.yml --profile release config --quiet

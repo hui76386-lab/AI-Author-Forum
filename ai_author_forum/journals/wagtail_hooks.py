@@ -11,8 +11,14 @@ from wagtail import hooks
 from wagtail.admin.menu import MenuItem
 
 from ai_author_forum.journals.category_admin import category_admin, category_audit
+from ai_author_forum.journals.editor_views import editorial_team_index, journal_profile
 from ai_author_forum.journals.forms import ConfirmImportForm, ImportPackageForm
 from ai_author_forum.journals.import_templates import build_import_template_package
+from ai_author_forum.journals.issue_admin import (
+    issue_article_admin,
+    publication_issue_draft_admin,
+)
+from ai_author_forum.journals.issue_forms import manageable_issue_journals
 from ai_author_forum.journals.issues import (
     archive_issue,
     publish_issue,
@@ -22,8 +28,12 @@ from ai_author_forum.journals.issues import (
 from ai_author_forum.journals.models import (
     ArticleImportJob,
     ImportJobStatus,
+    IssueArticle,
+    Journal,
+    JournalEditorAssignment,
     JournalImportJob,
     PublicationIssue,
+    PublicationIssueScope,
 )
 from ai_author_forum.journals.publishing import (
     save_import_package_for_background,
@@ -31,8 +41,16 @@ from ai_author_forum.journals.publishing import (
 )
 from ai_author_forum.journals.services import import_package
 from ai_author_forum.journals.viewsets import JournalsViewSet
+from ai_author_forum.site_settings.access_control import (
+    can_manage_journal,
+    can_publish_issue,
+    filter_accessible_journals,
+    get_journal_editor_assignment,
+    is_super_admin,
+)
 from ai_author_forum.site_settings.models import AuditAction, AuditStatus
 from ai_author_forum.site_settings.services import record_audit_event
+from ai_author_forum.utils.admin_i18n import admin_text
 from ai_author_forum.utils.admin_ui import (
     is_english_admin,
     translate_form_to_english,
@@ -75,30 +93,52 @@ def _configure_english_journal_import_forms(upload_form, confirm_form):
 
 class JournalImportMenuItem(MenuItem):
     def is_shown(self, request):
-        return request.user.is_superuser or request.user.has_perm(
-            "site_settings.import_journals"
-        )
+        return is_super_admin(request.user)
+
+
+class EditorialTeamMenuItem(MenuItem):
+    def is_shown(self, request):
+        return filter_accessible_journals(request.user, Journal.objects.all()).exists()
 
 
 class JournalCategoryMenuItem(MenuItem):
     def is_shown(self, request):
-        return request.user.is_superuser or request.user.has_perm(
-            "journals.view_journalcategory"
+        if is_super_admin(request.user):
+            return True
+        return any(
+            assignment.role
+            in {
+                JournalEditorAssignment.Role.CHIEF_EDITOR,
+                JournalEditorAssignment.Role.EXECUTIVE_EDITOR,
+            }
+            or JournalEditorAssignment.Responsibility.COLUMN_NAVIGATION
+            in (assignment.responsibilities or [])
+            for assignment in JournalEditorAssignment.objects.effective().filter(
+                user=request.user
+            )
         )
 
 
 class JournalCategoryAuditMenuItem(MenuItem):
     def is_shown(self, request):
-        return request.user.is_superuser or (
-            request.user.has_perm("site_settings.access_audit_log")
-            and request.user.has_perm("journals.view_journalcategory")
-        )
+        return filter_accessible_journals(request.user, Journal.objects.all()).exists()
 
 
 class PublicationIssueMenuItem(MenuItem):
     def is_shown(self, request):
-        return request.user.is_superuser or request.user.has_perm(
-            "journals.view_publicationissue"
+        if is_super_admin(request.user):
+            return True
+        return any(
+            assignment.role
+            in {
+                JournalEditorAssignment.Role.CHIEF_EDITOR,
+                JournalEditorAssignment.Role.EXECUTIVE_EDITOR,
+            }
+            or JournalEditorAssignment.Responsibility.ISSUE_MANAGEMENT
+            in (assignment.responsibilities or [])
+            for assignment in JournalEditorAssignment.objects.effective().filter(
+                user=request.user
+            )
         )
 
 
@@ -253,6 +293,8 @@ def _validate_preview_pair(journal_job, article_job, *, allow_suspicious_text=Fa
 
 @permission_required("site_settings.import_journals", raise_exception=True)
 def import_dashboard(request):
+    if not is_super_admin(request.user):
+        raise PermissionDenied
     journal_job = _get_job(JournalImportJob, request.GET.get("journal_job"))
     article_job = _get_job(ArticleImportJob, request.GET.get("article_job"))
     journal_job, article_job = _complete_preview_pair(journal_job, article_job)
@@ -282,9 +324,7 @@ def import_dashboard(request):
         initial={
             "journal_job_id": journal_job.pk if journal_job else None,
             "article_job_id": article_job.pk if article_job else None,
-            "publish_static_site": request.user.has_perm(
-                "static_publish.publish_static_site"
-            ),
+            "publish_static_site": is_super_admin(request.user),
             "csv_encoding": (
                 ((journal_job or article_job).summary or {}).get("csv_encoding", "auto")
                 if (journal_job or article_job)
@@ -300,7 +340,7 @@ def import_dashboard(request):
     context = {
         "form": upload_form,
         "confirm_form": confirm_form,
-        "can_publish": request.user.has_perm("static_publish.publish_static_site"),
+        "can_publish": is_super_admin(request.user),
         "recent_jobs": JournalImportJob.objects.order_by("-created_at")[:10],
     }
     context.update(_preview_context(journal_job, article_job))
@@ -314,6 +354,8 @@ def import_dashboard(request):
 
 @permission_required("site_settings.import_journals", raise_exception=True)
 def confirm_import(request):
+    if not is_super_admin(request.user):
+        raise PermissionDenied
     if request.method != "POST":
         raise Http404
     form = ConfirmImportForm(request.POST)
@@ -326,7 +368,7 @@ def confirm_import(request):
     journal_job, article_job = _complete_preview_pair(journal_job, article_job)
     allow_suspicious_text = form.cleaned_data["override_suspicious_text"]
     override_reason = form.cleaned_data["override_reason"].strip()
-    if allow_suspicious_text and not request.user.is_superuser:
+    if allow_suspicious_text and not is_super_admin(request.user):
         raise PermissionDenied
     try:
         jobs = _validate_preview_pair(
@@ -357,9 +399,7 @@ def confirm_import(request):
             },
         )
     publish_static_site = form.cleaned_data["publish_static_site"]
-    if publish_static_site and not request.user.has_perm(
-        "static_publish.publish_static_site"
-    ):
+    if publish_static_site and not is_super_admin(request.user):
         messages.error(
             request, "You do not have permission to publish the static site."
         )
@@ -409,6 +449,8 @@ def confirm_import(request):
 
 @permission_required("site_settings.import_journals", raise_exception=True)
 def import_status(request):
+    if not is_super_admin(request.user):
+        raise PermissionDenied
     journal_job = _get_job(JournalImportJob, request.GET.get("journal_job"))
     article_job = _get_job(ArticleImportJob, request.GET.get("article_job"))
     journal_job, article_job = _complete_preview_pair(journal_job, article_job)
@@ -428,6 +470,8 @@ def import_status(request):
 
 @permission_required("site_settings.import_journals", raise_exception=True)
 def download_import_template(request):
+    if not is_super_admin(request.user):
+        raise PermissionDenied
     response = HttpResponse(
         build_import_template_package(), content_type="application/zip"
     )
@@ -439,6 +483,8 @@ def download_import_template(request):
 
 @permission_required("site_settings.import_journals", raise_exception=True)
 def download_error_report(request, scope, job_id):
+    if not is_super_admin(request.user):
+        raise PermissionDenied
     model = {"journals": JournalImportJob, "articles": ArticleImportJob}.get(scope)
     if model is None:
         raise Http404
@@ -452,14 +498,20 @@ def download_error_report(request, scope, job_id):
 
 
 def publication_issue_admin(request):
-    if not (
-        request.user.is_superuser
-        or request.user.has_perm("journals.view_publicationissue")
-    ):
+    accessible_journals = filter_accessible_journals(
+        request.user, Journal.objects.all()
+    )
+    if not is_super_admin(request.user) and not accessible_journals.exists():
         raise PermissionDenied
+    issue_queryset = PublicationIssue.objects.select_related("journal")
+    if not is_super_admin(request.user):
+        issue_queryset = issue_queryset.filter(
+            scope=PublicationIssueScope.JOURNAL,
+            journal__in=accessible_journals,
+        )
     if request.method == "POST":
         try:
-            issue = PublicationIssue.objects.get(pk=request.POST.get("issue_id"))
+            issue = issue_queryset.get(pk=request.POST.get("issue_id"))
             action = request.POST.get("action")
             handlers = {
                 "publish": publish_issue,
@@ -480,25 +532,44 @@ def publication_issue_admin(request):
         else:
             messages.success(request, "Publication issue action completed.")
         return redirect("journals_publication_issue_admin")
-    issues = PublicationIssue.objects.select_related("journal").all()
+    issues = list(issue_queryset)
+    for issue in issues:
+        issue.can_publish = can_publish_issue(request.user, issue)
+        issue.can_set_current = issue.can_publish
+        assignment = get_journal_editor_assignment(request.user, issue.journal)
+        issue.can_rollback = bool(
+            is_super_admin(request.user)
+            or (
+                assignment
+                and assignment.role == JournalEditorAssignment.Role.CHIEF_EDITOR
+            )
+        )
+        issue.can_archive = issue.can_rollback
+        issue.can_edit_draft = bool(
+            issue.status == "draft"
+            and (
+                is_super_admin(request.user)
+                or can_manage_journal(
+                    request.user,
+                    issue.journal,
+                    JournalEditorAssignment.Responsibility.ISSUE_MANAGEMENT,
+                )
+            )
+        )
     return render(
         request,
         "wagtailadmin/journals/publication_issue_index.html",
         {
             "title": "Publication issues",
             "issues": issues,
-            "can_publish": request.user.is_superuser
-            or request.user.has_perm("journals.publish_publication_issue"),
-            "can_set_current": request.user.is_superuser
-            or request.user.has_perm("journals.set_current_publication_issue"),
-            "can_rollback": request.user.is_superuser
-            or request.user.has_perm("journals.rollback_publication_issue"),
-            "add_url": reverse("wagtailsnippets_journals_publicationissue:add"),
-            "edit_url_name": "wagtailsnippets_journals_publicationissue:edit",
-            "issue_articles_url": reverse("wagtailsnippets_journals_issuearticle:list"),
-            "add_issue_article_url": reverse(
-                "wagtailsnippets_journals_issuearticle:add"
-            ),
+            "can_publish": any(issue.can_publish for issue in issues),
+            "can_set_current": any(issue.can_set_current for issue in issues),
+            "can_rollback": any(issue.can_rollback for issue in issues),
+            "can_add_issue": is_super_admin(request.user)
+            or manageable_issue_journals(request.user).exists(),
+            "add_url": reverse("journals_publication_issue_new"),
+            "edit_url_name": "journals_publication_issue_edit",
+            "issue_articles_url": reverse("journals_issue_article_admin"),
         },
     )
 
@@ -507,9 +578,44 @@ def publication_issue_admin(request):
 def register_admin_urls():
     return [
         path(
+            "journals/editorial-team/",
+            editorial_team_index,
+            name="journals_editorial_team_index",
+        ),
+        path(
+            "journals/<int:journal_id>/editorial-team/",
+            editorial_team_index,
+            name="journals_editorial_team",
+        ),
+        path(
+            "journals/<int:journal_id>/profile/",
+            journal_profile,
+            name="journals_profile",
+        ),
+        path(
             "journals/issues/",
             publication_issue_admin,
             name="journals_publication_issue_admin",
+        ),
+        path(
+            "journals/issues/new/",
+            publication_issue_draft_admin,
+            name="journals_publication_issue_new",
+        ),
+        path(
+            "journals/issues/<int:issue_id>/edit/",
+            publication_issue_draft_admin,
+            name="journals_publication_issue_edit",
+        ),
+        path(
+            "journals/issues/articles/",
+            issue_article_admin,
+            name="journals_issue_article_admin",
+        ),
+        path(
+            "journals/issues/articles/<int:assignment_id>/edit/",
+            issue_article_admin,
+            name="journals_issue_article_edit",
         ),
         path("journals/categories/", category_admin, name="journals_category_admin"),
         path(
@@ -538,9 +644,19 @@ def register_admin_urls():
 
 
 @hooks.register("register_admin_menu_item")
+def register_editorial_team_menu_item():
+    return EditorialTeamMenuItem(
+        admin_text("journals.editorial_team"),
+        reverse("journals_editorial_team_index"),
+        icon_name="group",
+        order=209,
+    )
+
+
+@hooks.register("register_admin_menu_item")
 def register_publication_issue_menu_item():
     return PublicationIssueMenuItem(
-        "Publication issues",
+        admin_text("journals.publication_issues"),
         reverse("journals_publication_issue_admin"),
         icon_name="date",
         order=210,
@@ -550,7 +666,7 @@ def register_publication_issue_menu_item():
 @hooks.register("register_admin_menu_item")
 def register_category_menu_item():
     return JournalCategoryMenuItem(
-        "栏目管理",
+        admin_text("journals.categories"),
         reverse("journals_category_admin"),
         icon_name="folder-open-inverse",
         order=211,
@@ -560,7 +676,7 @@ def register_category_menu_item():
 @hooks.register("register_admin_menu_item")
 def register_category_audit_menu_item():
     return JournalCategoryAuditMenuItem(
-        "栏目变更记录",
+        admin_text("journals.category_audit"),
         reverse("journals_category_audit"),
         icon_name="history",
         order=212,
@@ -570,7 +686,7 @@ def register_category_audit_menu_item():
 @hooks.register("register_admin_menu_item")
 def register_import_menu_item():
     return JournalImportMenuItem(
-        "批量导入",
+        admin_text("journals.import"),
         reverse("journals_import_dashboard"),
         icon_name="upload",
         order=213,
@@ -580,3 +696,76 @@ def register_import_menu_item():
 @hooks.register("register_admin_viewset")
 def register_journals_viewset():
     return JournalsViewSet()
+
+
+@hooks.register("before_create_snippet")
+def protect_journal_creation(request, model):
+    if model is Journal and not is_super_admin(request.user):
+        raise PermissionDenied
+    if model is PublicationIssue and not is_super_admin(request.user):
+        scope = request.POST.get("scope")
+        journal_id = request.POST.get("journal")
+        journal = (
+            filter_accessible_journals(request.user, Journal.objects.all())
+            .filter(pk=journal_id)
+            .first()
+        )
+        if (
+            scope != PublicationIssueScope.JOURNAL
+            or journal is None
+            or not can_publish_issue(
+                request.user,
+                PublicationIssue(scope=scope, journal=journal),
+            )
+        ):
+            raise PermissionDenied("只有本刊主编辑或常务副编辑可以创建本刊期次草稿。")
+    if model is IssueArticle and not is_super_admin(request.user):
+        issue = (
+            PublicationIssue.objects.select_related("journal")
+            .filter(
+                pk=request.POST.get("issue"),
+                scope=PublicationIssueScope.JOURNAL,
+            )
+            .first()
+        )
+        if issue is None or not can_manage_journal(
+            request.user,
+            issue.journal,
+            "issue_management",
+        ):
+            raise PermissionDenied
+
+
+@hooks.register("before_edit_snippet")
+def protect_journal_sensitive_editor(request, instance):
+    if isinstance(instance, Journal) and not is_super_admin(request.user):
+        raise PermissionDenied
+    if isinstance(instance, PublicationIssue) and not is_super_admin(request.user):
+        if not can_publish_issue(request.user, instance):
+            raise PermissionDenied
+    if isinstance(instance, IssueArticle) and not is_super_admin(request.user):
+        if (
+            instance.issue.scope != PublicationIssueScope.JOURNAL
+            or not can_manage_journal(
+                request.user,
+                instance.issue.journal,
+                "issue_management",
+            )
+        ):
+            raise PermissionDenied
+
+
+@hooks.register("before_delete_snippet")
+def prevent_journal_hard_delete(request, instances):
+    if getattr(instances, "model", None) in {
+        Journal,
+        PublicationIssue,
+        IssueArticle,
+    }:
+        raise PermissionDenied("已进入业务链路的记录不得硬删除。")
+    objects = instances if isinstance(instances, (list, tuple)) else [instances]
+    if any(
+        isinstance(instance, (Journal, PublicationIssue, IssueArticle))
+        for instance in objects
+    ):
+        raise PermissionDenied("已进入业务链路的记录不得硬删除。")

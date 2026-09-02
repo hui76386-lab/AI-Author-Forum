@@ -16,6 +16,7 @@ from django.utils import timezone, translation
 from ai_author_forum.articles.display import resolve_article_image
 from ai_author_forum.articles.integrations import get_site_settings
 from ai_author_forum.articles.models import ArticlePage
+from ai_author_forum.site_settings.access_control import is_super_admin
 from ai_author_forum.site_settings.admin_views import PermissionedModuleViewSet
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
 from ai_author_forum.site_settings.permissions import get_admin_permission_context
@@ -53,7 +54,7 @@ def _has_model_permission(user, action):
 
 
 def _has_slot_model_permission(user, action):
-    return user.is_superuser or user.has_perm(f"placements.{action}_layoutslot")
+    return is_super_admin(user)
 
 
 def _slot_metadata(slot):
@@ -148,6 +149,9 @@ class HomepageCompositionViewSet(PermissionedModuleViewSet):
     menu_order = 229
     permission = "site_settings.access_placements"
     title = admin_text("placements.homepage")
+
+    def has_access(self, request) -> bool:
+        return is_super_admin(request.user)
 
     def index_view(self, request):
         if not self.has_access(request):
@@ -284,9 +288,13 @@ class HomepageCompositionViewSet(PermissionedModuleViewSet):
 
 
 class PlacementsViewSet(PermissionedModuleViewSet):
-    name = "placements"
+    """Legacy workbench retained only as a superuser compatibility fallback."""
+
+    name = "placements_legacy"
+    url_prefix = "placements/legacy"
+    add_to_admin_menu = False
     menu_label = admin_text("placements.manage")
-    menu_name = "placements"
+    menu_name = "placements_legacy"
     menu_icon = "pick"
     menu_order = 230
     permission = "site_settings.access_placements"
@@ -294,6 +302,9 @@ class PlacementsViewSet(PermissionedModuleViewSet):
     description = admin_text("placements.manage.description")
     owner = "D：placements 应用；A 提供菜单、权限边界和跨模块接入点。"
     integration_points = ("ArticlePlacement", "get_slot_items(slot_code, journal=None)")
+
+    def has_access(self, request) -> bool:
+        return is_super_admin(request.user)
 
     def _get_instance(self, request):
         placement_id = request.POST.get("placement_id") or request.GET.get("edit")
@@ -686,6 +697,9 @@ class SlotsViewSet(PermissionedModuleViewSet):
         "get_slot_items(slot_code, journal=None)",
     )
 
+    def has_access(self, request) -> bool:
+        return is_super_admin(request.user)
+
     def _normalise_target(self, scope, target_value):
         if target_value:
             try:
@@ -874,14 +888,14 @@ class SystemCategoryPlacementsViewSet(PermissionedModuleViewSet):
     title = admin_text("placements.system_categories")
     description = admin_text("placements.system_categories.description")
 
+    def has_access(self, request) -> bool:
+        return is_super_admin(request.user)
+
     def index_view(self, request):
         if not self.has_access(request):
             raise PermissionDenied
         if request.method == "POST":
-            if not (
-                request.user.is_superuser
-                or request.user.has_perm("placements.retry_categoryplacement_sync")
-            ):
+            if not is_super_admin(request.user):
                 raise PermissionDenied
             article_id = request.POST.get("article_id")
             article = get_object_or_404(ArticlePage, pk=article_id)
@@ -919,8 +933,7 @@ class SystemCategoryPlacementsViewSet(PermissionedModuleViewSet):
             {
                 "title": self.title,
                 "placements": placements,
-                "can_retry": request.user.is_superuser
-                or request.user.has_perm("placements.retry_categoryplacement_sync"),
+                "can_retry": is_super_admin(request.user),
             },
         )
 

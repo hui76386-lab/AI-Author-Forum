@@ -22,6 +22,7 @@ from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.standardpages.models import IndexPage, StandardPage
 from ai_author_forum.static_publish.models import StaticManifest, StaticPublishJob
 from ai_author_forum.static_publish.services import StaticPublisher
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 from ..models import CustomImage
 from ..references import (
@@ -384,8 +385,19 @@ class ImageReferenceProtectionTests(ImageTestMixin, TestCase):
         (root / "current").mkdir(parents=True)
         (root / "current" / "index.html").write_text("new", encoding="utf-8")
 
+        actor = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="image-rollback-admin",
+                email="image-rollback-admin@example.com",
+                display_name="Image Rollback Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
         StaticPublisher(self.publish.name).rollback(
-            old.version, reason="restore old image references"
+            old.version,
+            user=actor,
+            reason="restore old image references",
         )
 
         self.assert_delete_is_protected(image, exception=ImageReferenceProtectedError)

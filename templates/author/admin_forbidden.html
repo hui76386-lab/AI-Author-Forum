@@ -1,0 +1,28 @@
+{% load static i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% if LANGUAGE_CODE|slice:":2" == "zh" %}请前往作者工作台{% else %}Use the author workbench{% endif %} | AI Author Forum</title>
+  <link rel="stylesheet" href="{% static 'articles/css/author-workbench.css' %}">
+</head>
+<body class="author-shell account-shell">
+  <main class="author-main account-main">
+    <section class="author-auth-card" aria-labelledby="author-access-title">
+      <p class="author-eyebrow">AI Author Forum</p>
+      <h1 id="author-access-title">{% if LANGUAGE_CODE|slice:":2" == "zh" %}请前往作者工作台{% else %}Use the author workbench{% endif %}</h1>
+      <p class="author-muted">{% if LANGUAGE_CODE|slice:":2" == "zh" %}当前账号是作者账号。投稿管理和稿件编辑均在作者工作台完成，编辑与运营后台仅供获授权的编辑人员使用。{% else %}This is an author account. Manage and edit submissions in the author workbench; the editorial backend is restricted to authorized editorial staff.{% endif %}</p>
+      <div class="author-access-denied__actions">
+        <a class="author-button author-button--accent author-button--wide" href="{% url 'author:dashboard' %}">{% if LANGUAGE_CODE|slice:":2" == "zh" %}返回我的投稿{% else %}Go to my submissions{% endif %}</a>
+        <form method="post" action="{% url 'author:logout' %}">
+          {% csrf_token %}
+          <button class="author-button author-button--wide" type="submit">{% if LANGUAGE_CODE|slice:":2" == "zh" %}退出当前账号{% else %}Sign out{% endif %}</button>
+        </form>
+      </div>
+      <p class="author-muted account-scope-note">{% if LANGUAGE_CODE|slice:":2" == "zh" %}如需进入编辑后台，请退出后使用编辑或运营账号登录。{% else %}To use the editorial backend, sign out and use an editorial or operations account.{% endif %}</p>
+    </section>
+  </main>
+</body>
+</html>

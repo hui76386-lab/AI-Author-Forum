@@ -1,117 +1,202 @@
 {
-  "release_id": "20260731T235959Z-homepage-visual-placement",
-  "purpose": "Homepage article visual placement (approved scope only)",
-  "source_file_count": 26,
+  "deployment": "placements-workflow-v2",
+  "stamp": "20260802T143500Z-placements-workflow-v2",
+  "generated_at_utc": "2026-08-02T14:35:00Z",
+  "file_count": 38,
   "files": [
     {
+      "path": "ai_author_forum/placements/apps.py",
+      "bytes": 284,
+      "sha256": "6c7dbb3ebcd288b62a66a86f7f2e83ba87beb832cdcb84e91e60894bf8ab27a2"
+    },
+    {
       "path": "ai_author_forum/placements/defaults.py",
+      "bytes": 3301,
       "sha256": "066b5e84d5f1af2672a48fd89830b4c6c07f76ac78ea924485b4c28156fa467e"
     },
     {
       "path": "ai_author_forum/placements/forms.py",
+      "bytes": 17379,
       "sha256": "16d0e330877ca1b2a0a00d3c29e2df570c04d196b046463d68de2755e28be5f7"
     },
     {
       "path": "ai_author_forum/placements/models.py",
-      "sha256": "69562a9936597605ebe8e4b873e22916b6d9e0448bc908008c833817c134e0a3"
+      "bytes": 27560,
+      "sha256": "4b2c4d85a55988e59da9aaffc4314415ca2e8587d06cff5a6fb517bca9483f70"
     },
     {
       "path": "ai_author_forum/placements/services.py",
+      "bytes": 29244,
       "sha256": "f28387f192edbfd4201446d05c6e833e2e1aecea0117ef8ed8437525db5dde1f"
     },
     {
       "path": "ai_author_forum/placements/viewsets.py",
-      "sha256": "976d2022489aac854db795fbbe37c1c651f2d6f3be32ab21126388c842b3e07e"
+      "bytes": 38514,
+      "sha256": "79cca71e840ca46268283ac95083e7a76af039baf261ebce736c351d0f3c5f18"
     },
     {
       "path": "ai_author_forum/placements/wagtail_hooks.py",
-      "sha256": "a0cb5daa4d4f708055f24dee5f24a302d61a02a302d757847b4e1d28bc48a5a2"
+      "bytes": 515,
+      "sha256": "2898b0f13dc2a418fc8b22579eb0ffac11dba6f80bb7218220aa97fc9c7c06c6"
     },
     {
-      "path": "ai_author_forum/placements/migrations/0009_home_visual_stories_and_placement_alt.py",
-      "sha256": "16deb916318f7c7f7ceffc1ce3c92953774e472ea9d58937be472c8c9842861c"
+      "path": "ai_author_forum/placements/batch_operations.py",
+      "bytes": 24099,
+      "sha256": "5da92d1f1d06afb34236ef4ee9b1cf6537a097201ec453dae0f51033bf443f72"
+    },
+    {
+      "path": "ai_author_forum/placements/batch_services.py",
+      "bytes": 24052,
+      "sha256": "7757cad440f620532b248a807812412b6fc8315c9c12dd027484a11115f35743"
+    },
+    {
+      "path": "ai_author_forum/placements/publishing.py",
+      "bytes": 2522,
+      "sha256": "4ff350fd07d68850ba797396e2391c930adbcac3d06073d4778e74e5702ff728"
+    },
+    {
+      "path": "ai_author_forum/placements/selectors.py",
+      "bytes": 4262,
+      "sha256": "4bc3c6cc222d67b710b7426d5574e580563b66310bdba0b2abeca2e0e9302a9c"
+    },
+    {
+      "path": "ai_author_forum/placements/signals.py",
+      "bytes": 575,
+      "sha256": "da105ec3cea82e5214a8f7bcaa31def49ef12c476740526ab10511f3daf63f7b"
+    },
+    {
+      "path": "ai_author_forum/placements/workflow_viewset.py",
+      "bytes": 52312,
+      "sha256": "4a25bbd2a3f1f01daa4ba11b5269a2085774fd1f7a4993eb6626f595ba7bc475"
+    },
+    {
+      "path": "ai_author_forum/placements/migrations/0010_placement_workflow_v2.py",
+      "bytes": 13733,
+      "sha256": "c0b5dcc1a30f8a138cceb6a37cffbb46f76313bb2362d95877ef9a122f45e1df"
     },
     {
       "path": "ai_author_forum/placements/templates/placements/admin/dashboard.html",
-      "sha256": "c54467da6718d65c5c39d5fee7d144baeca7d21912c135c5a727dc43aa6b21ee"
+      "bytes": 43179,
+      "sha256": "53c2f7cdc7c63f2612ad130ce6c5061bf2028ab09a55af7af8ed7c7b13ea01bb"
     },
     {
       "path": "ai_author_forum/placements/templates/placements/admin/dashboard.en.html",
-      "sha256": "243430e6349e07438d405bf4aecf414e89fae049e7c6f1b922c99f077a06b78e"
+      "bytes": 43743,
+      "sha256": "1aecf203ee877cd1abce736ff7a29b1bdd89cba4fa543d67683afa8038d964d1"
     },
     {
-      "path": "ai_author_forum/static_publish/automatic.py",
-      "sha256": "3ce1a56c82967bd3bbefb000920c52947c528491ed5d119d79328fcacd67c92e"
-    },
-    {
-      "path": "ai_author_forum/static_publish/frontend.py",
-      "sha256": "bc4a0ee57f7bd0675f0eb34a1978f7d4adf0c2984d27c41d8757e3834b2683de"
-    },
-    {
-      "path": "ai_author_forum/static_publish/frontend_views.py",
-      "sha256": "9c2b569d78c8114306985c1ecc8b678efc639785bc21c8839ae347600eca0c8a"
-    },
-    {
-      "path": "ai_author_forum/static_publish/providers.py",
-      "sha256": "93617a60e12725030bae4dba3c5988ebc28187edbc55894b4c86ab817c08b635"
-    },
-    {
-      "path": "ai_author_forum/static_publish/readiness.py",
-      "sha256": "cc293cbe7b2ed8129418fee90d08b3588b82dfb6b4b64e64f514141081dc219e"
-    },
-    {
-      "path": "ai_author_forum/static_publish/services.py",
-      "sha256": "03f4d02b2926eabb79cf931e97cac89f2f4b8cbf1167eb9868869ec761e7b976"
-    },
-    {
-      "path": "ai_author_forum/static_publish/urls.py",
-      "sha256": "082d260b40d266c3fd61b34285aec123448119e732a15fada5190fc993e97ae8"
-    },
-    {
-      "path": "ai_author_forum/static_publish/views.py",
-      "sha256": "1b50e192e95388d15da449fd6e4e47df96d49727dd4e9042c3d79d7a41f08e00"
+      "path": "ai_author_forum/settings/base.py",
+      "bytes": 16524,
+      "sha256": "b27b407d0fc45357029401d3a02f3bd5d94a2366c0f56d72f846e6d38bc81ff5"
     },
     {
       "path": "ai_author_forum/site_settings/admin_navigation.py",
+      "bytes": 15210,
       "sha256": "eae7df58f986f55f79812576db522ef9b7e8eeac614ddc2b4502f972adf46f94"
     },
     {
-      "path": "ai_author_forum/urls.py",
-      "sha256": "4c0c4aa2e06a7a8bc756a92ed989072790144941e7a181f38eaa74f77ff14115"
+      "path": "ai_author_forum/static_publish/views.py",
+      "bytes": 16209,
+      "sha256": "1b50e192e95388d15da449fd6e4e47df96d49727dd4e9042c3d79d7a41f08e00"
     },
     {
-      "path": "ai_author_forum/utils/admin_i18n.py",
-      "sha256": "0fe556d797efe9bd01f60ed1b8dbb5e9962f3465a7c1c93fbf7578897d021ff3"
+      "path": "ai_author_forum/static_publish/urls.py",
+      "bytes": 656,
+      "sha256": "082d260b40d266c3fd61b34285aec123448119e732a15fada5190fc993e97ae8"
     },
     {
-      "path": "templates/pages/home_page.html",
-      "sha256": "2bc48cedbe4d6c1f70acdc93d65953e3dc0ff7399df5f269193219a0b936aac7"
+      "path": "templates/static_publish/job_detail.html",
+      "bytes": 6066,
+      "sha256": "95b88ba7a40b799b6166af7d9cf88575fc11b60f7246643dfbaf2c08fac95d07"
     },
     {
-      "path": "templates/components/static_article_hero.html",
-      "sha256": "57a80c0af3d28238e7f77d3c118b6879deea2a3663505f67b1a80e69402d4370"
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/article_selector.html",
+      "bytes": 2064,
+      "sha256": "c8ff6e00f23305c0ddacb66b1299c0f43a45d9ae78fdb48e91d5effb34e1d415"
     },
     {
-      "path": "templates/components/static_visual_story_card.html",
-      "sha256": "bbad081b19729fb63b94bcb74d921abfc34b06a68f009e1f6cd2e9e27899bb6e"
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/base.html",
+      "bytes": 2650,
+      "sha256": "86e76d34a1ed7cca85ceeaa4b677ed091502c34d25d51948c80ae22dbbda73fc"
     },
     {
-      "path": "templates/placements/admin/homepage_composition.html",
-      "sha256": "2d1efb9b9d2ce61fa9383d2b4205d66a3f224a5b100989580e1cee8ba6effa50"
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/batch_detail.html",
+      "bytes": 1688,
+      "sha256": "1d2ef195bf8e97c2937a4a5991b2c10803474a659b16707f1eea5e8d33672d58"
     },
     {
-      "path": "static_src/sass/reference.css",
-      "sha256": "2f54de8cab2cf96e0c3bf3eb37ace4d912f5ff93976915689e23d4922e0c2af9"
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/batches.html",
+      "bytes": 1141,
+      "sha256": "e385af1116436ee0634ed011c00a208dc2132ab49759d0ef1452f3dbefc49e52"
     },
     {
-      "path": "static_compiled/css/reference.css",
-      "sha256": "7c7c3b1e1616948f9c4b60765c768127265c57298666d5bf5e2b4079bc4edaa8"
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/bulk_action.html",
+      "bytes": 1983,
+      "sha256": "ef7d81047d59664eb3ddfad6809ea4443dc322d2f3f7f77acd8b557b338c7fb1"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/journal_overview.html",
+      "bytes": 891,
+      "sha256": "70882522c98dc83e766580f1a9bfffff2c00527db7c316c0a39266fcc691fe25"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/journal_selector.html",
+      "bytes": 2862,
+      "sha256": "d36ac72669d771f07dea78ad79488585d052e5d6bd31180b30c65a3c1f5bca86"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/journal_slot.html",
+      "bytes": 970,
+      "sha256": "6f812bcf565c3a44550f8c048cce51a6a9022424fa13a5ff1b507a4e148da0ed"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/overview.html",
+      "bytes": 1622,
+      "sha256": "691e7c09ad8d2fb316d2a6d5e47aac0c122b4c01e2361984e9d64526aa3d71b8"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/pagination.html",
+      "bytes": 710,
+      "sha256": "314f0592df887a8108b60d8b43fdef9f9ebd05d2fa2f97f9251487bedf823e73"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/placement_list.html",
+      "bytes": 5992,
+      "sha256": "a063e24c7415ed7ab6ecb4dfb1cc83f18e84be0364fa8dc3cff4e6b6e48e9e8b"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/result.html",
+      "bytes": 655,
+      "sha256": "79208e0a1b2694a37f16ff7633b8cd1f0dc9f6473a70a4f3f79cf126af649d1b"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/review.html",
+      "bytes": 1509,
+      "sha256": "f8d74b0dbf4bf76cadf9222221beb701f2050a8d087d7f676556cb7051fd8031"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/rules.html",
+      "bytes": 1713,
+      "sha256": "58e564aa874d94d25e0982349c11748f555ddc2a8ae4c613ff99199d964e28c5"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/slot_selector.html",
+      "bytes": 1080,
+      "sha256": "431d657cd48437a5294e762c2b186b34d251478294ef32d382d3f1c95ffc6f92"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/stepper.html",
+      "bytes": 675,
+      "sha256": "12e576e0a3bb9362b974dc0e15d482561145a25a0fc5bb4cbc73e171aa6d639a"
+    },
+    {
+      "path": "ai_author_forum/placements/templates/placements/admin/v2/target.html",
+      "bytes": 4386,
+      "sha256": "f187ebc4b206a3ba7cfdfa8f899ac3e311737a148e4435057feb3c8cd04b5a36"
     }
   ],
   "exclusions": [
-    ".env and all secrets",
-    ".git history",
-    "test databases and local temporary artifacts",
-    "unrelated dirty workspace files"
+    "No .env, credentials, databases, media, published static releases, logs, SQLite test files, or unrelated concurrent changes.",
+    "No static-publish provider/readiness/frontend changes unrelated to placement workflow V2 are included."
   ]
 }

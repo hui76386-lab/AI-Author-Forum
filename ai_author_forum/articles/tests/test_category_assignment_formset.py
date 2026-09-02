@@ -6,6 +6,7 @@ from wagtail.models import Page
 from ai_author_forum.articles.forms import ArticleCategoryAssignmentFormSet
 from ai_author_forum.articles.models import ArticleCategoryAssignment, ArticlePage
 from ai_author_forum.journals.models import Journal, JournalCategory
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 
 class ArticleCategoryAssignmentFormSetTests(TestCase):
@@ -15,6 +16,7 @@ class ArticleCategoryAssignmentFormSetTests(TestCase):
             email="category-formset@example.com",
             password="test",
         )
+        grant_business_super_admin(self.user)
         self.journal = Journal.objects.create(
             name="Formset Journal",
             slug="formset-journal",

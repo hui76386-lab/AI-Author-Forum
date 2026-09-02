@@ -2,12 +2,13 @@ from django.urls import include, path, reverse
 from wagtail import hooks
 from wagtail.admin.menu import MenuItem
 
+from ai_author_forum.site_settings.access_control import is_super_admin
 from ai_author_forum.utils.admin_i18n import admin_text
 
 
 class StaticPublishMenuItem(MenuItem):
     def is_shown(self, request):
-        return request.user.has_perm("static_publish.view_staticpublishjob")
+        return is_super_admin(request.user)
 
 
 @hooks.register("register_admin_urls")

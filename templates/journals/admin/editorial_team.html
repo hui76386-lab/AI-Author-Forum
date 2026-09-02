@@ -1,0 +1,177 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+
+{% block titletag %}{{ title }}{% endblock %}
+{% block extra_css %}
+  {{ block.super }}
+  <style>
+    .editor-team-page { max-width: 90rem; }
+    .journal-account-create { max-width: 64rem; margin-top: 2rem; padding: 1.5rem; border: 1px solid var(--w-color-border-furniture); border-radius: .35rem; }
+    .journal-account-create__heading h2, .journal-account-create__heading p { margin-top: 0; }
+    .journal-account-create__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.5rem; }
+    .journal-account-create__role, .journal-account-create__duties, .journal-account-create__actions { grid-column: 1 / -1; }
+    .journal-account-create__duties { padding: 1rem; background: var(--w-color-surface-field); border-left: 4px solid var(--w-color-primary); }
+    .journal-account-create__duties h3, .journal-account-create__duties p { margin-top: 0; }
+    .journal-account-create__duty-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem 1rem; margin: 0; padding: 0; list-style: none; }
+    .journal-account-create__duty-list label { display: flex; align-items: center; gap: .45rem; font-weight: 600; }
+    .journal-account-create__scope { color: var(--w-color-text-meta); }
+    .editor-team-next { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.5rem; padding: 1rem 1.25rem; border-left: 4px solid var(--w-color-primary); background: var(--w-color-surface-header); }
+    .editor-team-next h2, .editor-team-next p { margin: 0; }
+    .editor-team-next p { margin-top: .3rem; color: var(--w-color-text-meta); }
+    @media (max-width: 48rem) {
+      .journal-account-create { padding: 1rem; }
+      .journal-account-create__grid, .journal-account-create__duty-list { grid-template-columns: 1fr; }
+      .journal-account-create__role, .journal-account-create__duties, .journal-account-create__actions { grid-column: auto; }
+      .journal-account-create__actions .button { width: 100%; }
+      .editor-team-next { align-items: stretch; flex-direction: column; }
+      .editor-team-next .button { text-align: center; }
+    }
+  </style>
+{% endblock %}
+{% block content %}
+  {% include "wagtailadmin/shared/header.html" with title=title icon="group" %}
+  <div class="nice-padding editor-team-page">
+    <p><a href="{% url 'journals:workspace' journal.pk %}">返回本刊工作台</a></p>
+
+    <section class="editor-team-next" aria-labelledby="editor-team-next-title">
+      <div>
+        <h2 id="editor-team-next-title">第 2 步：任命一名主编辑</h2>
+        <p>新刊启用前必须有且仅有一名有效主编辑。任命完成后返回工作台，下一步会自动切换为“启用子期刊”。</p>
+      </div>
+      <a class="button button-primary" href="{% url 'journals:workspace' journal.pk %}">完成并继续</a>
+    </section>
+
+    {% if settings_form %}
+      <section>
+        <h2>展示设置</h2>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="settings">
+          {{ settings_form.as_p }}
+          <button class="button" type="submit">保存展示设置</button>
+        </form>
+      </section>
+    {% endif %}
+
+    <section>
+      <h2>当前任命</h2>
+      {% for row in rows %}
+        <div class="w-panel" style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid #d9d9d9;">
+          <h3>{{ row.assignment.get_role_display }}：{{ row.assignment.user.display_name }}（{{ row.assignment.user.email }}）</h3>
+          {% if row.profile_form %}
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="update">
+              <input type="hidden" name="assignment_id" value="{{ row.assignment.pk }}">
+              {{ row.profile_form.as_p }}
+              <button class="button" type="submit">保存公开资料</button>
+            </form>
+          {% else %}
+            <p>{{ row.assignment.public_role_label }}，{{ row.assignment.public_name }}，{{ row.assignment.public_affiliation }}</p>
+          {% endif %}
+          {% if row.replace_form %}
+            <details>
+              <summary>交接角色</summary>
+              <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="replace">
+                <input type="hidden" name="assignment_id" value="{{ row.assignment.pk }}">
+                {{ row.replace_form.as_p }}
+                <button class="button button-secondary" type="submit">确认交接</button>
+              </form>
+            </details>
+          {% endif %}
+          {% if row.end_form %}
+            <details>
+              <summary>结束任命</summary>
+              <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="end">
+                <input type="hidden" name="assignment_id" value="{{ row.assignment.pk }}">
+                {{ row.end_form.as_p }}
+                <button class="button no" type="submit">结束任命</button>
+              </form>
+            </details>
+          {% endif %}
+        </div>
+      {% empty %}
+        <p>当前没有有效任命。</p>
+      {% endfor %}
+    </section>
+
+    {% if create_account_form %}
+      <section class="journal-account-create" aria-labelledby="create-journal-account-title">
+        <div class="journal-account-create__heading">
+          <h2 id="create-journal-account-title">创建本刊角色账号</h2>
+          <p>账号将直接归属 <strong>{{ journal }}</strong>，首次登录必须修改初始密码。</p>
+        </div>
+        <form method="post" data-journal-account-form>
+          {% csrf_token %}
+          <input type="hidden" name="action" value="create-account">
+          {{ create_account_form.non_field_errors }}
+          <div class="journal-account-create__grid">
+            <div class="journal-account-create__role">
+              {% formattedfield create_account_form.role %}
+            </div>
+            <div>{% formattedfield create_account_form.username %}</div>
+            <div>{% formattedfield create_account_form.temporary_password %}</div>
+            <div>{% formattedfield create_account_form.email %}</div>
+            <div>{% formattedfield create_account_form.display_name %}</div>
+            <div>{% formattedfield create_account_form.institution %}</div>
+            <div class="journal-account-create__duties">
+              <h3>锁定职责</h3>
+              <p data-role-summary aria-live="polite">主编辑：本刊全部日常维护职责，并按角色边界执行初审、终审和首次投放。</p>
+              <ul class="journal-account-create__duty-list">
+                {% for value, label in locked_responsibilities %}
+                  <li><label><input type="checkbox" checked disabled value="{{ value }}"> {{ label }}</label></li>
+                {% endfor %}
+              </ul>
+              <p class="journal-account-create__scope">职责由所选角色预设，创建时不可手动扩大或缩小；职责不改变角色的审核级别。</p>
+            </div>
+            <div class="journal-account-create__actions">
+              <button class="button button-primary" type="submit">创建账号并加入本刊</button>
+            </div>
+          </div>
+        </form>
+      </section>
+    {% endif %}
+
+    {% if appoint_form %}
+      <section class="w-mt-8">
+        <h2>任命已有账号</h2>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="appoint">
+          {{ appoint_form.as_p }}
+          <button class="button" type="submit">创建已有账号任命</button>
+        </form>
+      </section>
+    {% endif %}
+  </div>
+{% endblock %}
+{% block extra_js %}
+  {{ block.super }}
+  <script>
+    (() => {
+      const initializeRoleSummary = () => {
+        const form = document.querySelector('[data-journal-account-form]');
+        const role = form?.querySelector('[name="create-account-role"]');
+        const summary = form?.querySelector('[data-role-summary]');
+        if (!role || !summary) return;
+        const summaries = {
+          chief_editor: '主编辑：本刊全部日常维护职责，并按角色边界执行初审、终审和首次投放。',
+          executive_editor: '常务副编辑：本刊全部日常维护职责，并按角色边界统筹和执行初审。',
+          associate_editor: '副编辑：预设本刊五项日常维护职责并执行初审，但不能终审或首次投放。'
+        };
+        const renderSummary = () => { summary.textContent = summaries[role.value] || ''; };
+        role.addEventListener('change', renderSummary);
+        renderSummary();
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeRoleSummary, { once: true });
+      } else {
+        initializeRoleSummary();
+      }
+    })();
+  </script>
+{% endblock %}

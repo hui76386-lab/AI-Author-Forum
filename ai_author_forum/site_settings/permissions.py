@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ai_author_forum.journals.models import JournalEditorAssignment
+from ai_author_forum.site_settings.access_control import (
+    is_super_admin,
+)
+
 
 @dataclass(frozen=True)
 class PermissionRule:
@@ -13,37 +18,30 @@ class PermissionRule:
 
 ADMIN_ACCESS_PERMISSION = "wagtailadmin.access_admin"
 
-# These groups are the project-level administrators defined by the business
-# permission baseline. They intentionally receive the same application-level
-# bypass as Django superusers, while remaining ordinary Wagtail users so their
-# membership and actions stay visible in the audit trail.
-GLOBAL_ADMIN_GROUP_NAMES = frozenset({"项目总负责人", "超级管理员"})
+GLOBAL_ADMIN_GROUP_NAMES = frozenset({"超级管理员"})
 
 
 def is_global_admin(user) -> bool:
     """Return whether ``user`` has project-wide administrator privileges.
 
-    The project roles are represented by Wagtail/Django groups, not only by
-    ``User.is_superuser``. Any code that implements a project-level permission
-    bypass must use this helper so the role definition behaves consistently.
+    This compatibility entry point delegates to the sole platform business role.
+    Django ``is_superuser`` remains a recovery mechanism and is not an ordinary
+    business authorization bypass.
     """
 
     if not user or not getattr(user, "is_authenticated", False):
         return False
     if not getattr(user, "is_active", False):
         return False
-    if getattr(user, "is_superuser", False):
-        return True
-
-    cached = getattr(user, "_is_global_admin", None)
+    cached = getattr(user, "_is_super_admin", None)
     if cached is not None:
         return cached
 
     groups = getattr(user, "groups", None)
     if groups is None:
         return False
-    result = groups.filter(name__in=GLOBAL_ADMIN_GROUP_NAMES).exists()
-    user._is_global_admin = result
+    result = groups.filter(name="超级管理员").exists()
+    user._is_super_admin = result
     return result
 
 
@@ -224,11 +222,81 @@ def evaluate_permission_rule(user, rule: PermissionRule) -> bool:
 
 def get_admin_permission_context(user) -> dict[str, bool]:
     """Return the canonical fine-grained admin permission flags for ``user``."""
+    if is_super_admin(user):
+        flags = {name: True for name in PERMISSION_RULES}
+        flags.update(
+            {
+                "can_add_placement": True,
+                "can_republish_placement": True,
+                "can_manage_journal_profile": True,
+                "can_manage_journal_categories": True,
+                "can_manage_issues": True,
+                "can_manage_media_assets": True,
+                "can_manage_editorial_team": True,
+            }
+        )
+    else:
+        assignments = JournalEditorAssignment.objects.effective().filter(user=user)
+        has_assignment = assignments.exists()
+        article_maintenance = assignments.filter(
+            role__in=(
+                JournalEditorAssignment.Role.CHIEF_EDITOR,
+                JournalEditorAssignment.Role.EXECUTIVE_EDITOR,
+            )
+        ).exists() or any(
+            JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE
+            in (responsibilities or [])
+            for responsibilities in assignments.values_list(
+                "responsibilities", flat=True
+            )
+        )
+        add_placement = assignments.filter(
+            role=JournalEditorAssignment.Role.CHIEF_EDITOR
+        ).exists()
+        placement = article_maintenance
 
-    flags = {
-        name: evaluate_permission_rule(user, rule)
-        for name, rule in PERMISSION_RULES.items()
-    }
+        def has_responsibility(code):
+            return any(
+                code in (responsibilities or [])
+                for responsibilities in assignments.values_list(
+                    "responsibilities", flat=True
+                )
+            )
+
+        journal_profile = has_responsibility(
+            JournalEditorAssignment.Responsibility.JOURNAL_PROFILE
+        )
+        column_navigation = has_responsibility(
+            JournalEditorAssignment.Responsibility.COLUMN_NAVIGATION
+        )
+        issue_management = has_responsibility(
+            JournalEditorAssignment.Responsibility.ISSUE_MANAGEMENT
+        )
+        media_assets = has_responsibility(
+            JournalEditorAssignment.Responsibility.MEDIA_ASSETS
+        )
+        flags = {name: False for name in PERMISSION_RULES}
+        flags.update(
+            {
+                "can_edit_article": article_maintenance,
+                "can_import_articles": article_maintenance,
+                "can_review_article": has_assignment,
+                "can_manage_placement": placement,
+                "can_add_placement": add_placement,
+                "can_republish_placement": placement,
+                "can_view_articles": has_assignment,
+                "can_view_article_review": has_assignment,
+                "can_view_journals": has_assignment,
+                "can_view_journal_categories": column_navigation,
+                "can_view_placements": placement,
+                "can_view_audit_log": has_assignment,
+                "can_manage_journal_profile": journal_profile,
+                "can_manage_journal_categories": column_navigation,
+                "can_manage_issues": issue_management,
+                "can_manage_media_assets": media_assets,
+                "can_manage_editorial_team": has_assignment,
+            }
+        )
     flags["has_write_capability"] = any(flags[name] for name in WRITE_PERMISSION_FLAGS)
     flags["has_dashboard_access"] = flags["has_write_capability"] or any(
         flags[name] for name in READ_PERMISSION_FLAGS

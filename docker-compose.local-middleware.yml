@@ -9,8 +9,10 @@ services:
       POSTGRES_DB: ai_author_forum
       POSTGRES_USER: ai_author_forum
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      INTERACTIONS_POSTGRES_DB: ${INTERACTIONS_POSTGRES_DB:-ai_author_forum_interactions}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./docker/init-interactions-db.sh:/docker-entrypoint-initdb.d/20-interactions-db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ai_author_forum -d ai_author_forum"]
       interval: 10s
@@ -36,7 +38,33 @@ services:
       redis:
         condition: service_healthy
 
+  release:
+    depends_on:
+      database:
+        condition: service_healthy
+
   worker:
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  reader-email-worker:
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  reader-comments-worker:
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  reader-pdf-worker:
     depends_on:
       database:
         condition: service_healthy

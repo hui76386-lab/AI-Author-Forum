@@ -23,6 +23,7 @@ from ai_author_forum.journals.models import (
     StaticArticle,
 )
 from ai_author_forum.site_settings.models import AuditLog
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 SOURCE = (
     "journal_slug,title,slug,article_type,authors,body_html\n"
@@ -47,6 +48,7 @@ class ArticleImportCommandTests(TestCase):
             email="command@example.com",
             password="test",
         )
+        grant_business_super_admin(self.user)
         self.journal = Journal.objects.create(
             name="Command Journal",
             slug="command-journal",

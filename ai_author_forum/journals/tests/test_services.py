@@ -1,6 +1,7 @@
 from io import BytesIO
 from zipfile import ZipFile
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from openpyxl import Workbook
@@ -15,6 +16,10 @@ from ai_author_forum.journals.services import (
 )
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.site_settings.models import AuditAction, AuditLog, AuditStatus
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class ImportServiceTests(TestCase):
@@ -70,12 +75,14 @@ class ImportServiceTests(TestCase):
         self.assertEqual(canonical.review_status, ArticlePage.ReviewStatus.DRAFT)
         self.assertFalse(canonical.live)
         self.assertFalse(ArticlePlacement.objects.filter(article=canonical).exists())
-        revision = canonical.get_latest_revision()
-        revision.publish(user=None, skip_permission_checks=True)
-        ArticlePage.objects.filter(pk=canonical.pk).update(
-            review_status=ArticlePage.ReviewStatus.APPROVED
+        actor = grant_business_super_admin(
+            get_user_model().objects.create_superuser(
+                username="import-service-admin",
+                email="import-service-admin@example.com",
+                password="test",
+            )
         )
-        canonical.refresh_from_db()
+        formally_approve_test_article(canonical, actor=actor)
         self.assertEqual(list(get_active_journals()), [article.journal])
         context = get_journal_context("ai-ethics-forum")
         self.assertEqual(context["journal"], article.journal)

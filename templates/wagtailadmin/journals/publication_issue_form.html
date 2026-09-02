@@ -1,0 +1,15 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title icon="date" %}
+<div class="nice-padding">
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="w-space-y-5">{% for field in form %}{% formattedfield field %}{% endfor %}</div>
+    {% if form.non_field_errors %}<div class="messages error">{{ form.non_field_errors }}</div>{% endif %}
+    <button class="button button-primary" type="submit">保存草稿</button>
+    <a class="button button-secondary" href="{% url 'journals_publication_issue_admin' %}">取消</a>
+  </form>
+</div>
+{% endblock %}

@@ -12,6 +12,9 @@ ignore = ["E501"]
 "scripts/generate_import_approve_place_1200_articles.py" = ["E402"]
 "test-data/article-import-10-per-format-20260730/validate_fixtures.py" = ["E402"]
 
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
 [tool.black]
 target-version = ["py312"]
 line-length = 88
@@ -20,6 +23,7 @@ line-length = 88
 profile = "black"
 line_length = 88
 known_first_party = ["ai_author_forum"]
+combine_as_imports = true
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "ai_author_forum.settings.dev"

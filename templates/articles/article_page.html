@@ -7,7 +7,7 @@
 {% endblock %}
 {% block content %}
 {% article_image article as visual %}
-<article class="u-container c-article-page">
+<article class="u-container c-article-page" data-article-id="{{ article.public_id }}">
   <aside class="c-article-tools" aria-label="{% ui_text 'article' 'Article' %}">
     <a href="#full-text">{% ui_text 'full_text' 'Full text' %}</a>
     <a href="{% localize_url '/search/' %}?author={{ authors_text|urlencode }}">{% ui_text 'author_search' 'Author search' %}</a>
@@ -15,7 +15,6 @@
     <a href="{{ '/search/'|localized_url }}">{% ui_text 'reprints_permissions' 'Reprints and permissions' %}</a>
   </aside>
   <div class="c-article-body" id="full-text">
-    <span class="c-article-type">{{ article_type_label }}</span>
     {% if article.first_published_at %}<time datetime="{{ article.first_published_at|date:'c' }}">{{ article.first_published_at|date:'Y-m-d' }}</time>{% endif %}
     <h1>{{ article_display_title|default:article.title }}</h1>
     <p class="c-standfirst">{{ article_display_abstract|default:article.abstract }}</p>
@@ -43,10 +42,48 @@
         {% include_block block %}
       {% endif %}
     {% empty %}<p class="c-empty-state">{% ui_text 'no_article_body' 'No article body has been added yet.' %}</p>{% endfor %}
-    {% if ai.has_contribution %}<section><h2>{% ui_text 'ai_authorship_declaration' 'AI authorship declaration' %}</h2>{% if ai.contribution_statement %}<p>{{ ai.contribution_statement|linebreaksbr }}</p>{% endif %}{% if ai.responsibility_statement %}<p>{{ ai.responsibility_statement|linebreaksbr }}</p>{% endif %}</section>{% endif %}
+    {% if contributors %}<section class="c-article-contributors" aria-labelledby="author-information-heading"><h2 id="author-information-heading">{% ui_text 'author_information' 'Author information' %}</h2><dl>{% for contributor in contributors %}<div><dt>{{ contributor|localized_article_contributor_identity }}</dt><dd><strong>{{ contributor.name }}</strong>{% if contributor.affiliation %}<span>{{ contributor.affiliation }}</span>{% endif %}{% if contributor.is_corresponding %}<small>{% ui_text 'corresponding_author' 'Corresponding author' %}</small>{% endif %}</dd></div>{% endfor %}</dl></section>{% endif %}
+    {% if ai.has_contribution %}<section><h2>{% ui_text 'ai_authorship_declaration' 'AI authorship declaration' %}</h2>{% if ai.contribution_statement %}<p>{{ ai.contribution_statement|linebreaksbr }}</p>{% endif %}</section>{% endif %}
+    {% if author_declaration %}<section class="c-author-declaration"><h2>{% ui_text 'author_declaration' 'Author declaration' %}</h2><p>{{ author_declaration|linebreaksbr }}</p></section>{% endif %}
+    {% include "components/editorial_team.html" %}
     <section><h2>{% ui_text 'methods_responsibility' 'Methods and responsibility' %}</h2><p>{% ui_text 'methods_responsibility_text' 'This article page records human responsibility, AI contribution, editorial verification and reader-facing context within the shared publishing workflow.' %}</p></section>
     {% if keywords %}<section class="c-related"><h2>{% ui_text 'related_articles' 'Related Articles' %}</h2>{% for keyword in keywords %}<a href="{% localize_url '/search/' %}?q={{ keyword|urlencode }}"><span>{{ keyword }}</span>{% ui_text 'explore_related' 'Explore related AI authorship recommendations' %}</a>{% endfor %}</section>{% endif %}
   </div>
   <aside class="c-right-rail"><section><h2>{% ui_text 'subjects' 'Subjects' %}</h2>{% if primary_category %}<a href="{{ primary_category.get_absolute_url|localized_url }}">{{ primary_category|localized_category_name }}</a>{% endif %}{% for category in related_categories %}<a href="{{ category.get_absolute_url|localized_url }}">{{ category|localized_category_name }}</a>{% endfor %}{% for keyword in keywords %}<a href="{% localize_url '/search/' %}?q={{ keyword|urlencode }}">{{ keyword }}</a>{% endfor %}</section><section><h2>{% ui_text 'latest_on' 'Latest on:' %}</h2>{% for journal in related_journals %}<a href="{{ '/journals/'|add:journal.slug|add:'/'|localized_url }}">{{ journal|localized_journal_name }}</a>{% empty %}<a href="{{ '/journals/'|localized_url }}">{% ui_text 'view_all_journals' 'View all journals' %}</a>{% endfor %}</section></aside>
+  <section id="reader-interactions" class="c-reader-interactions" data-reader-interactions data-article-id="{{ article.public_id }}" data-release="{{ static_release_version|default:'' }}" data-locale="{{ CURRENT_LANGUAGE_CODE|default:'en' }}" aria-labelledby="reader-interactions-heading">
+    <div class="c-reader-interactions__actions" role="group" aria-label="{% ui_text 'article_actions' 'Article actions' %}">
+      <button type="button" data-reader-share disabled>{% ui_text 'share' 'Share' %}</button>
+      <button type="button" data-reader-copy disabled>{% ui_text 'copy_link' 'Copy link' %}</button>
+      <button type="button" data-reader-download disabled>{% ui_text 'download_pdf' 'Download PDF' %}</button>
+    </div>
+    <form class="c-reader-interactions__verification" data-reader-verification role="dialog" aria-modal="true" aria-labelledby="reader-verification-heading" hidden>
+      <div class="c-reader-interactions__verification-header">
+        <h3 id="reader-verification-heading">{% ui_text 'email_verification' 'Email verification' %}</h3>
+        <button type="button" class="c-reader-interactions__verification-close" data-reader-verification-close data-reader-verification-cancel aria-label="{% ui_text 'cancel' 'Cancel' %}">&times;</button>
+      </div>
+      <label for="reader-verification-email">{% ui_text 'email' 'Email' %}</label>
+      <input id="reader-verification-email" type="email" autocomplete="email" required data-reader-verification-email>
+      <div class="c-reader-interactions__verification-actions">
+        <button type="submit" data-reader-verification-submit>{% ui_text 'send_verification_link' 'Send verification link' %}</button>
+        <button type="button" data-reader-verification-cancel>{% ui_text 'cancel' 'Cancel' %}</button>
+      </div>
+      <div class="c-reader-interactions__pairing" data-reader-verification-pairing hidden>
+        <p>{% ui_text 'waiting_for_email_link' 'Open the verification email to unlock this computer automatically.' %}</p>
+        <p data-reader-verification-countdown aria-live="polite"></p>
+        <p data-reader-verification-waiting aria-live="polite">{% ui_text 'waiting_for_phone' 'Waiting for confirmation on another device.' %}</p>
+        <div class="c-reader-interactions__verification-actions">
+          <button type="button" data-reader-verification-resend>{% ui_text 'resend_verification' 'Resend' %}</button>
+          <button type="button" data-reader-verification-cancel-flow>{% ui_text 'cancel_verification' 'Cancel verification' %}</button>
+        </div>
+      </div>
+    </form>
+    <p class="c-reader-interactions__status" data-reader-actions-status role="status" aria-live="polite"></p>
+    <input class="c-reader-interactions__url" type="url" readonly hidden aria-label="{% ui_text 'article_url' 'Article URL' %}" data-reader-share-url>
+    <div class="c-reader-comments" data-reader-comments>
+      <h2 id="reader-interactions-heading">{% ui_text 'comments' 'Comments' %}</h2>
+      <p class="c-reader-comments__status" data-reader-interactions-status role="status" aria-live="polite"></p>
+      <div data-reader-interactions-root></div>
+    </div>
+  </section>
 </article>
 {% endblock %}

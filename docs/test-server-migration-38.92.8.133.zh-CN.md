@@ -548,7 +548,7 @@ DNS 生效前可用本机 hosts 文件定向测试域名，或临时使用 IP。
 
 ### 10.2 宿主机 Nginx 防护
 
-建议测试站同时启用 Basic Auth 或办公 IP 白名单，并始终添加搜索引擎禁止头：
+测试站的公开阅读和 reader-api 路径不应被 Basic Auth 阻挡，否则移动端读者无法完成评论邮箱验证。Basic Auth 只保护 CMS 控制面，并始终添加搜索引擎禁止头：
 
 ```nginx
 server {
@@ -571,10 +571,18 @@ server {
 
     add_header X-Robots-Tag "noindex, nofollow, noarchive" always;
 
-    auth_basic "AI Author Forum Test";
-    auth_basic_user_file /etc/nginx/.htpasswd-ai-author-forum-test;
-
     client_max_body_size 256m;
+
+    location ~ ^/(admin|django-admin|documents|i18n|author|account)(/|$) {
+        auth_basic "AI Author Forum Test";
+        auth_basic_user_file /etc/nginx/.htpasswd-ai-author-forum-test;
+        proxy_pass http://127.0.0.1:18080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:18080;

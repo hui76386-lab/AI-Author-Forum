@@ -631,6 +631,15 @@
     font-size: 0.82rem;
     font-weight: 650;
 }
+.article-admin-page .article-row-action--primary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.35rem;
+    background: var(--aaf-admin-accent);
+    color: #fff;
+}
 
 .article-admin-page .article-bulk-bar {
     border-color: var(--aaf-admin-line-strong);

@@ -53,6 +53,7 @@ from .document_importers import (
     convert_article_document,
 )
 from .import_permissions import (
+    can_import_article_scope,
     can_import_articles,
     can_override_suspicious_article_text,
     can_view_article_import_job,
@@ -1348,6 +1349,17 @@ def create_article_import_preview_job(
     if not can_import_articles(operator):
         raise PermissionDenied
     _validate_article_import_context(context)
+    target_journal = (
+        Journal.objects.filter(pk=context.target_journal_id).first()
+        if context.target_journal_id
+        else None
+    )
+    if not can_import_article_scope(
+        operator,
+        scope=context.scope,
+        journal=target_journal,
+    ):
+        raise PermissionDenied("无权在该范围创建文章导入任务。")
     data, name = _read_source(source_file)
     suffix = Path(name).suffix.lower()
     if suffix not in {".xlsx", ".csv", ".zip", ".docx", ".md", ".markdown"}:
@@ -1902,7 +1914,17 @@ def confirm_article_import(
             "强制处理可疑文本必须填写至少 8 个字符的理由。"
         )
     with transaction.atomic():
-        job = ArticleImportJob.objects.select_for_update().get(pk=preview_job.pk)
+        job = (
+            ArticleImportJob.objects.select_for_update(of=("self",))
+            .select_related("target_journal")
+            .get(pk=preview_job.pk)
+        )
+        if not can_import_article_scope(
+            operator,
+            scope=job.import_scope,
+            journal=job.target_journal,
+        ):
+            raise PermissionDenied("当前操作人已无该子期刊的文章导入权限。")
         if job.status != ImportJobStatus.READY or job.confirmed_at:
             raise ArticleImportValidationError(
                 "任务不是可确认状态，或已被确认。",

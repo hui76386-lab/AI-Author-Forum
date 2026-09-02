@@ -133,11 +133,6 @@ class Command(BaseCommand):
             "article_type": CanonicalArticlePage.ArticleType.NEWS,
             "primary_journal": journal,
             "keywords": self.get_keywords(legacy_article),
-            "review_status": (
-                CanonicalArticlePage.ReviewStatus.APPROVED
-                if legacy_article.live
-                else CanonicalArticlePage.ReviewStatus.DRAFT
-            ),
         }
 
         if was_created:
@@ -148,12 +143,17 @@ class Command(BaseCommand):
                 setattr(canonical, field, value)
             canonical.save(clean=False, bypass_article_permission_check=True)
 
-        revision = canonical.save_revision(
+        canonical.live = False
+        canonical.has_unpublished_changes = True
+        canonical.save(
+            clean=False,
+            bypass_article_permission_check=True,
+            update_fields=("live", "has_unpublished_changes"),
+        )
+        canonical.save_revision(
             changed=True,
             bypass_article_permission_check=True,
         )
-        if legacy_article.live and not canonical.live:
-            revision.publish(changed=True, skip_permission_checks=True)
         return canonical, was_created
 
     def get_abstract(self, legacy_article):

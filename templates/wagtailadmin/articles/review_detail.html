@@ -17,12 +17,19 @@
                 <div class="button-group">
                     <a class="button button-secondary" href="{{ preview_url }}" target="_blank" rel="noreferrer">打开预览</a>
                     {% if can_edit_article %}<a class="button button-secondary" href="{{ edit_url }}">编辑页面</a>{% endif %}
+                    {% if can_manage_authorships %}<a class="button button-secondary" href="{{ authorships_url }}">投稿关系</a>{% endif %}
+                    {% if can_manage_authorships and article.has_ever_been_submitted and article.review_status != 'approved' and article.review_status != 'published' %}<a class="button button-secondary" href="{{ transfer_url }}">受控转投</a>{% endif %}
                 </div>
             </div>
 
             <div class="article-review-next-step">
-                <strong>流程提示：</strong>审核通过后进入投放管理，不代表前台发布。只有完成版位投放并执行静态发布后，文章才会进入对应静态页面。
-                <a href="{{ placements_url }}">进入投放管理</a>
+                {% if placement_url %}
+                    <strong>审核已完成：</strong>文章可以进入投放管理，选择版位后再执行静态发布。
+                    <a class="button button-primary" href="{{ placement_url }}">投放文章</a>
+                {% else %}
+                    <strong>流程提示：</strong>审核通过后进入投放管理，不代表前台发布。只有完成版位投放并执行静态发布后，文章才会进入对应静态页面。
+                    <a href="{{ placements_url }}">进入投放管理</a>
+                {% endif %}
             </div>
 
             <dl class="article-review-versions">
@@ -41,6 +48,8 @@
                     <form method="post" action="{{ submit_review_url }}">
                         {% csrf_token %}
                         <input type="hidden" name="expected_revision_id" value="{{ expected_revision_id }}">
+                        <input type="hidden" name="expected_state" value="{{ article.review_status }}">
+                        <input type="hidden" name="request_id" value="{{ request_id }}">
                         <input type="hidden" name="next" value="{{ request.get_full_path }}">
                         <p>当前文章仍是草稿。请先提交审核，提交后会出现在“待审核文章”列表。</p>
                         <label for="submit-review-comment">提交说明</label>
@@ -49,20 +58,63 @@
                             <button class="button" type="submit">提交审核</button>
                         </div>
                     </form>
-                {% elif can_execute_review %}
+                {% else %}
+                    {% if can_claim_review %}
+                        <form method="post" action="{{ claim_review_url }}">
+                            {% csrf_token %}
+                            <input type="hidden" name="expected_revision_id" value="{{ expected_revision_id }}">
+                            <input type="hidden" name="expected_state" value="{{ article.review_status }}">
+                            <input type="hidden" name="request_id" value="{{ request_id }}">
+                            <button class="button button-primary" type="submit">认领初审</button>
+                        </form>
+                    {% endif %}
+                    {% if can_reassign_review %}
+                        <form method="post" action="{{ reassign_review_url }}">
+                            {% csrf_token %}
+                            <input type="hidden" name="expected_revision_id" value="{{ expected_revision_id }}">
+                            <input type="hidden" name="expected_state" value="{{ article.review_status }}">
+                            <input type="hidden" name="request_id" value="{{ request_id }}">
+                            <label for="new-editor">初审编辑</label>
+                            <select id="new-editor" name="new_editor_id" required>
+                                {% for assignment in initial_editor_choices %}<option value="{{ assignment.user_id }}">{{ assignment.public_name }} / {{ assignment.get_role_display }}</option>{% endfor %}
+                            </select>
+                            <label for="reassign-reason">改派原因</label>
+                            <textarea id="reassign-reason" name="reason" rows="3" required></textarea>
+                            <button class="button button-secondary" type="submit">改派初审</button>
+                        </form>
+                    {% endif %}
+                    {% if can_reopen_review %}
+                        <form method="post" action="{{ reopen_review_url }}">
+                            {% csrf_token %}
+                            <input type="hidden" name="expected_revision_id" value="{{ expected_revision_id }}">
+                            <input type="hidden" name="expected_state" value="{{ article.review_status }}">
+                            <input type="hidden" name="request_id" value="{{ request_id }}">
+                            <label for="reopen-reason">重新开启原因</label>
+                            <textarea id="reopen-reason" name="reason" rows="3" required></textarea>
+                            <button class="button button-secondary" type="submit">重新开启</button>
+                        </form>
+                    {% endif %}
+                {% if can_execute_review %}
                     <form method="post" data-article-review-form>
                         {% csrf_token %}
                         <input type="hidden" name="expected_revision_id" value="{{ expected_revision_id }}">
-                        <label for="review-comment">审核意见</label>
-                        <p class="help">批准意见可选但建议填写；驳回意见必填。</p>
-                        <textarea id="review-comment" name="comment" rows="6" placeholder="请说明审核依据或需要修改的内容"></textarea>
+                        <input type="hidden" name="expected_state" value="{{ article.review_status }}">
+                        <input type="hidden" name="request_id" value="{{ request_id }}">
+                        <label for="review-comment">内部审核意见</label>
+                        <p class="help">仅编辑人员可见；退回和拒绝时必填，不会自动披露给作者。</p>
+                        <textarea id="review-comment" name="comment" rows="5" placeholder="请记录内部审核依据"></textarea>
+                        <label for="author-visible-comment">作者可见意见</label>
+                        <p class="help">退回和拒绝时必填。这里只填写可以向作者公开的修改要求或结论原因。</p>
+                        <textarea id="author-visible-comment" name="author_visible_comment" rows="5" placeholder="请填写作者可见原因"></textarea>
                         <div class="article-review-actions">
-                            <button class="button" type="submit" name="action" value="approve" data-review-action>通过</button>
-                            <button class="button button-secondary no" type="submit" name="action" value="reject" data-review-action>驳回</button>
+                            <button class="button" type="submit" name="action" value="approve" data-review-action>{% if review_stage == 'final' %}终审通过{% else %}初审通过{% endif %}</button>
+                            <button class="button button-secondary" type="submit" name="action" value="return" data-review-action>退回修改</button>
+                            <button class="button button-secondary no" type="submit" name="action" value="reject" data-review-action>拒绝</button>
                         </div>
                     </form>
-                {% else %}
+                {% elif not can_claim_review and not can_reassign_review and not can_reopen_review %}
                     <p>当前用户不能执行此文章的审核操作，或文章已不处于可审核状态。</p>
+                {% endif %}
                 {% endif %}
             </section>
 

@@ -1,12 +1,20 @@
 import difflib
 import json
+from dataclasses import replace
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import OperationalError, ProgrammingError, transaction
-from django.http import Http404, JsonResponse
+from django.http import (
+    Http404,
+    HttpResponse,
+    HttpResponseBadRequest,
+    HttpResponseForbidden,
+    JsonResponse,
+)
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone, translation
@@ -17,6 +25,16 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.generic import TemplateView
 from wagtail.models import Page
 
+from ai_author_forum.journals.models import JournalEditorAssignment
+from ai_author_forum.site_settings.access_control import (
+    can_final_review,
+    can_initial_review,
+    can_manage_article,
+    filter_accessible_articles,
+    filter_accessible_journals,
+    get_journal_editor_assignment,
+    is_super_admin,
+)
 from ai_author_forum.site_settings.permissions import get_admin_permission_context
 from ai_author_forum.utils.admin_ui import admin_english
 
@@ -38,7 +56,17 @@ from .models import (
     ArticlePage,
     ArticleRevisionConflict,
     user_has_article_edit_permission,
+    user_has_article_placement_permission,
     user_has_article_review_permission,
+)
+from .review_services import (
+    ArticleStateConflict,
+    claim_initial_review,
+    final_review_article,
+    initial_review_article,
+    reassign_initial_review,
+    reopen_rejected_article,
+    submit_article_for_initial_review,
 )
 
 ARTICLE_DIFF_GROUPS = (
@@ -65,11 +93,11 @@ ARTICLE_DIFF_GROUPS = (
     ),
     (
         "responsibility",
-        "责任声明",
+        "作者声明",
         [
             ("ai_co_authors", "AI 合著人"),
             ("ai_contribution_statement", "AI 参与说明"),
-            ("responsibility_statement", "责任说明"),
+            ("responsibility_statement", "作者声明"),
         ],
     ),
     (
@@ -217,7 +245,10 @@ class ArticleListView(TemplateView):
         return f"{create_url}?{urlencode({'next': self.request.get_full_path()})}"
 
     def get_queryset(self, filters=None):
-        return build_article_admin_queryset(filters or self.get_filters())
+        return filter_accessible_articles(
+            self.request.user,
+            build_article_admin_queryset(filters or self.get_filters()),
+        )
 
     def get_filters(self):
         return ArticleAdminFilters.from_querydict(
@@ -244,7 +275,14 @@ class ArticleListView(TemplateView):
         if isinstance(journal_model, str):
             return None
         try:
-            return journal_model.objects.filter(pk=journal_id).first()
+            return (
+                filter_accessible_journals(
+                    self.request.user,
+                    journal_model.objects.all(),
+                )
+                .filter(pk=journal_id)
+                .first()
+            )
         except (OperationalError, ProgrammingError):
             return None
 
@@ -255,7 +293,10 @@ class ArticleListView(TemplateView):
         if isinstance(journal_model, str):
             return []
         try:
-            return journal_model.objects.order_by("name", "pk")
+            return filter_accessible_journals(
+                self.request.user,
+                journal_model.objects.order_by("name", "pk"),
+            )
         except (OperationalError, ProgrammingError):
             return []
 
@@ -263,8 +304,16 @@ class ArticleListView(TemplateView):
         assignment_model = ArticlePage.category_assignments.rel.related_model
         category_model = assignment_model._meta.get_field("category").remote_field.model
         try:
-            return category_model.objects.select_related("journal").order_by(
-                "journal__name", "path_cache", "pk"
+            journal_ids = filter_accessible_journals(
+                self.request.user,
+                category_model._meta.get_field(
+                    "journal"
+                ).remote_field.model.objects.all(),
+            ).values("pk")
+            return (
+                category_model.objects.filter(journal_id__in=journal_ids)
+                .select_related("journal")
+                .order_by("journal__name", "path_cache", "pk")
             )
         except (OperationalError, ProgrammingError):
             return []
@@ -275,14 +324,42 @@ class PendingArticleListView(ArticleReviewPermissionMixin, ArticleListView):
     page_title = "待审核文章"
 
 
+class FinalArticleListView(ArticleReviewPermissionMixin, ArticleListView):
+    page_title = "本刊待终审"
+
+    def dispatch(self, request, *args, **kwargs):
+        if (
+            not JournalEditorAssignment.objects.effective()
+            .filter(
+                user=request.user,
+                role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            )
+            .exists()
+        ):
+            return HttpResponseForbidden("只有有效主编辑可以查看待终审列表。")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_filters(self):
+        return replace(
+            ArticleAdminFilters.from_querydict(self.request.GET),
+            review_status=ArticlePage.ReviewStatus.PENDING_FINAL,
+        )
+
+
 class ArticleReviewDashboardView(ArticleReviewPermissionMixin, TemplateView):
     template_name = "wagtailadmin/articles/review_dashboard.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        base_queryset = build_article_admin_queryset(ArticleAdminFilters())
-        pending_queryset = build_article_admin_queryset(
-            ArticleAdminFilters(review_status=ArticlePage.ReviewStatus.SUBMITTED)
+        base_queryset = filter_accessible_articles(
+            self.request.user,
+            build_article_admin_queryset(ArticleAdminFilters()),
+        )
+        pending_queryset = filter_accessible_articles(
+            self.request.user,
+            build_article_admin_queryset(
+                ArticleAdminFilters(review_status=ArticlePage.ReviewStatus.SUBMITTED)
+            ),
         )
         pending_articles = list(pending_queryset[:10])
         recent_articles = list(
@@ -306,17 +383,17 @@ class ArticleReviewDashboardView(ArticleReviewPermissionMixin, TemplateView):
                 "title": "文章审核",
                 "pending_articles": pending_articles,
                 "recent_articles": recent_articles,
-                "pending_count": ArticlePage.objects.filter(
-                    review_status=ArticlePage.ReviewStatus.SUBMITTED,
+                "pending_count": base_queryset.filter(
+                    review_status=ArticlePage.ReviewStatus.SUBMITTED
                 ).count(),
-                "approved_count": ArticlePage.objects.filter(
-                    review_status=ArticlePage.ReviewStatus.APPROVED,
+                "approved_count": base_queryset.filter(
+                    review_status=ArticlePage.ReviewStatus.APPROVED
                 ).count(),
-                "published_count": ArticlePage.objects.filter(
-                    publication_status=ArticlePage.PublicationStatus.PUBLISHED,
+                "published_count": base_queryset.filter(
+                    publication_status=ArticlePage.PublicationStatus.PUBLISHED
                 ).count(),
-                "rejected_count": ArticlePage.objects.filter(
-                    review_status=ArticlePage.ReviewStatus.REJECTED,
+                "rejected_count": base_queryset.filter(
+                    review_status=ArticlePage.ReviewStatus.REJECTED
                 ).count(),
                 "pending_url": reverse("article_admin:pending"),
                 "all_articles_url": reverse("article_admin:index"),
@@ -376,14 +453,10 @@ class ArticleSubmitReviewView(View):
     def post(self, request, page_id):
         article = self.get_article(page_id)
         if not self.can_submit_review(article):
-            raise PermissionDenied
+            return HttpResponseForbidden("无权提交该文章初审。")
 
-        if article.review_status not in {
-            ArticlePage.ReviewStatus.DRAFT,
-            ArticlePage.ReviewStatus.REJECTED,
-        }:
-            messages.warning(request, "只有草稿或已驳回文章可以提交审核。")
-            return redirect(self.get_next_url(article))
+        if article.review_status != ArticlePage.ReviewStatus.DRAFT:
+            return HttpResponse("文章状态已变化，只有草稿可以提交初审。", status=409)
 
         expected_revision_id = (
             request.POST.get("expected_revision_id")
@@ -392,35 +465,38 @@ class ArticleSubmitReviewView(View):
         )
         comment = request.POST.get("comment", "").strip() or "提交内容审核。"
         try:
-            article.submit_for_review(
-                request.user,
-                comment,
+            submit_article_for_initial_review(
+                actor=request.user,
+                article=article,
+                expected_state=ArticlePage.ReviewStatus.DRAFT,
                 expected_revision_id=expected_revision_id,
+                request_id=request.POST.get("request_id") or uuid4(),
+                comment=comment,
             )
-        except ArticleRevisionConflict as exc:
-            messages.error(request, str(exc))
+        except (ArticleRevisionConflict, ArticleStateConflict) as exc:
+            return HttpResponse(str(exc), status=409)
         except ValidationError as exc:
             messages.error(request, format_submit_review_error(exc))
         else:
             messages.success(
                 request,
-                "文章已提交审核，现已进入“待审核文章”。",
+                "文章已提交初审，现已进入本刊待初审队列。",
             )
         return redirect(self.get_next_url(article))
 
     def get_article(self, page_id):
-        page = get_object_or_404(
-            Page.objects.select_related("latest_revision"), pk=page_id
-        ).specific
-        if not isinstance(page, ArticlePage):
-            raise Http404
-        return page
+        return get_object_or_404(
+            filter_accessible_articles(
+                self.request.user,
+                ArticlePage.objects.select_related(
+                    "latest_revision", "primary_journal"
+                ),
+            ),
+            pk=page_id,
+        )
 
     def can_submit_review(self, article):
-        return bool(
-            user_has_article_edit_permission(self.request.user)
-            and article.permissions_for_user(self.request.user).can_edit()
-        )
+        return bool(can_manage_article(self.request.user, article))
 
     def get_next_url(self, article):
         next_url = self.request.POST.get("next") or self.request.GET.get("next")
@@ -431,6 +507,102 @@ class ArticleSubmitReviewView(View):
         ):
             return next_url
         return reverse("article_admin:review_detail", args=[article.pk])
+
+
+class ArticleClaimInitialReviewView(View):
+    def post(self, request, page_id):
+        article = get_object_or_404(
+            filter_accessible_articles(
+                request.user,
+                ArticlePage.objects.select_related("primary_journal"),
+            ),
+            pk=page_id,
+        )
+        try:
+            claim_initial_review(
+                actor=request.user,
+                article=article,
+                expected_state=request.POST.get("expected_state")
+                or ArticlePage.ReviewStatus.SUBMITTED,
+                expected_revision_id=request.POST.get("expected_revision_id"),
+                request_id=request.POST.get("request_id") or uuid4(),
+            )
+        except (ArticleRevisionConflict, ArticleStateConflict) as exc:
+            return HttpResponse(str(exc), status=409)
+        except PermissionDenied as exc:
+            return HttpResponseForbidden(str(exc))
+        except ValidationError as exc:
+            return HttpResponseBadRequest("；".join(exc.messages))
+        return redirect("article_admin:review_detail", page_id=article.pk)
+
+
+class ArticleReassignInitialReviewView(View):
+    def post(self, request, page_id):
+        article = get_object_or_404(
+            filter_accessible_articles(
+                request.user,
+                ArticlePage.objects.select_related("primary_journal"),
+            ),
+            pk=page_id,
+        )
+        editor_assignment = (
+            JournalEditorAssignment.objects.effective()
+            .filter(
+                user_id=request.POST.get("new_editor_id"),
+                journal=article.primary_journal,
+            )
+            .select_related("user")
+            .order_by("role", "pk")
+            .first()
+        )
+        if editor_assignment is None:
+            raise Http404
+        try:
+            reassign_initial_review(
+                actor=request.user,
+                article=article,
+                new_editor=editor_assignment.user,
+                reason=request.POST.get("reason", ""),
+                expected_state=request.POST.get("expected_state")
+                or ArticlePage.ReviewStatus.SUBMITTED,
+                expected_revision_id=request.POST.get("expected_revision_id"),
+                request_id=request.POST.get("request_id") or uuid4(),
+            )
+        except (ArticleRevisionConflict, ArticleStateConflict) as exc:
+            return HttpResponse(str(exc), status=409)
+        except PermissionDenied as exc:
+            return HttpResponseForbidden(str(exc))
+        except ValidationError as exc:
+            return HttpResponseBadRequest("；".join(exc.messages))
+        return redirect("article_admin:review_detail", page_id=article.pk)
+
+
+class ArticleReopenReviewView(View):
+    def post(self, request, page_id):
+        article = get_object_or_404(
+            filter_accessible_articles(
+                request.user,
+                ArticlePage.objects.select_related("primary_journal"),
+            ),
+            pk=page_id,
+        )
+        try:
+            reopen_rejected_article(
+                actor=request.user,
+                article=article,
+                reason=request.POST.get("reason", ""),
+                expected_state=request.POST.get("expected_state")
+                or ArticlePage.ReviewStatus.REJECTED,
+                expected_revision_id=request.POST.get("expected_revision_id"),
+                request_id=request.POST.get("request_id") or uuid4(),
+            )
+        except (ArticleRevisionConflict, ArticleStateConflict) as exc:
+            return HttpResponse(str(exc), status=409)
+        except PermissionDenied as exc:
+            return HttpResponseForbidden(str(exc))
+        except ValidationError as exc:
+            return HttpResponseBadRequest("；".join(exc.messages))
+        return redirect("article_admin:review_detail", page_id=article.pk)
 
 
 def format_submit_review_error(exc):
@@ -455,6 +627,21 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         latest_revision = self.article.get_latest_revision()
+        placement_url = ""
+        if (
+            self.article.review_status
+            in {
+                ArticlePage.ReviewStatus.APPROVED,
+                ArticlePage.ReviewStatus.PUBLISHED,
+            }
+            and user_has_article_placement_permission(self.request.user)
+            and self.article.primary_journal_id
+            and getattr(self.article.primary_journal, "status", "") == "active"
+        ):
+            placement_url = (
+                f"{reverse('placements:new_single')}?"
+                f"{urlencode({'article': self.article.pk, 'journal': self.article.primary_journal.slug})}"
+            )
         context.update(
             {
                 "article": self.article,
@@ -465,6 +652,7 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
                 ),
                 "edit_url": reverse("wagtailadmin_pages:edit", args=[self.article.pk]),
                 "placements_url": f"{reverse('placements:index')}?article={self.article.pk}",
+                "placement_url": placement_url,
                 "submit_review_url": reverse(
                     "article_admin:submit_review", args=[self.article.pk]
                 ),
@@ -473,6 +661,16 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
                 ).can_edit(),
                 "latest_revision": latest_revision,
                 "expected_revision_id": latest_revision.pk if latest_revision else "",
+                "request_id": uuid4(),
+                "claim_review_url": reverse(
+                    "article_admin:claim_review", args=[self.article.pk]
+                ),
+                "reassign_review_url": reverse(
+                    "article_admin:reassign_review", args=[self.article.pk]
+                ),
+                "reopen_review_url": reverse(
+                    "article_admin:reopen_review", args=[self.article.pk]
+                ),
                 "approved_version": self.article.approved_version,
                 "rejected_version": self.article.rejected_version,
                 "review_records": self.article.review_records.select_related(
@@ -480,7 +678,35 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
                 ).order_by("created_at", "id"),
                 "revision_diff": get_revision_diff(self.article),
                 "can_execute_review": self.can_execute_review(),
+                "can_claim_review": self.can_claim_review(),
+                "can_reassign_review": self.can_reassign_review(),
+                "can_reopen_review": self.can_reopen_review(),
+                "initial_editor_choices": self.initial_editor_choices(),
+                "review_stage": (
+                    "final"
+                    if self.article.review_status
+                    == ArticlePage.ReviewStatus.PENDING_FINAL
+                    else "initial"
+                ),
                 "can_submit_review": self.can_submit_review(),
+                "authorships_url": reverse(
+                    "article_admin:authorships", args=[self.article.pk]
+                ),
+                "transfer_url": reverse(
+                    "article_admin:controlled_transfer", args=[self.article.pk]
+                ),
+                "can_manage_authorships": bool(
+                    is_super_admin(self.request.user)
+                    or (
+                        get_journal_editor_assignment(
+                            self.request.user, self.article.primary_journal
+                        )
+                        and get_journal_editor_assignment(
+                            self.request.user, self.article.primary_journal
+                        ).role
+                        == JournalEditorAssignment.Role.CHIEF_EDITOR
+                    )
+                ),
             }
         )
         return context
@@ -488,42 +714,62 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
     def post(self, request, *args, **kwargs):
         action = request.POST.get("action")
         comment = request.POST.get("comment", "").strip()
+        author_visible_comment = request.POST.get("author_visible_comment", "").strip()
         expected_revision_id = request.POST.get("expected_revision_id", "")
+        expected_state = request.POST.get("expected_state", "")
 
-        if action not in {"approve", "reject"}:
+        if action not in {"approve", "return", "reject"}:
             messages.error(request, "未知审核操作。")
             return redirect(self.get_success_url())
-        if action == "reject" and not comment:
-            messages.error(request, "驳回意见必填。")
+        if action in {"return", "reject"} and not comment:
+            messages.error(request, "退回或拒绝意见必填。")
             return redirect(self.get_success_url())
+        if action in {"return", "reject"} and not author_visible_comment:
+            messages.error(request, "退回或拒绝必须填写作者可见原因。")
+            return redirect(self.get_success_url())
+        if expected_state and expected_state != self.article.review_status:
+            return HttpResponse("文章状态已变化，请刷新后重试。", status=409)
         if not self.can_execute_review(action):
-            raise PermissionDenied
+            return HttpResponseForbidden("无权执行该审核动作。")
 
         try:
-            self.perform_review_action(action, comment, expected_revision_id)
-        except ArticleRevisionConflict as exc:
-            messages.error(request, str(exc))
-            return redirect(self.get_success_url())
+            self.perform_review_action(
+                action,
+                comment,
+                author_visible_comment,
+                expected_state,
+                expected_revision_id,
+            )
+        except (ArticleRevisionConflict, ArticleStateConflict) as exc:
+            return HttpResponse(str(exc), status=409)
         except ValidationError as exc:
             messages.error(request, "；".join(exc.messages))
             return redirect(self.get_success_url())
 
-        if action == "approve":
+        self.article.refresh_from_db()
+        if self.article.review_status == ArticlePage.ReviewStatus.PENDING_FINAL:
+            messages.success(request, "初审已通过，文章进入待终审。")
+        elif self.article.review_status == ArticlePage.ReviewStatus.APPROVED:
             messages.success(
                 request,
-                "文章已审核通过。下一步请进入投放管理；当前状态不代表已发布。",
+                "主编辑终审已通过。下一步可进入本刊投放；当前状态不代表已发布。",
             )
+        elif self.article.review_status == ArticlePage.ReviewStatus.DRAFT:
+            messages.success(request, "文章已退回修改。")
         else:
-            messages.success(request, "文章已驳回。")
+            messages.success(request, "文章已拒绝。")
         return redirect(self.get_success_url())
 
     def get_article(self, page_id):
-        page = get_object_or_404(
-            Page.objects.select_related("latest_revision"), pk=page_id
-        ).specific
-        if not isinstance(page, ArticlePage):
-            raise Http404
-        return page
+        return get_object_or_404(
+            filter_accessible_articles(
+                self.request.user,
+                ArticlePage.objects.select_related(
+                    "latest_revision", "primary_journal"
+                ),
+            ),
+            pk=page_id,
+        )
 
     def get_preview_article(self, article):
         latest_revision = article.get_latest_revision()
@@ -531,27 +777,75 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
 
     def can_submit_review(self):
         return bool(
-            self.article.review_status
-            in {ArticlePage.ReviewStatus.DRAFT, ArticlePage.ReviewStatus.REJECTED}
-            and user_has_article_edit_permission(self.request.user)
-            and self.article.permissions_for_user(self.request.user).can_edit()
+            self.article.review_status == ArticlePage.ReviewStatus.DRAFT
+            and can_manage_article(self.request.user, self.article)
         )
 
     def can_execute_review(self, action=None):
-        if not user_can_review_articles(self.request.user):
-            return False
-        task = self.article.current_workflow_task
-        task_state = self.article.current_workflow_task_state
-        if not task or not task_state:
-            return self.article.review_status == ArticlePage.ReviewStatus.SUBMITTED
-        actions = {
-            item[0] for item in task.get_actions(self.article, self.request.user)
-        }
-        return action in actions if action else bool(actions & {"approve", "reject"})
+        if self.article.review_status == ArticlePage.ReviewStatus.SUBMITTED:
+            return can_initial_review(self.request.user, self.article)
+        if self.article.review_status == ArticlePage.ReviewStatus.PENDING_FINAL:
+            return can_final_review(self.request.user, self.article)
+        return False
 
-    def perform_review_action(self, action, comment, expected_revision_id):
+    def current_assignment(self):
+        return get_journal_editor_assignment(
+            self.request.user, self.article.primary_journal
+        )
+
+    def can_claim_review(self):
+        return bool(
+            self.article.review_status == ArticlePage.ReviewStatus.SUBMITTED
+            and self.article.assigned_initial_editor_id is None
+            and self.current_assignment() is not None
+        )
+
+    def can_reassign_review(self):
+        assignment = self.current_assignment()
+        return bool(
+            self.article.review_status == ArticlePage.ReviewStatus.SUBMITTED
+            and assignment
+            and assignment.role
+            in {
+                JournalEditorAssignment.Role.CHIEF_EDITOR,
+                JournalEditorAssignment.Role.EXECUTIVE_EDITOR,
+            }
+        )
+
+    def can_reopen_review(self):
+        assignment = self.current_assignment()
+        return bool(
+            self.article.review_status == ArticlePage.ReviewStatus.REJECTED
+            and (
+                is_super_admin(self.request.user)
+                or (
+                    assignment
+                    and assignment.role == JournalEditorAssignment.Role.CHIEF_EDITOR
+                )
+            )
+        )
+
+    def initial_editor_choices(self):
+        if not self.can_reassign_review():
+            return []
+        return (
+            JournalEditorAssignment.objects.effective()
+            .filter(journal=self.article.primary_journal)
+            .select_related("user")
+            .order_by("role", "display_order", "pk")
+        )
+
+    def perform_review_action(
+        self,
+        action,
+        comment,
+        author_visible_comment,
+        expected_state,
+        expected_revision_id,
+    ):
         with transaction.atomic():
             article = ArticlePage.objects.select_for_update().get(pk=self.article.pk)
+            review_stage = article.review_status
             latest_revision = article.get_latest_revision()
             if str(latest_revision.pk if latest_revision else "") != str(
                 expected_revision_id
@@ -559,28 +853,38 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
                 raise ArticleRevisionConflict(
                     "文章在审核页面打开后已产生新 revision，请刷新后重新审核。"
                 )
-            task = article.current_workflow_task
             task_state = article.current_workflow_task_state
-            if task and task_state:
+            service_kwargs = {
+                "actor": self.request.user,
+                "article": article,
+                "action": action,
+                "comment": comment,
+                "author_visible_comment": author_visible_comment,
+                "expected_state": expected_state or article.review_status,
+                "expected_revision_id": expected_revision_id,
+                "request_id": self.request.POST.get("request_id") or uuid4(),
+            }
+            if task_state:
                 self.close_wagtail_review_task_without_publishing(
                     task_state,
                     action,
                     comment,
+                    is_final=review_stage == ArticlePage.ReviewStatus.PENDING_FINAL,
                 )
-            if action == "approve":
-                article.approve(
-                    self.request.user,
-                    comment,
-                    expected_revision_id=expected_revision_id,
-                )
+            if review_stage == ArticlePage.ReviewStatus.SUBMITTED:
+                initial_review_article(**service_kwargs)
             else:
-                article.reject(
-                    self.request.user,
-                    comment,
-                    expected_revision_id=expected_revision_id,
+                final_review_article(**service_kwargs)
+            if task_state:
+                self.advance_wagtail_review_workflow(
+                    task_state,
+                    action,
+                    is_final=review_stage == ArticlePage.ReviewStatus.PENDING_FINAL,
                 )
 
-    def close_wagtail_review_task_without_publishing(self, task_state, action, comment):
+    def close_wagtail_review_task_without_publishing(
+        self, task_state, action, comment, *, is_final
+    ):
         """Close Wagtail's moderation task without publishing the Page.
 
         Wagtail's default workflow approval publishes the page revision when the
@@ -590,20 +894,27 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
         record the project-specific review state and audit trail.
         """
 
-        workflow_state = task_state.workflow_state
         if action == "approve":
             task_state.approve(
                 user=self.request.user,
                 update=False,
                 comment=comment,
             )
-            workflow_state.status = workflow_state.STATUS_APPROVED
         else:
             task_state.reject(
                 user=self.request.user,
                 update=False,
                 comment=comment,
             )
+
+    def advance_wagtail_review_workflow(self, task_state, action, *, is_final):
+        workflow_state = task_state.workflow_state
+        if action == "approve" and not is_final:
+            workflow_state.update(user=self.request.user)
+            return
+        if action == "approve":
+            workflow_state.status = workflow_state.STATUS_APPROVED
+        else:
             workflow_state.status = workflow_state.STATUS_NEEDS_CHANGES
         workflow_state.save(update_fields=["status"])
 
@@ -615,10 +926,12 @@ class ArticleReviewDetailView(ArticleReviewPermissionMixin, TemplateView):
 class ArticleReviewPreviewView(ArticleReviewPermissionMixin, View):
     def get(self, request, page_id):
         article = get_object_or_404(
-            Page.objects.select_related("latest_revision"), pk=page_id
-        ).specific
-        if not isinstance(article, ArticlePage):
-            raise Http404
+            filter_accessible_articles(
+                request.user,
+                ArticlePage.objects.select_related("latest_revision"),
+            ),
+            pk=page_id,
+        )
         latest_revision = article.get_latest_revision()
         if latest_revision:
             article = latest_revision.as_object()

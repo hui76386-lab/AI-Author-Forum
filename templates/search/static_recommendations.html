@@ -1,4 +1,4 @@
-﻿{% extends "base_page.html" %}
+{% extends "base_page.html" %}
 {% load i18n_frontend %}
 {% block title %}{{ search_config.title }}{% endblock %}
 {% block breadcrumbs %}
@@ -49,7 +49,6 @@
     <div class="c-section-heading"><h2 id="recommended-articles-title">{% ui_text 'recommended_articles' 'Recommended articles' %}</h2></div>
     {% for placement in recommended_placements %}
     <article class="c-search-result-item">
-      <span>{{ placement.article.article_type|article_type_label }}</span>
       <h2><a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a></h2>
       <p>{{ placement.display_summary }}</p>
       <p>{% ui_text 'author_label' 'Author' %}: {{ placement.display_authors }}{% if placement.article.ai_co_authors %} - {% ui_text 'ai_coauthor_label' 'AI co-author' %}: {{ placement.display_ai_coauthors }}{% endif %}</p>

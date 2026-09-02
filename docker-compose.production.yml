@@ -12,6 +12,7 @@ services:
       WAGTAILADMIN_BASE_URL: ${WAGTAILADMIN_BASE_URL:-http://localhost}
       MIDDLEWARE_MODE: ${MIDDLEWARE_MODE:-remote}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      INTERACTIONS_DATABASE_URL: ${INTERACTIONS_DATABASE_URL:?Set INTERACTIONS_DATABASE_URL}
       CACHE_BACKEND: ${CACHE_BACKEND:?Set CACHE_BACKEND}
       CACHE_LOCATION: ${CACHE_LOCATION:?Set CACHE_LOCATION}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:?Set CELERY_BROKER_URL}
@@ -25,37 +26,199 @@ services:
       STATIC_ROOT: /data/static
       MEDIA_ROOT: /data/media
       STATIC_PUBLISH_ROOT: /data/published
+      READER_COMMENT_SNAPSHOT_ROOT: /data/comment-snapshots
+      READER_PRIVATE_STORAGE_BACKEND: ${READER_PRIVATE_STORAGE_BACKEND:-filesystem}
+      READER_PRIVATE_STORAGE_ROOT: /data/protected-pdfs
+      READER_PDF_MAX_BYTES: ${READER_PDF_MAX_BYTES:-104857600}
+      READER_PDF_RENDER_TIMEOUT_SECONDS: ${READER_PDF_RENDER_TIMEOUT_SECONDS:-60}
+      READER_PDF_RENDERER_VERSION: ${READER_PDF_RENDERER_VERSION:-playwright-python/1.61.0-chromium}
+      READER_PDF_BUILD_WAIT_SECONDS: ${READER_PDF_BUILD_WAIT_SECONDS:-900}
+      READER_PDF_BUILD_POLL_SECONDS: ${READER_PDF_BUILD_POLL_SECONDS:-0.5}
+      READER_DOWNLOAD_GRANT_TTL_SECONDS: ${READER_DOWNLOAD_GRANT_TTL_SECONDS:-300}
+      READER_DOWNLOAD_ARTICLE_HOURLY_LIMIT: ${READER_DOWNLOAD_ARTICLE_HOURLY_LIMIT:-5}
+      READER_DOWNLOAD_DAILY_LIMIT: ${READER_DOWNLOAD_DAILY_LIMIT:-50}
+      READER_PDF_GRANT_REDIS_URL: ${READER_PDF_GRANT_REDIS_URL:-}
+      READER_PDF_X_ACCEL_PREFIX: ${READER_PDF_X_ACCEL_PREFIX:-/_protected_pdf/}
+      READER_S3_BUCKET: ${READER_S3_BUCKET:-}
+      READER_S3_ENDPOINT_URL: ${READER_S3_ENDPOINT_URL:-}
+      READER_S3_REGION: ${READER_S3_REGION:-}
+      READER_S3_ACCESS_KEY_ID: ${READER_S3_ACCESS_KEY_ID:-}
+      READER_S3_SECRET_ACCESS_KEY: ${READER_S3_SECRET_ACCESS_KEY:-}
       STATIC_PUBLISH_HEALTHCHECK_BROKER: ${STATIC_PUBLISH_HEALTHCHECK_BROKER:-true}
+      READER_INTERACTIONS_ENABLED: ${READER_INTERACTIONS_ENABLED:-false}
+      READER_EMAIL_VERIFICATION_ENABLED: ${READER_EMAIL_VERIFICATION_ENABLED:-false}
+      READER_COMMENTS_WRITE_ENABLED: ${READER_COMMENTS_WRITE_ENABLED:-false}
+      READER_PDF_GRANTS_ENABLED: ${READER_PDF_GRANTS_ENABLED:-false}
+      READER_SHARE_UI_ENABLED: ${READER_SHARE_UI_ENABLED:-false}
+      READER_SNAPSHOT_READ_FALLBACK: ${READER_SNAPSHOT_READ_FALLBACK:-false}
+      READER_SESSION_COOKIE_NAME: ${READER_SESSION_COOKIE_NAME:-reader_session}
+      READER_SESSION_ABSOLUTE_SECONDS: ${READER_SESSION_ABSOLUTE_SECONDS:-2592000}
+      READER_SESSION_IDLE_SECONDS: ${READER_SESSION_IDLE_SECONDS:-1209600}
+      READER_SESSION_TOUCH_INTERVAL_SECONDS: ${READER_SESSION_TOUCH_INTERVAL_SECONDS:-300}
+      READER_SESSION_COOKIE_SECURE: ${READER_SESSION_COOKIE_SECURE:-true}
+      READER_DEVICE_FLOW_COOKIE_SECURE: ${READER_DEVICE_FLOW_COOKIE_SECURE:-true}
+      READER_DEVICE_FLOW_COOKIE_NAME: ${READER_DEVICE_FLOW_COOKIE_NAME:-reader_device_flow}
+      READER_DEVICE_FLOW_TTL_SECONDS: ${READER_DEVICE_FLOW_TTL_SECONDS:-900}
+      READER_DEVICE_FLOW_POLL_INTERVAL_SECONDS: ${READER_DEVICE_FLOW_POLL_INTERVAL_SECONDS:-5}
+      READER_DEVICE_FLOW_ATTEMPT_LIMIT: ${READER_DEVICE_FLOW_ATTEMPT_LIMIT:-5}
+      READER_DEVICE_FLOW_STATUS_LIMIT: ${READER_DEVICE_FLOW_STATUS_LIMIT:-120}
+      READER_DEVICE_FLOW_CLAIM_LIMIT: ${READER_DEVICE_FLOW_CLAIM_LIMIT:-10}
+      READER_DEVICE_FLOW_STATUS_WINDOW_SECONDS: ${READER_DEVICE_FLOW_STATUS_WINDOW_SECONDS:-60}
+      READER_TRUST_PROXY_CLIENT_IP: ${READER_TRUST_PROXY_CLIENT_IP:-true}
+      READER_EMAIL_LOOKUP_KEY: ${READER_EMAIL_LOOKUP_KEY:-}
+      READER_EMAIL_ENCRYPTION_KEYS: ${READER_EMAIL_ENCRYPTION_KEYS:-}
+      READER_TOKEN_PEPPER: ${READER_TOKEN_PEPPER:-}
+      READER_MAGIC_LINK_TTL_SECONDS: ${READER_MAGIC_LINK_TTL_SECONDS:-900}
+      READER_PUBLIC_BASE_URL: ${READER_PUBLIC_BASE_URL:-http://localhost}
+      READER_EMAIL_FROM: ${READER_EMAIL_FROM:-reader-security@localhost}
+      READER_RATE_LIMIT_REDIS_URL: ${READER_RATE_LIMIT_REDIS_URL:-}
+      READER_CAPABILITY_REDIS_URL: ${READER_CAPABILITY_REDIS_URL:-}
+      READER_INTERNAL_SERVICE_TOKEN: ${READER_INTERNAL_SERVICE_TOKEN:-}
+      READER_VERIFICATION_IP_LIMIT: ${READER_VERIFICATION_IP_LIMIT:-5}
+      READER_VERIFICATION_EMAIL_LIMIT: ${READER_VERIFICATION_EMAIL_LIMIT:-3}
+      READER_VERIFICATION_GLOBAL_LIMIT: ${READER_VERIFICATION_GLOBAL_LIMIT:-1000}
+      READER_VERIFICATION_WINDOW_SECONDS: ${READER_VERIFICATION_WINDOW_SECONDS:-3600}
+      READER_VERIFICATION_CONSUME_LIMIT: ${READER_VERIFICATION_CONSUME_LIMIT:-5}
+      READER_SECURITY_RETENTION_DAYS: ${READER_SECURITY_RETENTION_DAYS:-30}
+      READER_COMMENT_RISK_ENABLED: ${READER_COMMENT_RISK_ENABLED:-true}
+      READER_COMMENT_RISK_TIMEOUT_SECONDS: ${READER_COMMENT_RISK_TIMEOUT_SECONDS:-1}
+      READER_COMMENT_MAX_CHARS: ${READER_COMMENT_MAX_CHARS:-2000}
+      READER_COMMENT_MAX_BYTES: ${READER_COMMENT_MAX_BYTES:-8000}
+      READER_COMMENT_PAGE_SIZE: ${READER_COMMENT_PAGE_SIZE:-20}
+      READER_COMMENT_CACHE_SECONDS: ${READER_COMMENT_CACHE_SECONDS:-30}
+      READER_COMMENT_INTERVAL_SECONDS: ${READER_COMMENT_INTERVAL_SECONDS:-10}
+      READER_COMMENT_HOURLY_LIMIT: ${READER_COMMENT_HOURLY_LIMIT:-20}
+      READER_COMMENT_DAILY_LIMIT: ${READER_COMMENT_DAILY_LIMIT:-100}
+      READER_COMMENT_ARTICLE_HOURLY_LIMIT: ${READER_COMMENT_ARTICLE_HOURLY_LIMIT:-10}
+      READER_COMMENT_IP_HOURLY_LIMIT: ${READER_COMMENT_IP_HOURLY_LIMIT:-60}
+      READER_REPORT_DAILY_LIMIT: ${READER_REPORT_DAILY_LIMIT:-20}
+      READER_REPORT_IP_DAILY_LIMIT: ${READER_REPORT_IP_DAILY_LIMIT:-100}
+      READER_COMMENT_CACHE_REDIS_URL: ${READER_COMMENT_CACHE_REDIS_URL:-}
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-localhost}
+      EMAIL_PORT: ${EMAIL_PORT:-25}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      EMAIL_TIMEOUT: ${EMAIL_TIMEOUT:-10}
+      READER_DOWNLOAD_IP_HOURLY_LIMIT: ${READER_DOWNLOAD_IP_HOURLY_LIMIT:-20}
+      READER_DATABASE_CONN_MAX_AGE: ${READER_DATABASE_CONN_MAX_AGE:-60}
+      READER_DATABASE_STATEMENT_TIMEOUT_MS: ${READER_DATABASE_STATEMENT_TIMEOUT_MS:-5000}
+      READER_INTERACTIONS_DB_CONNECTION_LIMIT: ${READER_INTERACTIONS_DB_CONNECTION_LIMIT:-20}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-production}
+      APPLICATION_RELEASE: ${APPLICATION_RELEASE:-unversioned}
+      READER_SERVICE_NAME: web
     command: >-
-      sh -c "python manage.py createcachetable &&
-      python manage.py migrate --noinput &&
-      python manage.py collectstatic --noinput &&
-      gunicorn ai_author_forum.wsgi:application"
+      gunicorn ai_author_forum.wsgi:application
+      --workers ${READER_API_GUNICORN_WORKERS:-2}
+      --threads 1 --timeout 30 --graceful-timeout 30
+      --max-requests 2000 --max-requests-jitter 200
+    deploy:
+      replicas: ${READER_API_REPLICAS:-2}
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 256
     volumes:
       - static-data:/data/static
       - media-data:/data/media
       - published-data:/data/published
+      - protected-pdf-data:/data/protected-pdfs
     healthcheck:
       test:
         [
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/healthz/', headers={'X-Forwarded-Proto': 'https'}), timeout=3)",
+          "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/livez/', headers={'X-Forwarded-Proto': 'https'}), timeout=3)",
         ]
       interval: 15s
       timeout: 5s
       retries: 5
 
-  worker:
+  # Run exactly once for each application release, before updating web/worker.
+  # This profile keeps migrations and collectstatic out of replica startup.
+  release:
+    profiles: ["release"]
     build: .
-    restart: unless-stopped
-    environment: *application-environment
-    command: celery -A ai_author_forum worker --loglevel=INFO --concurrency=2
+    restart: "no"
+    environment:
+      <<: *application-environment
+      READER_SERVICE_NAME: release
+    command: >-
+      sh -c "python manage.py createcachetable &&
+      python manage.py migrate --database=default --noinput &&
+      python manage.py migrate --database=interactions --noinput &&
+      python manage.py collectstatic --noinput"
     volumes:
       - static-data:/data/static
       - media-data:/data/media
       - published-data:/data/published
+      - protected-pdf-data:/data/protected-pdfs
+      - comment-snapshot-data:/data/comment-snapshots:ro
+
+  worker:
+    build: .
+    restart: unless-stopped
+    environment:
+      <<: *application-environment
+      READER_SERVICE_NAME: static-publish-worker
+    command: >-
+      celery -A ai_author_forum worker --loglevel=INFO --concurrency=2
+      --queues=static_publish
+    volumes:
+      - static-data:/data/static
+      - media-data:/data/media
+      - published-data:/data/published
+      - protected-pdf-data:/data/protected-pdfs
+
+  reader-email-worker:
+    build: .
+    restart: unless-stopped
+    environment:
+      <<: *application-environment
+      READER_SERVICE_NAME: reader-email-worker
+    command: >-
+      celery -A ai_author_forum worker --loglevel=INFO --concurrency=2
+      --queues=reader_email
+    volumes:
+      - static-data:/data/static
+      - media-data:/data/media
+      - published-data:/data/published
+
+  reader-comments-worker:
+    build: .
+    restart: unless-stopped
+    environment:
+      <<: *application-environment
+      READER_SERVICE_NAME: reader-comments-worker
+    command: >-
+      celery -A ai_author_forum worker --loglevel=INFO --concurrency=2
+      --queues=reader_comments
+    volumes:
+      - static-data:/data/static
+      - media-data:/data/media
+      - published-data:/data/published
+      - comment-snapshot-data:/data/comment-snapshots
+
+  reader-pdf-worker:
+    build:
+      context: .
+      dockerfile: docker/pdf-worker/Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      <<: *application-environment
+      READER_SERVICE_NAME: reader-pdf-worker
+    command: >-
+      celery -A ai_author_forum worker --loglevel=INFO --concurrency=1
+      --queues=reader_pdf
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 256
+    volumes:
+      - published-data:/data/published:ro
+      - protected-pdf-data:/data/protected-pdfs
 
   static-frontend:
     build: .
@@ -63,6 +226,9 @@ services:
     entrypoint: ["gosu", "wagtail"]
     environment:
       STATIC_PUBLISH_ROOT: /data/published
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-production}
+      APPLICATION_RELEASE: ${APPLICATION_RELEASE:-unversioned}
+      READER_SERVICE_NAME: static-frontend
     command:
       [
         "gunicorn",
@@ -94,6 +260,7 @@ services:
       - static-data:/srv/static:ro
       - media-data:/srv/media:ro
       - published-data:/srv/published:ro
+      - protected-pdf-data:/srv/protected-pdfs:ro
     depends_on:
       web:
         condition: service_healthy
@@ -104,3 +271,5 @@ volumes:
   static-data:
   media-data:
   published-data:
+  comment-snapshot-data:
+  protected-pdf-data:

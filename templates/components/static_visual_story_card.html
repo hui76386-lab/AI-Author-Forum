@@ -6,7 +6,6 @@
     {% if visual.image %}{% image visual.image fill-1440x840 as story_image %}<img src="{{ story_image.url }}" width="{{ story_image.width }}" height="{{ story_image.height }}" alt="{{ visual.alt }}" loading="lazy">{% else %}<img src="{{ visual.placeholder_url }}" width="1440" height="840" alt="{{ visual.alt }}" loading="lazy">{% endif %}
   </a>
   <div class="c-visual-story-card__body">
-    <span class="c-meta">{{ placement.article.article_type|article_type_label }}</span>
     <h3><a href="{{ article_url }}">{{ placement.display_title }}</a></h3>
     {% if placement.display_summary %}<p>{{ placement.display_summary }}</p>{% endif %}
     <p class="c-visual-story-card__meta">

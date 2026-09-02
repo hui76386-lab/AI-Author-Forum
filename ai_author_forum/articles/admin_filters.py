@@ -91,7 +91,7 @@ class ArticleAdminFilters:
 def build_article_admin_queryset(filters: ArticleAdminFilters):
     submissions = ArticleReviewRecord.objects.filter(
         article_id=OuterRef("pk"),
-        action=ArticleReviewRecord.Action.SUBMITTED,
+        action=ArticleReviewRecord.Action.SUBMIT,
     ).order_by("-created_at", "-pk")
     queryset = (
         ArticlePage.objects.select_related(
@@ -156,8 +156,12 @@ def build_article_admin_queryset(filters: ArticleAdminFilters):
     if reviewed_by_id or reviewed_from:
         review_filters = Q(
             review_records__action__in=(
-                ArticleReviewRecord.Action.APPROVED,
-                ArticleReviewRecord.Action.REJECTED,
+                ArticleReviewRecord.Action.INITIAL_APPROVE,
+                ArticleReviewRecord.Action.INITIAL_RETURN,
+                ArticleReviewRecord.Action.INITIAL_REJECT,
+                ArticleReviewRecord.Action.FINAL_APPROVE,
+                ArticleReviewRecord.Action.FINAL_RETURN,
+                ArticleReviewRecord.Action.FINAL_REJECT,
             )
         )
         if reviewed_by_id:

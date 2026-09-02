@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from ai_author_forum.articles.category_services import (
@@ -62,6 +63,18 @@ def get_category_listing_slot():
 
 def plan_category_placement_sync(*, article_id, revision_id=None):
     article = ArticlePage.objects.get(pk=article_id)
+    if (
+        revision_id is not None
+        and article.review_status
+        in {
+            ArticlePage.ReviewStatus.APPROVED,
+            ArticlePage.ReviewStatus.PUBLISHED,
+        }
+        and article.approved_version_id != revision_id
+    ):
+        raise ValidationError(
+            "栏目投放 revision 必须与主编辑终审通过的 revision 一致。"
+        )
     assignments = _assignments(article, revision_id)
     expected = {
         item["category_id"]: "primary" if item["is_primary"] else "related"

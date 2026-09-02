@@ -10,3 +10,10 @@
         <span>AI Author Forum</span>
     </div>
 {% endblock %}
+
+{% block below_login %}
+    <p class="aaf-author-login-link">
+        {% get_current_language as LANGUAGE_CODE %}
+        <a href="{% url 'author:login' %}">{% if LANGUAGE_CODE|slice:":2" == "zh" %}作者投稿登录{% else %}Author submission login{% endif %}</a>
+    </p>
+{% endblock %}

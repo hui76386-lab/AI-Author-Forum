@@ -39,11 +39,12 @@ def get_active_journal_queryset(journal_model=None):
 
 
 def get_article_fallback_context(article, request=None):
-    from .display import resolve_article_image
     from ai_author_forum.utils.public_i18n import (
         localized_article_abstract,
         localized_article_title,
     )
+
+    from .display import resolve_article_image
 
     site_settings = get_site_settings(request)
     article_image = resolve_article_image(

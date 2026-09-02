@@ -8,8 +8,10 @@ from wagtail.models import Page
 from ai_author_forum.articles.models import ArticlePage as CanonicalArticlePage
 from ai_author_forum.home.models import HomePage
 from ai_author_forum.journals.models import Journal
-from ai_author_forum.news.models import ArticlePage as LegacyArticlePage
-from ai_author_forum.news.models import NewsListingPage
+from ai_author_forum.news.models import (
+    ArticlePage as LegacyArticlePage,
+    NewsListingPage,
+)
 from ai_author_forum.static_publish.providers import WagtailPageTargetProvider
 from ai_author_forum.utils.models import ArticleTopic, AuthorSnippet
 
@@ -101,6 +103,7 @@ class LegacyNewsArticleRetirementTests(TestCase):
         self.assertIn("created articles.ArticlePage", output.getvalue())
         self.assertEqual(canonical.primary_journal, journal)
         self.assertEqual(
-            canonical.review_status, CanonicalArticlePage.ReviewStatus.APPROVED
+            canonical.review_status, CanonicalArticlePage.ReviewStatus.DRAFT
         )
+        self.assertFalse(canonical.live)
         self.assertFalse(article.live)

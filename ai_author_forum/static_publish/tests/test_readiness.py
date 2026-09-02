@@ -4,18 +4,28 @@ from datetime import timedelta
 from io import BytesIO
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from uuid import uuid4
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from PIL import Image as PillowImage
 from wagtail.models import Page
 
-from ai_author_forum.articles.models import ArticlePage
+from ai_author_forum.articles.models import ArticleCategoryAssignment, ArticlePage
+from ai_author_forum.articles.review_services import (
+    final_review_article,
+    initial_review_article,
+    submit_article_for_initial_review,
+)
 from ai_author_forum.images.models import CustomImage
 from ai_author_forum.journals.models import (
     IssueArticle,
     Journal,
+    JournalCategory,
+    JournalEditorAssignment,
     PublicationIssue,
     PublicationIssueScope,
     PublicationIssueStatus,
@@ -23,15 +33,20 @@ from ai_author_forum.journals.models import (
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.site_settings.models import (
     ColumnEmptyBehavior,
+    NavigationEntryStatus,
     NavigationItem,
     NavigationTargetType,
 )
 from ai_author_forum.site_settings.navigation import ensure_main_navigation_set
-from ai_author_forum.static_publish.providers import PublishTarget
+from ai_author_forum.static_publish.providers import (
+    PublishTarget,
+    WagtailPageTargetProvider,
+)
 from ai_author_forum.static_publish.readiness import (
     check_content_readiness,
     check_homepage_readiness,
 )
+from ai_author_forum.users.services import SUPER_ADMIN_GROUP_NAME
 
 
 def uploaded_image(name="readiness.png"):
@@ -65,6 +80,49 @@ class ContentReadinessTests(TestCase):
             slug="readiness-journal",
             az_group="R",
         )
+        self.category = JournalCategory.objects.create(
+            journal=self.journal,
+            name="Readiness category",
+            code="readiness-category",
+            slug="readiness-category",
+        )
+        user_model = get_user_model()
+        self.admin = user_model.objects.create_user(
+            username="readiness-admin",
+            email="readiness-admin@example.com",
+            display_name="Readiness Admin",
+            is_staff=True,
+        )
+        self.admin.groups.add(
+            Group.objects.get_or_create(name=SUPER_ADMIN_GROUP_NAME)[0]
+        )
+        self.chief = user_model.objects.create_user(
+            username="readiness-review-chief",
+            email="readiness-review-chief@example.com",
+            display_name="Readiness Review Chief",
+            is_staff=True,
+        )
+        self.executive = user_model.objects.create_user(
+            username="readiness-review-executive",
+            email="readiness-review-executive@example.com",
+            display_name="Readiness Review Executive",
+            is_staff=True,
+        )
+        for user, role in (
+            (self.chief, JournalEditorAssignment.Role.CHIEF_EDITOR),
+            (self.executive, JournalEditorAssignment.Role.EXECUTIVE_EDITOR),
+        ):
+            JournalEditorAssignment.objects.create(
+                user=user,
+                journal=self.journal,
+                role=role,
+                responsibilities=list(JournalEditorAssignment.ALL_RESPONSIBILITIES),
+                public_name=user.display_name,
+                public_role_label=(
+                    JournalEditorAssignment.DEFAULT_PUBLIC_ROLE_LABELS[role]
+                ),
+                created_by=self.admin,
+            )
 
     def create_article(
         self,
@@ -73,6 +131,7 @@ class ContentReadinessTests(TestCase):
         review_status=ArticlePage.ReviewStatus.APPROVED,
         journal=None,
         image=None,
+        image_alt="",
     ):
         slug = title.lower().replace(" ", "-")
         article = ArticlePage(
@@ -85,11 +144,49 @@ class ContentReadinessTests(TestCase):
             article_type=ArticlePage.ArticleType.NEWS,
             primary_journal=journal or self.journal,
             keywords="readiness",
-            review_status=review_status,
             featured_image=image,
+            featured_image_alt=image_alt,
         )
         Page.get_first_root_node().add_child(instance=article)
-        article.save_revision().publish()
+        ArticleCategoryAssignment.objects.create(
+            article=article,
+            category=self.category,
+            is_primary=True,
+        )
+        revision = article.save_revision(
+            user=self.chief,
+            bypass_article_permission_check=True,
+        )
+        if review_status == ArticlePage.ReviewStatus.APPROVED:
+            submit_article_for_initial_review(
+                actor=self.chief,
+                article=article,
+                expected_state=ArticlePage.ReviewStatus.DRAFT,
+                expected_revision_id=revision.pk,
+                request_id=uuid4(),
+                comment="Readiness fixture submission.",
+            )
+            article.refresh_from_db()
+            initial_review_article(
+                actor=self.executive,
+                article=article,
+                action="approve",
+                comment="Readiness fixture initial approval.",
+                expected_state=ArticlePage.ReviewStatus.SUBMITTED,
+                expected_revision_id=revision.pk,
+                request_id=uuid4(),
+            )
+            article.refresh_from_db()
+            final_review_article(
+                actor=self.chief,
+                article=article,
+                action="approve",
+                comment="Readiness fixture final approval.",
+                expected_state=ArticlePage.ReviewStatus.PENDING_FINAL,
+                expected_revision_id=revision.pk,
+                request_id=uuid4(),
+            )
+            article.refresh_from_db()
         return article
 
     def place(self, article):
@@ -109,6 +206,97 @@ class ContentReadinessTests(TestCase):
         self.assertIn("column_minimum_not_met", self.finding_codes(result))
         self.assertEqual(result.checked_columns, 1)
         self.assertEqual(result.checked_placements, 0)
+
+    def test_empty_journal_columns_and_issues_do_not_block_first_publish(self):
+        journal_items = NavigationItem.objects.filter(
+            group__navigation_set__journal=self.journal
+        )
+        journal_items.update(
+            is_active=True,
+            is_visible=True,
+            status=NavigationEntryStatus.ACTIVE,
+        )
+        column_items = journal_items.filter(
+            target_type=NavigationTargetType.CONTENT_COLUMN
+        )
+        self.assertTrue(column_items.exists())
+
+        targets = [
+            target
+            for target in WagtailPageTargetProvider().get_targets()
+            if self.journal.pk in target.dependencies.get("journal_ids", [])
+        ]
+        self.assertTrue(targets)
+        result = check_content_readiness(
+            targets=targets,
+            journal_ids=[self.journal.pk],
+        )
+        blocker_codes = {finding.code for finding in result.blockers}
+        warning_codes = {finding.code for finding in result.warnings}
+
+        for code in (
+            "column_minimum_not_met",
+            "column_hidden_until_minimum",
+            "current_issue_missing",
+            "issue_archive_empty",
+        ):
+            with self.subTest(code=code):
+                self.assertNotIn(code, blocker_codes)
+                self.assertNotIn(code, warning_codes)
+        self.assertTrue(result.is_ready, result.to_dict())
+
+    def test_active_journal_requires_exactly_one_effective_chief_editor(self):
+        journal = Journal.objects.create(
+            name="Readiness Journal Without Chief",
+            slug="readiness-journal-without-chief",
+            az_group="R",
+        )
+        result = check_content_readiness()
+        invalid_journal_ids = {
+            finding.target_id
+            for finding in result.blockers
+            if finding.code == "active_journal_chief_invalid"
+        }
+        self.assertIn(str(journal.pk), invalid_journal_ids)
+
+        chief = get_user_model().objects.create_user(
+            username="readiness-chief",
+            email="readiness-chief@example.com",
+            display_name="Readiness Chief",
+        )
+        JournalEditorAssignment.objects.create(
+            user=chief,
+            journal=journal,
+            role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            responsibilities=list(JournalEditorAssignment.ALL_RESPONSIBILITIES),
+            public_name=chief.display_name,
+            public_role_label="主编",
+            created_by=chief,
+        )
+
+        result = check_content_readiness()
+        journal_findings = {
+            finding.code
+            for finding in result.blockers
+            if finding.target_id == str(journal.pk)
+        }
+        self.assertNotIn("active_journal_chief_invalid", journal_findings)
+
+    def test_journal_scoped_readiness_ignores_other_active_journals(self):
+        other = Journal.objects.create(
+            name="Unrelated Journal Without Chief",
+            slug="unrelated-journal-without-chief",
+            az_group="U",
+        )
+
+        result = check_content_readiness(journal_ids=[self.journal.pk])
+
+        scoped_journal_ids = {
+            finding.target_id
+            for finding in result.blockers
+            if finding.code == "active_journal_chief_invalid"
+        }
+        self.assertNotIn(str(other.pk), scoped_journal_ids)
 
     def test_non_core_hide_navigation_policy_warns_without_blocking(self):
         self.item.code = "non-core-news"
@@ -134,6 +322,28 @@ class ContentReadinessTests(TestCase):
             {finding.code for finding in result.warnings},
             result.to_dict(),
         )
+
+    def test_non_public_navigation_items_do_not_trigger_issue_readiness(self):
+        current_issue = NavigationItem.objects.get(
+            group__navigation_set=self.item.group.navigation_set,
+            target_type=NavigationTargetType.CURRENT_ISSUE,
+        )
+        states = (
+            (NavigationEntryStatus.HIDDEN, False),
+            (NavigationEntryStatus.ARCHIVED, False),
+            (NavigationEntryStatus.ACTIVE, False),
+        )
+
+        for status, is_visible in states:
+            with self.subTest(status=status, is_visible=is_visible):
+                NavigationItem.objects.filter(pk=current_issue.pk).update(
+                    status=status,
+                    is_visible=is_visible,
+                    is_active=True,
+                )
+                result = check_content_readiness()
+                self.assertNotIn("current_issue_missing", self.finding_codes(result))
+                self.assertEqual(result.checked_navigation_items, 1)
 
     def test_unapproved_placed_article_blocks_publish(self):
         article = self.create_article(
@@ -250,10 +460,11 @@ class ContentReadinessTests(TestCase):
                 title=f"{title} image",
                 file=uploaded_image(f"{title.lower().replace(' ', '-')}.png"),
             )
-        article = self.create_article(title=title, image=featured_image)
-        article.featured_image_alt = alt
-        article.save_revision().publish()
-        return article
+        return self.create_article(
+            title=title,
+            image=featured_image,
+            image_alt=alt,
+        )
 
     def place_on_homepage(self, article, slot_code, **overrides):
         values = {

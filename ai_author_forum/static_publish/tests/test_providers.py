@@ -3,6 +3,7 @@ from io import BytesIO
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -29,12 +30,26 @@ from ai_author_forum.static_publish.providers import (
     WagtailPageTargetProvider,
     output_path_for_url,
 )
+from ai_author_forum.static_publish.services import get_journal_publish_paths
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class WagtailPageTargetProviderTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.root = HomePage.objects.first() or Page.get_first_root_node()
+        cls.admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="provider-test-admin",
+                email="provider-test-admin@example.com",
+                display_name="Provider Test Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
         cls.journal = Journal.objects.create(
             name="Provider Journal",
             slug="provider-journal",
@@ -51,10 +66,11 @@ class WagtailPageTargetProviderTests(TestCase):
             article_type=ArticlePage.ArticleType.NEWS,
             primary_journal=cls.journal,
             keywords="provider",
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         cls.root.add_child(instance=cls.article)
         cls.article.save_revision().publish()
+        formally_approve_test_article(cls.article, actor=cls.admin)
+        cls.article.refresh_from_db()
         cls.category = JournalCategory.objects.create(
             journal=cls.journal,
             name="Provider Category",
@@ -80,11 +96,11 @@ class WagtailPageTargetProviderTests(TestCase):
             article_type=article_type,
             primary_journal=self.journal,
             keywords="provider",
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         self.root.add_child(instance=article)
         article.save_revision().publish()
-        return article
+        formally_approve_test_article(article, actor=self.admin)
+        return ArticlePage.objects.get(pk=article.pk)
 
     def test_target_discovery_uses_one_publication_time_snapshot(self):
         provider = WagtailPageTargetProvider()
@@ -197,6 +213,19 @@ class WagtailPageTargetProviderTests(TestCase):
                 )
                 self.assertTrue(by_url[english_url].source.endswith(":lang:en"))
                 self.assertTrue(by_url[english_url].target_id.endswith(":lang:en"))
+
+    def test_journal_publish_paths_include_public_directory_in_both_languages(self):
+        paths = set(get_journal_publish_paths(self.journal))
+
+        self.assertTrue(
+            {
+                "journals/index.html",
+                "en/journals/index.html",
+                f"journals/{self.journal.slug}/index.html",
+                f"en/journals/{self.journal.slug}/index.html",
+            }.issubset(paths),
+            paths,
+        )
 
     def test_navigation_dependencies_follow_main_and_journal_scope(self):
         ArticlePlacement.objects.create(
@@ -385,11 +414,8 @@ class WagtailPageTargetProviderTests(TestCase):
             slug="second-provider-category",
             path_cache="/second-provider-category/",
         )
-        assignment = ArticleCategoryAssignment.objects.create(
-            article=self.article,
-            category=self.category,
-            is_primary=True,
-        )
+        assignment = self.article.category_assignments.get(is_primary=True)
+        live_category = assignment.category
         self.article.save_revision().publish()
         ArticleCategoryAssignment.objects.filter(pk=assignment.pk).update(
             category=second_category
@@ -403,7 +429,7 @@ class WagtailPageTargetProviderTests(TestCase):
 
         self.assertEqual(
             provider._article_dependencies(article)["category_ids"],
-            [self.category.pk],
+            [live_category.pk],
         )
 
     def test_article_dependency_preparation_uses_bounded_queries(self):

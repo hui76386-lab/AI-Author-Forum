@@ -187,7 +187,7 @@ class WagtailPageTargetProvider:
             "latest_ai_article",
         )
         placements = list(
-            ArticlePlacement.objects.available(at=publication_time)
+            ArticlePlacement.objects.available_for_static_release(at=publication_time)
             .filter(
                 target_type=ArticlePlacement.TargetType.MAIN_SITE,
                 target_slug="",
@@ -394,6 +394,7 @@ class WagtailPageTargetProvider:
                 )
             )
 
+        journals = list(get_active_journals())
         targets.append(
             PublishTarget(
                 "/journals/",
@@ -403,11 +404,11 @@ class WagtailPageTargetProvider:
                 canonical_path="/journals/",
                 dependencies={
                     **_empty_dependencies(),
+                    "journal_ids": [journal.pk for journal in journals],
                     **self._navigation_dependencies(path="/journals/"),
                 },
             )
         )
-        journals = list(get_active_journals())
         targets.extend(self._journal_targets(journals))
 
         targets.extend(self._category_targets(publication_time=publication_time))
@@ -432,7 +433,7 @@ class WagtailPageTargetProvider:
             for page in get_static_info_pages()
         )
         searchable_articles = list(
-            get_approved_articles(at=publication_time)
+            get_approved_articles(at=publication_time, include_active_release=True)
             .select_related("primary_journal", "live_revision")
             .order_by("pk")
         )
@@ -450,7 +451,7 @@ class WagtailPageTargetProvider:
         )
         searchable_article_ids = [article.pk for article in searchable_articles]
         search_placement_ids = list(
-            ArticlePlacement.objects.available(at=publication_time)
+            ArticlePlacement.objects.available_for_static_release(at=publication_time)
             .filter(article_id__in=searchable_article_ids)
             .order_by("pk")
             .values_list("pk", flat=True)
@@ -566,7 +567,7 @@ class WagtailPageTargetProvider:
 
         placements_by_category = defaultdict(list)
         placement_rows = list(
-            ArticlePlacement.objects.available(at=publication_time)
+            ArticlePlacement.objects.available_for_static_release(at=publication_time)
             .filter(
                 target_type=ArticlePlacement.TargetType.CATEGORY,
                 target_category_id__in=[category.pk for category in all_categories],
@@ -675,7 +676,7 @@ class WagtailPageTargetProvider:
         ]
         placements_by_target = defaultdict(list)
         for row in (
-            ArticlePlacement.objects.available(at=publication_time)
+            ArticlePlacement.objects.available_for_static_release(at=publication_time)
             .filter(
                 slot__code__in=(
                     "column_featured",

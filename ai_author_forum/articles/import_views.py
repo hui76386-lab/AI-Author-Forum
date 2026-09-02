@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from django.contrib import messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import (
     FileResponse,
     Http404,
@@ -28,8 +28,12 @@ from ai_author_forum.journals.publishing import (
     start_article_import_preview_process,
     start_article_import_process,
 )
+from ai_author_forum.site_settings.access_control import (
+    can_manage_journal,
+    filter_accessible_journals,
+    is_super_admin,
+)
 from ai_author_forum.site_settings.models import AuditAction, AuditStatus
-from ai_author_forum.site_settings.permissions import is_global_admin
 from ai_author_forum.site_settings.services import record_audit_event
 from ai_author_forum.utils.admin_ui import (
     is_english_admin,
@@ -92,7 +96,7 @@ def _configure_english_article_import_forms(form, confirm_form, target_journal):
 
     allow = confirm_form.fields["allow_suspicious_text"]
     allow.label = "Process suspicious text unchanged"
-    allow.help_text = "Available only to the project lead or a superuser."
+    allow.help_text = "Available only to a business super administrator."
     confirm_form.fields["override_reason"].label = "Override reason"
 
 
@@ -105,8 +109,17 @@ def _import_permission_denied(request):
 def _target_journal(request):
     value = request.GET.get("journal")
     if not value:
+        if not is_super_admin(request.user):
+            raise PermissionDenied("子期刊编辑只能从本刊工作区进入文章导入。")
         return None
-    return get_object_or_404(Journal, pk=value, status=JournalStatus.ACTIVE)
+    journals = filter_accessible_journals(
+        request.user,
+        Journal.objects.filter(status=JournalStatus.ACTIVE),
+    )
+    journal = get_object_or_404(journals, pk=value)
+    if not can_manage_journal(request.user, journal, "article_maintenance"):
+        raise PermissionDenied("无权向该子期刊导入文章。")
+    return journal
 
 
 def _job_context(job):
@@ -259,7 +272,7 @@ def article_import_dashboard(request):
     recent = ArticleImportJob.objects.select_related(
         "target_journal", "operator"
     ).order_by("-created_at")
-    if not is_global_admin(request.user):
+    if not is_super_admin(request.user):
         recent = recent.filter(operator=request.user)
     if target_journal:
         recent = recent.filter(target_journal=target_journal)
@@ -390,11 +403,11 @@ def article_import_template(request):
     scope = request.GET.get("scope", ArticleImportScope.GLOBAL)
     journal_slug = ""
     if scope == ArticleImportScope.JOURNAL:
-        journal = get_object_or_404(
-            Journal, pk=request.GET.get("journal"), status=JournalStatus.ACTIVE
-        )
+        journal = _target_journal(request)
         journal_slug = journal.slug
     else:
+        if not is_super_admin(request.user):
+            raise PermissionDenied("子期刊编辑不能下载全局导入模板。")
         scope = ArticleImportScope.GLOBAL
     format_name = request.GET.get("format", "xlsx").lower()
     if format_name == "csv":

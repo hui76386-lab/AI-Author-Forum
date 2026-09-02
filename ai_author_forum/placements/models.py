@@ -1,3 +1,6 @@
+import uuid
+
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -76,16 +79,35 @@ class LayoutSlot(models.Model):
 
 
 class ArticlePlacementQuerySet(models.QuerySet):
-    def available(self, at=None):
+    def _available(self, *, at, include_active_release):
+        from ai_author_forum.articles.models import ArticleReviewRecord
         from ai_author_forum.journals.models import JournalStatus
 
-        at = at or timezone.now()
+        final_approval = ArticleReviewRecord.objects.filter(
+            article_id=models.OuterRef("article_id"),
+            action=ArticleReviewRecord.Action.FINAL_APPROVE,
+            revision_id=models.OuterRef("article__approved_version_id"),
+        )
+        queryset = self.annotate(has_final_approval=models.Exists(final_approval))
+        approval_filter = Q(has_final_approval=True)
+        if include_active_release:
+            from ai_author_forum.static_publish.models import StaticManifest
+
+            active_versions = StaticManifest.objects.filter(is_active=True).values(
+                "version"
+            )
+            approval_filter |= Q(
+                article__publication_status="published",
+                article__published_version__in=active_versions,
+            )
         return (
-            self.filter(
+            queryset.filter(
+                approval_filter,
                 is_active=True,
                 slot__is_active=True,
                 article__primary_journal__status=JournalStatus.ACTIVE,
                 article__review_status__in=("approved", "published"),
+                article__approved_version__isnull=False,
             )
             .filter(
                 Q(starts_at__isnull=True) | Q(starts_at__lte=at),
@@ -94,7 +116,6 @@ class ArticlePlacementQuerySet(models.QuerySet):
             .filter(
                 ~Q(target_type="journal")
                 | Q(article__primary_journal__slug=F("target_slug"))
-                | Q(article__related_journals__slug=F("target_slug"))
             )
             .filter(
                 ~Q(target_type="category")
@@ -102,6 +123,18 @@ class ArticlePlacementQuerySet(models.QuerySet):
             )
             .distinct()
         )
+
+    def available(self, at=None):
+        """Return placements backed by a current chief-editor final approval."""
+        return self._available(at=at or timezone.now(), include_active_release=False)
+
+    def available_for_static_release(self, at=None):
+        """Keep unchanged content from the active immutable release visible.
+
+        The carry-forward branch never admits a new article: it requires the
+        article's already-published release to be the active manifest version.
+        """
+        return self._available(at=at or timezone.now(), include_active_release=True)
 
     def for_target(self, target_type, target_slug=""):
         return self.filter(
@@ -330,6 +363,10 @@ class ArticlePlacement(models.Model):
             )
 
         if self.article_id:
+            from ai_author_forum.articles.review_services import (
+                has_valid_final_approval,
+            )
+
             allowed_statuses = {
                 self.article.ReviewStatus.APPROVED,
                 self.article.ReviewStatus.PUBLISHED,
@@ -338,12 +375,15 @@ class ArticlePlacement(models.Model):
                 raise ValidationError(
                     {"article": "Only approved articles can be placed."}
                 )
+            if not self.article.approved_version_id or not has_valid_final_approval(
+                self.article, self.article.approved_version
+            ):
+                raise ValidationError(
+                    {"article": "文章缺少同 revision 的主编辑终审通过记录。"}
+                )
             if self.target_type == self.TargetType.JOURNAL and self.target_slug:
                 belongs_to_target = (
                     self.article.primary_journal.slug == self.target_slug
-                    or self.article.related_journals.filter(
-                        slug=self.target_slug
-                    ).exists()
                 )
                 if not belongs_to_target:
                     raise ValidationError(
@@ -490,3 +530,283 @@ class ArticlePlacement(models.Model):
     @property
     def display_image(self):
         return self.override_image
+
+
+class PlacementBatch(models.Model):
+    """Persistent workflow state for placement creation and maintenance.
+
+    ``ArticlePlacement`` remains the only public placement fact.  A batch is a
+    durable command/draft so a user can safely leave a workflow and return to
+    it without reserving slot capacity or publishing anything.
+    """
+
+    class Mode(models.TextChoices):
+        SINGLE = "single", "Single placement"
+        JOURNAL_CURATION = "journal_curation", "Journal curation"
+        BULK_CREATE = "bulk_create", "Bulk create"
+        BULK_MAINTENANCE = "bulk_maintenance", "Bulk maintenance"
+
+    class Operation(models.TextChoices):
+        CREATE = "create", "Create"
+        DEACTIVATE = "deactivate", "Deactivate"
+        REACTIVATE = "reactivate", "Reactivate"
+        UPDATE_SCHEDULE = "update_schedule", "Update schedule"
+        PIN = "pin", "Pin"
+        UNPIN = "unpin", "Unpin"
+        MOVE = "move", "Move"
+        COPY = "copy", "Copy"
+        CANCEL_FUTURE = "cancel_future", "Cancel future"
+        REPUBLISH = "republish", "Republish"
+        EXPORT = "export", "Export"
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        VALIDATING = "validating", "Validating"
+        READY = "ready", "Ready"
+        EXECUTING = "executing", "Executing"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    class PublishStatus(models.TextChoices):
+        NOT_STARTED = "not_started", "Not started"
+        QUEUED = "queued", "Queued"
+        PENDING_APPROVAL = "pending_approval", "Pending approval"
+        PUBLISHING = "publishing", "Publishing"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+        ROLLED_BACK = "rolled_back", "Rolled back"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    batch_number = models.CharField(max_length=48, unique=True, editable=False)
+    mode = models.CharField(max_length=24, choices=Mode.choices)
+    operation = models.CharField(max_length=24, choices=Operation.choices)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.DRAFT
+    )
+    current_step = models.CharField(max_length=24, default="article")
+    strict_mode = models.BooleanField(default=True)
+    target_type = models.CharField(
+        max_length=20,
+        choices=ArticlePlacement.TargetType.choices,
+        default=ArticlePlacement.TargetType.JOURNAL,
+    )
+    target_slug = models.SlugField(max_length=120, blank=True)
+    target_category = models.ForeignKey(
+        "journals.JournalCategory",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="placement_batches",
+    )
+    slot = models.ForeignKey(
+        LayoutSlot,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="batches",
+    )
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    is_pinned = models.BooleanField(default=False)
+    options = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_placement_batches",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="updated_placement_batches",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    executed_at = models.DateTimeField(null=True, blank=True)
+    success_count = models.PositiveIntegerField(default=0)
+    failure_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(default=0)
+    publish_status = models.CharField(
+        max_length=20,
+        choices=PublishStatus.choices,
+        default=PublishStatus.NOT_STARTED,
+    )
+    publish_job = models.ForeignKey(
+        "static_publish.StaticPublishJob",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="placement_batches",
+    )
+
+    class Meta:
+        ordering = ("-updated_at", "-created_at")
+        indexes = (
+            models.Index(
+                fields=("status", "updated_at"), name="placement_batch_status_idx"
+            ),
+            models.Index(
+                fields=("created_by", "updated_at"), name="placement_batch_actor_idx"
+            ),
+        )
+
+    def __str__(self):
+        return self.batch_number or str(self.pk)
+
+    @property
+    def is_executed(self):
+        # A failed preflight is still a draft: users must be able to fix it,
+        # re-run validation, or delete it.  Execution failures set executed_at
+        # explicitly so the immutable command history remains distinguishable.
+        return (
+            self.status
+            in {
+                self.Status.SUCCEEDED,
+                self.Status.CANCELLED,
+            }
+            or self.executed_at is not None
+        )
+
+    def clean(self):
+        super().clean()
+        self.target_slug = normalize_target_slug(self.target_slug)
+        if self.ends_at and self.starts_at and self.ends_at <= self.starts_at:
+            raise ValidationError(
+                {"ends_at": "End time must be later than start time."}
+            )
+        if self.mode == self.Mode.BULK_CREATE and not self.strict_mode:
+            raise ValidationError(
+                {"strict_mode": "Bulk placement always uses strict mode."}
+            )
+        if (
+            self.target_type == ArticlePlacement.TargetType.MAIN_SITE
+            and self.target_slug
+        ):
+            raise ValidationError(
+                {"target_slug": "Main-site target must not have a slug."}
+            )
+        if self.target_type == ArticlePlacement.TargetType.CATEGORY:
+            if not self.target_category_id:
+                raise ValidationError(
+                    {"target_category": "Category target requires a category."}
+                )
+        elif self.target_category_id:
+            raise ValidationError(
+                {"target_category": "Only category targets may use a category."}
+            )
+
+    def save(self, *args, **kwargs):
+        self.target_slug = normalize_target_slug(self.target_slug)
+        if not self.batch_number:
+            self.batch_number = (
+                f"PB-{timezone.now():%Y%m%d}-{uuid.uuid4().hex[:8].upper()}"
+            )
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.is_executed:
+            raise ValidationError("Executed placement batches cannot be deleted.")
+        return super().delete(*args, **kwargs)
+
+
+class PlacementBatchItem(models.Model):
+    class ValidationStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PASSED = "passed", "Passed"
+        FAILED = "failed", "Failed"
+
+    class ExecutionStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        CREATED = "created", "Created"
+        UPDATED = "updated", "Updated"
+        SKIPPED = "skipped", "Skipped"
+        FAILED = "failed", "Failed"
+
+    batch = models.ForeignKey(
+        PlacementBatch, on_delete=models.CASCADE, related_name="items"
+    )
+    article = models.ForeignKey(
+        "articles.ArticlePage",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="placement_batch_items",
+    )
+    placement = models.ForeignKey(
+        ArticlePlacement,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="batch_items",
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+    validation_status = models.CharField(
+        max_length=12,
+        choices=ValidationStatus.choices,
+        default=ValidationStatus.PENDING,
+    )
+    execution_status = models.CharField(
+        max_length=12, choices=ExecutionStatus.choices, default=ExecutionStatus.PENDING
+    )
+    error_code = models.CharField(max_length=64, blank=True)
+    error_message = models.TextField(blank=True)
+    before_snapshot = models.JSONField(default=dict, blank=True)
+    after_snapshot = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("sort_order", "pk")
+        constraints = (
+            models.UniqueConstraint(
+                fields=("batch", "article"),
+                condition=Q(article__isnull=False),
+                name="placement_batch_unique_article",
+            ),
+            models.UniqueConstraint(
+                fields=("batch", "placement"),
+                condition=Q(placement__isnull=False),
+                name="placement_batch_unique_placement",
+            ),
+        )
+
+    def __str__(self):
+        return f"{self.batch} / {self.article or self.placement}"
+
+
+class JournalUserPreference(models.Model):
+    """Per-user journal favourites and recency.  It never changes Journal."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="journal_preferences",
+    )
+    journal = models.ForeignKey(
+        "journals.Journal", on_delete=models.CASCADE, related_name="user_preferences"
+    )
+    is_favorite = models.BooleanField(default=False)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    usage_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = (
+            models.UniqueConstraint(
+                fields=("user", "journal"), name="placement_user_journal_pref"
+            ),
+        )
+        indexes = (
+            models.Index(
+                fields=("user", "is_favorite"), name="placement_pref_favorite_idx"
+            ),
+            models.Index(
+                fields=("user", "last_used_at"), name="placement_pref_recent_idx"
+            ),
+        )
+
+    def __str__(self):
+        return f"{self.user} / {self.journal}"

@@ -46,8 +46,10 @@ def legacy_language_set(request, language_code):
 
 
 core_urlpatterns = [
+    path("livez/", health_views.livez, name="livez"),
     path("healthz/", health_views.healthz, name="healthz"),
     path("readyz/", health_views.readyz, name="readyz"),
+    path("account/", include("ai_author_forum.users.account_urls")),
     path("django-admin/", admin.site.urls),
     path("admin/", include(wagtailadmin_urls)),
     path("documents/", include(wagtaildocs_urls)),
@@ -57,6 +59,15 @@ core_urlpatterns = [
         name="legacy_admin_language_set",
     ),
     path("i18n/", include("django.conf.urls.i18n")),
+    path("author/", include("ai_author_forum.articles.author_urls")),
+    path(
+        "reader-api/v1/",
+        include("ai_author_forum.reader_interactions.urls"),
+    ),
+    path(
+        "reader-api/internal/v1/",
+        include("ai_author_forum.reader_interactions.internal_urls"),
+    ),
 ]
 
 frontend_urlpatterns = [

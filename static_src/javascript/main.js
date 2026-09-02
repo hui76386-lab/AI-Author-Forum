@@ -2,6 +2,7 @@ import ThemeToggle from "./components/theme-toggle";
 import HeaderSearchPanel from "./components/header-search-panel";
 import MobileMenu from "./components/mobile-menu";
 import SkipLink from './components/skip-link';
+import ReaderInteractionsBootstrap from './reader-interactions/bootstrap';
 
 import '../sass/main.scss';
 
@@ -17,4 +18,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initComponent(SkipLink);
     initComponent(HeaderSearchPanel);
     initComponent(MobileMenu);
+    initComponent(ReaderInteractionsBootstrap);
 });

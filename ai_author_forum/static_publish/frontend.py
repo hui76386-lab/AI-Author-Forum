@@ -33,18 +33,16 @@ from ai_author_forum.site_settings.navigation import (
     get_active_navigation_set,
     get_navigation_context,
 )
+from ai_author_forum.static_publish.render_context import get_static_release_version
 from ai_author_forum.utils.i18n import article_type_label, localized_journal_name
 from ai_author_forum.utils.public_i18n import (
+    is_english,
     localized_article_abstract,
-    localized_article_authors,
     localized_article_ai_coauthors,
+    localized_article_authors,
     localized_article_keywords,
     localized_article_title,
-    localized_journal_description,
-    localized_journal_intro,
-    localized_journal_seo_title,
     localized_navigation_label,
-    is_english,
     localized_static_page,
     localized_static_section,
 )
@@ -506,28 +504,56 @@ def get_journal_index_context():
 
 def get_journal_page_context(slug, at=None):
     try:
-        context = get_journal_context(slug, at=at)
+        context = get_journal_context(slug, at=at, include_active_release=True)
     except Journal.DoesNotExist as exc:
         raise Http404("Journal not found") from exc
 
     journal = context["journal"]
     target = ArticlePlacement.TargetType.JOURNAL
     highlighted_placements = list(
-        get_slot_items("journal_highlights", target, slug, at=at)
+        get_slot_items(
+            "journal_highlights", target, slug, at=at, include_active_release=True
+        )
     )
-    featured_placements = list(get_slot_items("journal_featured", target, slug, at=at))
+    featured_placements = list(
+        get_slot_items(
+            "journal_featured", target, slug, at=at, include_active_release=True
+        )
+    )
+    hero_placements = list(
+        get_slot_items("journal_hero", target, slug, at=at, include_active_release=True)
+    )
+    article_placements = _deduplicate_placements(
+        highlighted_placements,
+        featured_placements,
+        list(
+            get_slot_items(
+                "journal_latest", target, slug, at=at, include_active_release=True
+            )
+        ),
+    )
+    hero_article_ids = {placement.article_id for placement in hero_placements}
     context.update(
         {
-            "hero_placements": list(
-                get_slot_items("journal_hero", target, slug, at=at)
-            ),
+            "hero_placements": hero_placements,
             "featured_placements": _deduplicate_placements(
                 highlighted_placements,
                 featured_placements,
             ),
             "latest_placements": list(
-                get_slot_items("journal_latest", target, slug, at=at)
+                get_slot_items(
+                    "journal_latest",
+                    target,
+                    slug,
+                    at=at,
+                    include_active_release=True,
+                )
             ),
+            "article_placements": [
+                placement
+                for placement in article_placements
+                if placement.article_id not in hero_article_ids
+            ],
             "managed_navigation": _journal_navigation(
                 journal, f"/journals/{journal.slug}/"
             ),
@@ -556,13 +582,31 @@ def get_section_page_context(slug, at=None):
         "section": section,
         "page_title": section["title"],
         "top_story_placements": list(
-            get_slot_items("section_top_story", target, section["slug"], at=at)
+            get_slot_items(
+                "section_top_story",
+                target,
+                section["slug"],
+                at=at,
+                include_active_release=True,
+            )
         ),
         "article_placements": list(
-            get_slot_items("section_article_list", target, section["slug"], at=at)
+            get_slot_items(
+                "section_article_list",
+                target,
+                section["slug"],
+                at=at,
+                include_active_release=True,
+            )
         ),
         "sidebar_placements": list(
-            get_slot_items("section_sidebar", target, section["slug"], at=at)
+            get_slot_items(
+                "section_sidebar",
+                target,
+                section["slug"],
+                at=at,
+                include_active_release=True,
+            )
         ),
         "managed_navigation": _main_navigation(current_path),
     }
@@ -605,9 +649,7 @@ def get_managed_navigation_info_context(*, internal_path, journal_slug=None):
     if item is None or (not item.is_visible and not item.allow_direct_access):
         raise Http404("Managed navigation page not found")
 
-    item_label = localized_navigation_label(
-        item.managed_code, fallback=item.label
-    )
+    item_label = localized_navigation_label(item.managed_code, fallback=item.label)
     page_title = item_label
     scope_label = "AI Author Forum"
     summary = "Controlled information for this navigation destination."
@@ -618,7 +660,11 @@ def get_managed_navigation_info_context(*, internal_path, journal_slug=None):
     sections = ("Editorially approved information", "Static publishing and audit trail")
     if journal:
         journal_name = localized_journal_name(journal)
-        page_title = f"{journal_name}：{item_label}" if not is_english() else f"{journal_name}: {item_label}"
+        page_title = (
+            f"{journal_name}：{item_label}"
+            if not is_english()
+            else f"{journal_name}: {item_label}"
+        )
         scope_label = journal_name
         summary = journal.seo_description or (
             f"Information and resources for {journal_name}."
@@ -649,15 +695,6 @@ def get_managed_navigation_info_context(*, internal_path, journal_slug=None):
             "Submission and AI-use disclosure",
             "Editorial review and approval route",
             "Corrections, image, and citation integrity",
-        )
-
-    if not is_english():
-        summary = f"{scope_label}的{item_label}及相关编辑与出版信息。"
-        body = "本页面由受控导航配置生成，展示经过审核的编辑范围、出版资源和当前内容。"
-        sections = (
-            "编辑范围与责任",
-            "出版资源与当前内容",
-            "编辑联系与静态发布流程",
         )
 
     info_page = {
@@ -764,10 +801,42 @@ def get_content_column_context(
         raise Http404("Article year filtering is disabled for this column")
     target = ArticlePlacement.TargetType.SECTION
     target_slug = item.placement_target_slug
-    featured_all = list(get_slot_items("column_featured", target, target_slug, at=at))
-    secondary_all = list(get_slot_items("column_secondary", target, target_slug, at=at))
-    article_list_all = list(get_slot_items("column_list", target, target_slug, at=at))
-    sidebar_all = list(get_slot_items("column_sidebar", target, target_slug, at=at))
+    featured_all = list(
+        get_slot_items(
+            "column_featured",
+            target,
+            target_slug,
+            at=at,
+            include_active_release=True,
+        )
+    )
+    secondary_all = list(
+        get_slot_items(
+            "column_secondary",
+            target,
+            target_slug,
+            at=at,
+            include_active_release=True,
+        )
+    )
+    article_list_all = list(
+        get_slot_items(
+            "column_list",
+            target,
+            target_slug,
+            at=at,
+            include_active_release=True,
+        )
+    )
+    sidebar_all = list(
+        get_slot_items(
+            "column_sidebar",
+            target,
+            target_slug,
+            at=at,
+            include_active_release=True,
+        )
+    )
     filter_source = featured_all + secondary_all + article_list_all + sidebar_all
 
     type_options = []
@@ -775,7 +844,7 @@ def get_content_column_context(
         value = placement.article.article_type
         option = {
             "value": slugify(value),
-            "label": article_type_label(value),
+            "label": placement.article.get_article_type_display(),
         }
         if option not in type_options:
             type_options.append(option)
@@ -836,15 +905,23 @@ def get_content_column_context(
         year=year,
         page_number=page_number,
     )
+    navigation_item_label = (
+        localized_navigation_label(item.managed_code, fallback=item.label)
+        if is_english()
+        else item.label
+    )
+    page_title = config.seo_title or item.label
+    if is_english():
+        page_title = localized_navigation_label(
+            item.managed_code,
+            fallback=page_title,
+        )
     return {
         "journal": journal,
         "navigation_item": item,
+        "navigation_item_label": navigation_item_label,
         "column_config": config,
-        "navigation_item_label": localized_navigation_label(
-            item.managed_code, fallback=item.label
-        ),
-        "page_title": config.seo_title
-        or localized_navigation_label(item.managed_code, fallback=item.label),
+        "page_title": page_title,
         "featured_placements": featured[:1],
         "secondary_placements": secondary[:3],
         "article_placements": paged_articles,
@@ -1058,7 +1135,7 @@ def get_static_search_context(at=None):
         if str(keyword).strip()
     )
     searchable_articles = (
-        get_approved_articles(at=at)
+        get_approved_articles(at=at, include_active_release=True)
         .select_related("primary_journal")
         .order_by("-first_published_at", "-pk")
     )
@@ -1072,6 +1149,7 @@ def get_static_search_context(at=None):
                 ArticlePlacement.TargetType.SEARCH,
                 "search",
                 at=at,
+                include_active_release=True,
             )
         ),
         "SEO_NOINDEX": False,
@@ -1081,7 +1159,7 @@ def get_static_search_context(at=None):
 
 def get_static_article_context(slug, at=None):
     try:
-        context = get_article_context(slug, at=at)
+        context = get_article_context(slug, at=at, include_active_release=True)
     except ArticlePage.DoesNotExist as exc:
         raise Http404("Article not found") from exc
     article = context["article"]
@@ -1095,4 +1173,5 @@ def get_static_article_context(slug, at=None):
     )
     if journal_id:
         context["navigation_journal"] = journal
+    context["static_release_version"] = get_static_release_version()
     return context

@@ -199,5 +199,6 @@ class Migration(migrations.Migration):
     dependencies = [
         ("site_settings", "0012_contentcolumnconfig_default_sort_and_more"),
         ("standardpages", "0001_initial"),
+        ("wagtailsearch", "0010_add_text_fields"),
     ]
     operations = [migrations.RunPython(forwards, backwards)]

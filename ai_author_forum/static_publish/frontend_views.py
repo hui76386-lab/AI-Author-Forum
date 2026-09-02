@@ -213,7 +213,10 @@ def journal_category_detail(
         raise Http404("Invalid category page")
     page_size = int(getattr(settings, "STATIC_CATEGORY_PAGE_SIZE", 20))
     articles = get_articles_for_category(
-        category=category, page=page_number, page_size=page_size
+        category=category,
+        page=page_number,
+        page_size=page_size,
+        include_active_release=True,
     )
     if page_number > articles.paginator.num_pages:
         raise Http404("Category page not found")

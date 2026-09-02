@@ -28,6 +28,7 @@ from ai_author_forum.articles.publication import (
     record_article_build_success,
     sync_articles_to_active_manifest,
 )
+from ai_author_forum.site_settings.access_control import is_super_admin
 from ai_author_forum.site_settings.models import AuditAction, AuditStatus
 from ai_author_forum.site_settings.services import record_audit_event
 from ai_author_forum.static_publish.category_services import (
@@ -41,6 +42,7 @@ from ai_author_forum.static_publish.readiness import (
     requires_content_readiness,
     requires_homepage_readiness,
 )
+from ai_author_forum.static_publish.render_context import static_release_context
 
 from .models import (
     StaticBuildLog,
@@ -50,6 +52,34 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+NGINX_DIRECT_MARKER = ".nginx-direct-ready"
+NGINX_REDIRECT_ROOT = ".nginx-redirects"
+# These markers are the public article-page contract.  A selective release must
+# refresh carried-forward pages that predate (or only partially contain) the
+# reader interaction mount.
+READER_INTERACTIONS_MARKERS = (
+    b"data-reader-interactions",
+    b"data-reader-comments",
+    b"data-reader-share",
+    b"data-reader-copy",
+    b"data-reader-download",
+)
+
+TARGET_TYPE_LABELS = {
+    "journal_index": "子期刊总目录",
+    "journal_page": "子期刊主页",
+    "category_page": "本刊栏目页",
+    "category_redirect": "栏目历史地址",
+    "article_page": "文章详情页",
+    "journal_current_issue": "本刊当前期次",
+    "journal_issue_archive": "本刊期次归档",
+    "issue_detail": "期次详情页",
+    "managed_content_column": "导航内容栏目",
+    "managed_navigation_info": "导航信息页",
+    "wagtail_page": "站点内容页",
+    "search_page": "搜索页",
+}
 
 
 class PublishError(RuntimeError):
@@ -92,11 +122,18 @@ class AssetReferenceParser(HTMLParser):
 
 
 def require_static_permission(user, permission):
-    # ``None`` denotes an internal/system invocation (management command/tests).
-    if user is None:
+    if not is_super_admin(user):
+        raise PermissionDenied("Only an active super administrator may publish.")
+
+
+def require_publish_job_permission(job):
+    if is_super_admin(job.triggered_by):
         return
-    if not (user.is_superuser or user.has_perm(permission)):
-        raise PermissionDenied
+    from ai_author_forum.placements.publishing import (
+        require_automatic_placement_publish_job,
+    )
+
+    require_automatic_placement_publish_job(job)
 
 
 def create_publish_job(*, scope, paths, actor):
@@ -112,7 +149,7 @@ def create_retry_job(
 ):
     require_static_permission(actor, "static_publish.retry_category_publish")
     selected_paths = list(paths or [])
-    if not selected_paths:
+    if not selected_paths and scope != StaticPublishJob.Scope.FULL:
         raise PublishError("No failed targets were selected for retry")
     target_ids = list(target_ids or [])
     with transaction.atomic():
@@ -122,6 +159,15 @@ def create_retry_job(
             retry_of=failed_job,
             triggered_by=actor,
             summary={"retry_target_ids": target_ids},
+        )
+        # A retry supersedes the failed publish attempt for any placement batch
+        # that initiated it, while the original job remains in the audit trail.
+        from ai_author_forum.placements.models import PlacementBatch
+
+        PlacementBatch.objects.filter(publish_job=failed_job).update(
+            publish_job=job,
+            publish_status=PlacementBatch.PublishStatus.QUEUED,
+            updated_at=timezone.now(),
         )
         record_audit_event(
             action=AuditAction.RETRY,
@@ -200,10 +246,53 @@ def estimate_publish_targets(paths=None):
         by_type[target_type] = by_type.get(target_type, 0) + 1
     return {
         "total": len(targets),
-        "types": sorted(by_type.items()),
+        "types": [
+            (TARGET_TYPE_LABELS.get(target_type, target_type), count)
+            for target_type, count in sorted(by_type.items())
+        ],
         "paths": [target.output_path for target in targets[:20]],
         "truncated": len(targets) > 20,
     }
+
+
+def get_journal_publish_paths(journal):
+    """Return all static targets owned by one active journal.
+
+    The provider remains the source of truth for localized paths and target
+    dependencies. This helper only turns that target graph into the explicit
+    path list understood by the selective publisher.
+    """
+    provider_class = import_string(settings.STATIC_PUBLISH_TARGET_PROVIDER)
+    targets = list(provider_class().get_targets())
+    language_codes = {
+        str(code).lower().split("-", 1)[0]
+        for code, _label in getattr(settings, "LANGUAGES", ())
+    }
+    paths = set()
+    for target in targets:
+        clean_path = urlsplit(target.url).path.strip("/").lower()
+        parts = clean_path.split("/") if clean_path else []
+        is_journal_path = (
+            len(parts) >= 2 and parts[0] == "journals" and parts[1] == journal.slug
+        ) or (
+            len(parts) >= 3
+            and parts[0] in language_codes
+            and parts[1] == "journals"
+            and parts[2] == journal.slug
+        )
+        # A new journal must also become discoverable from the public A-Z
+        # directory. Keep the directory target in the same selective release.
+        is_journal_directory = target.target_type == "journal_index"
+        is_related_article = target.target_type == "article_page" and journal.pk in (
+            target.dependencies or {}
+        ).get("journal_ids", ())
+        if is_journal_path or is_journal_directory or is_related_article:
+            paths.add(target.output_path)
+    if not paths:
+        raise PublishError(
+            f"子期刊 {journal.name} 尚未生成可发布目标。请确认状态为启用，并重新加载页面。"
+        )
+    return sorted(paths)
 
 
 def classify_publish_error(exc):
@@ -277,6 +366,7 @@ class StaticPublisher:
         self.lock = FileLock(str(self.root / ".publish.lock"), timeout=0)
 
     def build(self, job, *, audit_action=AuditAction.PUBLISH, audit_context=None):
+        require_publish_job_permission(job)
         self.root.mkdir(parents=True, exist_ok=True)
         try:
             with self.lock:
@@ -340,13 +430,38 @@ class StaticPublisher:
             self._copy_assets(staging)
             self._validate_assets(staging)
             try:
+                validation_journal_ids = None
+                if job.scope != StaticPublishJob.Scope.FULL:
+                    validation_journal_ids = sorted(
+                        {
+                            int(value)
+                            for target in targets
+                            for value in (
+                                getattr(target, "dependencies", None) or {}
+                            ).get("journal_ids", ())
+                        }
+                    )
+                    journal_id = (job.summary or {}).get("journal_id")
+                    if journal_id:
+                        validation_journal_ids = sorted(
+                            {*validation_journal_ids, int(journal_id)}
+                        )
                 validate_category_publication_consistency(
                     version_id=job.version,
                     targets=targets,
                     staging=staging,
+                    journal_ids=validation_journal_ids,
                 )
             except CategoryPublicationConsistencyError as exc:
                 raise PublishError(str(exc)) from exc
+            manifest_preview = self._manifest(
+                job, staging, input_snapshot_at=snapshot_at
+            )
+            self._write_nginx_release_metadata(
+                staging,
+                version=job.version,
+                targets=manifest_preview["targets"],
+            )
             manifest_data = self._manifest(job, staging, input_snapshot_at=snapshot_at)
             (staging / "manifest.json").write_text(
                 json.dumps(manifest_data, ensure_ascii=False, indent=2) + "\n",
@@ -356,11 +471,31 @@ class StaticPublisher:
             release = self.releases / job.version
             release.parent.mkdir(parents=True, exist_ok=True)
             self._move_directory(staging, release)
+            manifest = self._record_candidate_manifest(job, manifest_data)
+            protected_manifest = None
+            if settings.READER_PDF_GRANTS_ENABLED:
+                from ai_author_forum.reader_access.pdfs import (
+                    wait_for_protected_release,
+                )
+
+                protected_manifest = wait_for_protected_release(manifest)
             activation = self._activate(release)
             try:
                 with transaction.atomic():
+                    if settings.READER_PDF_GRANTS_ENABLED:
+                        from ai_author_forum.reader_access.pdfs import (
+                            activate_protected_manifest,
+                        )
+
+                        protected_manifest = activate_protected_manifest(manifest)
                     manifest = self._record_manifest(job, manifest_data)
-                    sync_articles_to_active_manifest(manifest)
+                    changed_articles = sync_articles_to_active_manifest(manifest)
+                    if settings.READER_INTERACTIONS_ENABLED:
+                        from ai_author_forum.reader_access.services import (
+                            publish_active_capability_projections,
+                        )
+
+                        publish_active_capability_projections(changed_articles)
                     self._finish(
                         job,
                         StaticPublishJob.Status.SUCCEEDED,
@@ -375,6 +510,11 @@ class StaticPublisher:
                             **audit_context,
                             "version": job.version,
                             "summary": manifest_data["summary"],
+                            "protected_manifest_sha256": (
+                                protected_manifest.sha256
+                                if protected_manifest is not None
+                                else ""
+                            ),
                         },
                     )
             except Exception:
@@ -447,7 +587,7 @@ class StaticPublisher:
                 StaticPublishJob.Scope.FULL,
             }:
                 raise PublishError("Retry job is missing its source job")
-            if not selected_paths:
+            if not selected_paths and job.scope != StaticPublishJob.Scope.FULL:
                 raise PublishError("No failed targets were selected for retry")
         except Exception as exc:
             self.mark_worker_preflight_failure(
@@ -456,12 +596,16 @@ class StaticPublisher:
                 error=exc,
                 metadata=audit_context,
             )
+            self._sync_retrying_placement_batches(job)
             raise
-        self.build(
-            job,
-            audit_action=AuditAction.RETRY,
-            audit_context={**audit_context, "stage": "worker"},
-        )
+        try:
+            self.build(
+                job,
+                audit_action=AuditAction.RETRY,
+                audit_context={**audit_context, "stage": "worker"},
+            )
+        finally:
+            self._sync_retrying_placement_batches(job)
         return job
 
     def retry(self, failed_job, user=None, *, paths=None, target_ids=None):
@@ -470,7 +614,12 @@ class StaticPublisher:
         )
         if target_ids:
             failed_targets = failed_targets.filter(pk__in=target_ids)
-        selected_paths = list(paths or failed_targets.values_list("path", flat=True))
+        selected_paths = list(
+            paths
+            or failed_targets.values_list("path", flat=True)
+            or failed_job.requested_paths
+            or []
+        )
         job = create_retry_job(
             failed_job=failed_job,
             actor=user,
@@ -478,11 +627,18 @@ class StaticPublisher:
             target_ids=target_ids,
             scope=(
                 StaticPublishJob.Scope.RETRY
-                if self.current.exists()
+                if selected_paths and self.current.exists()
                 else StaticPublishJob.Scope.FULL
             ),
         )
         return self.run_retry(job, user)
+
+    @staticmethod
+    def _sync_retrying_placement_batches(job):
+        from ai_author_forum.placements.publishing import sync_batch_publish_status
+
+        for batch in job.placement_batches.select_related("publish_job"):
+            sync_batch_publish_status(batch)
 
     def run_rollback(self, job, user=None):
         version = str(job.rollback_version or job.version)
@@ -516,6 +672,13 @@ class StaticPublisher:
                     f"Manifest for release {version!r} does not exist"
                 ) from exc
             self._validate_release_integrity(release, manifest)
+            protected_manifest = None
+            if settings.READER_PDF_GRANTS_ENABLED:
+                from ai_author_forum.reader_access.pdfs import (
+                    require_activated_protected_pair,
+                )
+
+                protected_manifest = require_activated_protected_pair(manifest)
 
             with self.lock:
                 activation = self._activate(release)
@@ -526,7 +689,13 @@ class StaticPublisher:
                         )
                         manifest.is_active = True
                         manifest.save(update_fields=("is_active",))
-                        sync_articles_to_active_manifest(manifest)
+                        changed_articles = sync_articles_to_active_manifest(manifest)
+                        if settings.READER_INTERACTIONS_ENABLED:
+                            from ai_author_forum.reader_access.services import (
+                                publish_active_capability_projections,
+                            )
+
+                            publish_active_capability_projections(changed_articles)
                         self._finish(
                             job,
                             StaticPublishJob.Status.ROLLED_BACK,
@@ -537,7 +706,15 @@ class StaticPublisher:
                             AuditStatus.SUCCESS,
                             job,
                             "Static release rolled back",
-                            {"version": version, "reason": reason},
+                            {
+                                "version": version,
+                                "reason": reason,
+                                "protected_manifest_sha256": (
+                                    protected_manifest.sha256
+                                    if protected_manifest is not None
+                                    else ""
+                                ),
+                            },
                         )
                 except Exception:
                     self._restore_activation(activation)
@@ -585,21 +762,99 @@ class StaticPublisher:
         provider_class = import_string(settings.STATIC_PUBLISH_TARGET_PROVIDER)
         return provider_class().get_targets(paths=paths)
 
+    def _refresh_stale_reader_article_targets(self, job, targets, paths):
+        """Re-render carried-forward article pages missing reader interactions.
+
+        Selective releases start from a copy of ``current``.  That is normally
+        desirable, but it also means an article rendered before the interaction
+        mount was introduced can survive indefinitely when it is not one of the
+        explicitly requested paths.  The immutable release remains the source
+        of truth; we only add a provider-owned article target when the existing
+        file is missing the required contract marker.
+        """
+        if not paths or not self.current.is_dir():
+            return targets
+
+        manifest_path = self.current / "manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            # Release integrity validation will report a malformed current
+            # release.  Do not make target discovery fail with a second error.
+            return targets
+
+        stale_paths = set()
+        for entry in manifest.get("targets") or ():
+            if not isinstance(entry, dict):
+                continue
+            if (
+                entry.get("target_type") != "article_page"
+                or entry.get("action") == StaticPublishTarget.Action.DELETE
+            ):
+                continue
+            output_path = str(entry.get("output_path") or "")
+            if not output_path:
+                continue
+            try:
+                content = (self.current / safe_relative_path(output_path)).read_bytes()
+            except (OSError, SuspiciousFileOperation):
+                continue
+            # The reader bootstrap rejects a page rendered from an older
+            # release, even when that page already contains every interaction
+            # marker.  Carry-forward releases therefore need a fresh render
+            # whenever their embedded release differs from this job.
+            release_matches = (
+                f'data-release="{job.version}"'.encode("utf-8") in content
+            )
+            if not all(marker in content for marker in READER_INTERACTIONS_MARKERS) or not release_matches:
+                stale_paths.add(output_path)
+
+        if not stale_paths:
+            return targets
+
+        # A journal-scoped publish must not unexpectedly publish another
+        # journal's stale pages.  Selective and retry jobs intentionally repair
+        # all carried-forward article pages because they are the compatibility
+        # path used for template/static contract rollouts.
+        selected_paths = {target.output_path for target in targets}
+        candidates = {
+            target.output_path: target
+            for target in self._targets(None)
+            if getattr(target, "target_type", "") == "article_page"
+        }
+        if job.scope == StaticPublishJob.Scope.JOURNAL:
+            journal_id = (job.summary or {}).get("journal_id")
+            try:
+                journal_id = int(journal_id) if journal_id else None
+            except (TypeError, ValueError):
+                journal_id = None
+            if journal_id:
+                stale_paths = {
+                    path
+                    for path in stale_paths
+                    if path in candidates
+                    and journal_id
+                    in (candidates[path].dependencies or {}).get("journal_ids", ())
+                }
+            else:
+                stale_paths = set()
+        if not stale_paths:
+            return targets
+
+        refreshed = [
+            candidates[path]
+            for path in sorted(stale_paths - selected_paths)
+            if path in candidates
+        ]
+        return [*targets, *refreshed]
+
     def _snapshot_targets(self, job, paths):
         had_outer_transaction = connection.in_atomic_block
         with transaction.atomic():
-            if connection.vendor == "postgresql":
-                if had_outer_transaction:
-                    raise PublishError(
-                        "静态发布必须在现有数据库事务之外启动，"
-                        "以建立可重复读的输入快照。"
-                    )
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE"
-                    )
+            self._configure_snapshot_transaction(had_outer_transaction)
             snapshot_at = timezone.now()
             targets = list(self._targets(paths))
+            targets = self._refresh_stale_reader_article_targets(job, targets, paths)
             if paths and not targets:
                 raise PublishError("没有发布目标匹配所请求的路径")
             self._validate_target_paths(targets)
@@ -609,6 +864,27 @@ class StaticPublisher:
                     readiness = check_content_readiness(targets=targets, at=snapshot_at)
                 elif requires_homepage_readiness(targets):
                     readiness = check_homepage_readiness(at=snapshot_at)
+                elif job.scope == StaticPublishJob.Scope.JOURNAL:
+                    journal_id = (job.summary or {}).get("journal_id")
+                    journal_ids = (
+                        [int(journal_id)]
+                        if journal_id
+                        else sorted(
+                            {
+                                int(value)
+                                for target in targets
+                                for value in (target.dependencies or {}).get(
+                                    "journal_ids", ()
+                                )
+                                if str(value).isdigit()
+                            }
+                        )
+                    )
+                    readiness = check_content_readiness(
+                        targets=targets,
+                        at=snapshot_at,
+                        journal_ids=journal_ids or None,
+                    )
             if readiness is not None:
                 job.summary = {
                     **(job.summary or {}),
@@ -651,7 +927,8 @@ class StaticPublisher:
             record.save(update_fields=("status",))
             try:
                 if record.action != StaticPublishTarget.Action.DELETE:
-                    content = bytes(target.render())
+                    with static_release_context(job.version):
+                        content = bytes(target.render())
                     if not content.strip():
                         raise PublishError("Rendered page is empty")
             except Exception as exc:
@@ -666,6 +943,19 @@ class StaticPublisher:
                 )
             )
         return tuple(snapshots), snapshot_at
+
+    @staticmethod
+    def _configure_snapshot_transaction(had_outer_transaction):
+        if connection.vendor != "postgresql":
+            return
+        if had_outer_transaction:
+            raise PublishError(
+                "静态发布必须在现有数据库事务之外启动，" "以建立可重复读的输入快照。"
+            )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE"
+            )
 
     def _validate_target_paths(self, targets):
         paths = [target.output_path for target in targets]
@@ -750,7 +1040,30 @@ class StaticPublisher:
         # as a fallback for development and uncollected assets.
         static_root = Path(settings.STATIC_ROOT)
         if static_root.is_dir():
-            shutil.copytree(static_root, static_destination, dirs_exist_ok=True)
+            # ``web`` and ``worker`` share STATIC_ROOT.  A container restart
+            # may run collectstatic while a publish job is copying the tree;
+            # copytree then observes a file between unlink and rewrite and
+            # raises a raw ``shutil.Error``.  A short retry window preserves
+            # the atomic release contract without masking genuinely missing
+            # assets (the later reference validation still reports those).
+            copy_error = None
+            for attempt in range(5):
+                try:
+                    shutil.copytree(
+                        static_root,
+                        static_destination,
+                        dirs_exist_ok=True,
+                    )
+                    copy_error = None
+                    break
+                except (FileNotFoundError, shutil.Error) as exc:
+                    copy_error = exc
+                    if attempt < 4:
+                        time.sleep(0.1 * (attempt + 1))
+            if copy_error is not None:
+                raise PublishError(
+                    "Collected static assets changed during copy; retry the publish"
+                ) from copy_error
 
         for finder in finders.get_finders():
             for relative, storage in finder.list([]):
@@ -929,6 +1242,34 @@ class StaticPublisher:
             "summary": summary,
         }
 
+    @staticmethod
+    def _write_nginx_release_metadata(staging, *, version, targets):
+        marker = staging / NGINX_DIRECT_MARKER
+        redirects_root = staging / NGINX_REDIRECT_ROOT
+        if marker.exists():
+            marker.unlink()
+        if redirects_root.exists():
+            shutil.rmtree(redirects_root)
+
+        marker.write_text(
+            json.dumps({"schema_version": 1, "version": version}, separators=(",", ":"))
+            + "\n",
+            encoding="utf-8",
+        )
+        for target in targets:
+            if not (
+                target.get("action") == StaticPublishTarget.Action.REDIRECT
+                and target.get("status") == "generated"
+            ):
+                continue
+            relative_path = safe_relative_path(target["output_path"])
+            destination = redirects_root / f"{relative_path.as_posix()}.redirect"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(
+                f"{target.get('redirect_to') or ''}\n",
+                encoding="utf-8",
+            )
+
     def _load_release_manifest(self, release):
         manifest_path = release / "manifest.json"
         if not manifest_path.is_file():
@@ -1040,9 +1381,11 @@ class StaticPublisher:
                 )
         return disk_data
 
-    def _record_manifest(self, job, data):
+    def _record_candidate_manifest(self, job, data):
         with transaction.atomic():
-            StaticManifest.objects.filter(is_active=True).update(is_active=False)
+            existing = StaticManifest.objects.filter(version=data["version"]).first()
+            if existing is not None:
+                return existing
             return StaticManifest.objects.create(
                 version=data["version"],
                 job=job,
@@ -1060,8 +1403,22 @@ class StaticPublisher:
                     "targets": data["targets"],
                     "asset_references": data["asset_references"],
                 },
-                is_active=True,
+                is_active=False,
             )
+
+    @staticmethod
+    def _activate_manifest_record(manifest):
+        StaticManifest.objects.filter(is_active=True).exclude(pk=manifest.pk).update(
+            is_active=False
+        )
+        if not manifest.is_active:
+            manifest.is_active = True
+            manifest.save(update_fields=("is_active",))
+
+    def _record_manifest(self, job, data):
+        manifest = self._record_candidate_manifest(job, data)
+        self._activate_manifest_record(manifest)
+        return manifest
 
     def _activate(self, release):
         candidate = self.root / ".current-next"

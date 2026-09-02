@@ -129,7 +129,7 @@ class ArticleImportConfirmForm(forms.Form):
     allow_suspicious_text = forms.BooleanField(
         required=False,
         label="按原文处理可疑文本",
-        help_text="仅项目总负责人或超级管理员可用。",
+        help_text="仅超级管理员可用。",
     )
     override_reason = forms.CharField(
         required=False,

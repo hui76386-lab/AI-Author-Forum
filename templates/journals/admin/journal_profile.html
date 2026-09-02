@@ -1,0 +1,44 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+
+{% block titletag %}{{ title }}{% endblock %}
+{% block extra_css %}
+{{ block.super }}
+<style>
+.journal-profile-page{max-width:96rem}.journal-profile-intro{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:1rem;padding:1rem 1.25rem;border-left:4px solid var(--w-color-primary);background:var(--w-color-surface-header)}.journal-profile-intro h2,.journal-profile-intro p{margin:0}.journal-profile-intro p{margin-top:.35rem;color:var(--w-color-text-meta);line-height:1.5}.journal-profile-section{margin-bottom:1rem;padding:1.25rem;border:1px solid var(--w-color-border-furniture);background:var(--w-color-surface-page)}.journal-profile-section h2{margin:0 0 .35rem}.journal-profile-section>p{margin:.2rem 0 1rem;color:var(--w-color-text-meta)}.journal-profile-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.journal-profile-grid__wide{grid-column:1/-1}.journal-profile-actions{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:.65rem;padding:1rem;background:var(--w-color-surface-page);border-top:1px solid var(--w-color-border-furniture)}@media(max-width:700px){.journal-profile-intro{align-items:stretch;flex-direction:column}.journal-profile-grid{grid-template-columns:1fr}.journal-profile-grid__wide{grid-column:auto}.journal-profile-actions>*{flex:1;text-align:center}}
+</style>
+{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title subtitle="完成后返回工作台继续下一步" icon="doc-full" only %}
+<div class="nice-padding journal-profile-page">
+  <p><a href="{% url 'journals:workspace' journal.pk %}">返回本刊工作台</a></p>
+  <section class="journal-profile-intro">
+    <div><h2>资料与上线状态</h2><p>新刊先保持草稿；任命一名有效主编辑并确认基础资料后，再把状态改为“启用”。保存成功后会自动返回工作台。</p></div>
+    <code>/journals/{{ journal.slug }}/</code>
+  </section>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.media }}
+    {% if form.non_field_errors %}<div class="help-block help-critical">{{ form.non_field_errors }}</div>{% endif %}
+    {% if form.status %}
+    <section class="journal-profile-section">
+      <h2>上线设置</h2><p>只有“启用”的子期刊会进入静态发布目标和前台 A-Z 目录。</p>
+      <div class="journal-profile-grid"><div>{% formattedfield form.status %}</div><div>{% formattedfield form.static_site_path %}</div></div>
+    </section>
+    {% endif %}
+    <section class="journal-profile-section">
+      <h2>基础资料</h2>
+      <div class="journal-profile-grid"><div>{% formattedfield form.name %}</div><div>{% formattedfield form.name_cn %}</div><div>{% formattedfield form.az_group %}</div><div>{% formattedfield form.sort_order %}</div></div>
+    </section>
+    <section class="journal-profile-section">
+      <h2>主页内容</h2><p>这些内容会在下一次本刊静态发布成功后显示到前台。</p>
+      <div class="journal-profile-grid"><div>{% formattedfield form.hero_kicker %}</div><div class="journal-profile-grid__wide">{% formattedfield form.homepage_intro %}</div><div>{% formattedfield form.hero_primary_cta_text %}</div><div>{% formattedfield form.hero_primary_cta_url %}</div><div>{% formattedfield form.hero_image %}</div><div>{% formattedfield form.hero_image_alt %}</div></div>
+    </section>
+    <section class="journal-profile-section">
+      <h2>图片与搜索信息</h2>
+      <div class="journal-profile-grid"><div>{% formattedfield form.cover_image %}</div><div>{% formattedfield form.metrics_image %}</div><div>{% formattedfield form.seo_title %}</div><div>{% formattedfield form.seo_description %}</div><div class="journal-profile-grid__wide">{% formattedfield form.notes %}</div></div>
+    </section>
+    <div class="journal-profile-actions"><a class="button button-secondary" href="{% url 'journals:workspace' journal.pk %}">取消</a><button class="button button-primary" type="submit">保存并返回工作台</button></div>
+  </form>
+</div>
+{% endblock %}

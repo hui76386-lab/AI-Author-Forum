@@ -10,10 +10,13 @@ from wagtail.admin.viewsets.base import ViewSet
 from wagtail.models import Site
 from wagtail.permissions import ModelPermissionPolicy
 
+from ai_author_forum.journals.models import JournalEditorAssignment
+from ai_author_forum.site_settings.access_control import is_super_admin
 from ai_author_forum.static_publish.readiness import check_content_readiness
 from ai_author_forum.utils.admin_i18n import admin_text
 
 from .models import SiteSettings
+from .permissions import get_admin_permission_context
 
 SITE_SETTINGS_VIEW_PERMISSIONS = (
     "site_settings.access_site_settings",
@@ -21,18 +24,30 @@ SITE_SETTINGS_VIEW_PERMISSIONS = (
     "site_settings.change_sitesettings",
 )
 
+MODULE_PERMISSION_FLAGS = {
+    "site_settings.access_journals": "can_view_journals",
+    "site_settings.access_articles": "can_view_articles",
+    "site_settings.access_article_review": "can_view_article_review",
+    "site_settings.access_placements": "can_view_placements",
+    "site_settings.access_slots": "can_view_slots",
+    "site_settings.access_static_publish": "can_view_static_publish",
+}
+
+
+def can_access_module(user, permission) -> bool:
+    if is_super_admin(user):
+        return True
+    flag = MODULE_PERMISSION_FLAGS.get(permission)
+    return bool(flag and get_admin_permission_context(user).get(flag))
+
 
 def can_view_site_settings(user) -> bool:
-    return user.is_superuser or any(
-        user.has_perm(permission) for permission in SITE_SETTINGS_VIEW_PERMISSIONS
-    )
+    return is_super_admin(user)
 
 
 @permission_required("wagtailadmin.access_admin", raise_exception=True)
 def content_readiness_admin(request):
-    if not can_view_site_settings(request.user) and not request.user.has_perm(
-        "static_publish.view_staticpublishjob"
-    ):
+    if not can_view_site_settings(request.user) and not is_super_admin(request.user):
         raise PermissionDenied
     result = check_content_readiness()
     return render(
@@ -59,9 +74,7 @@ def site_settings_summary(request):
         raise PermissionDenied
 
     site_settings = SiteSettings.for_site(site)
-    can_change = request.user.is_superuser or request.user.has_perm(
-        "site_settings.change_sitesettings"
-    )
+    can_change = is_super_admin(request.user)
     return render(
         request,
         "wagtailadmin/site_settings/summary.html",
@@ -88,12 +101,12 @@ class PermissionedModuleViewSet(ViewSet):
 
         class PermissionedMenuItem(MenuItem):
             def is_shown(self, request):
-                return request.user.is_superuser or request.user.has_perm(permission)
+                return can_access_module(request.user, permission)
 
         return PermissionedMenuItem
 
     def has_access(self, request) -> bool:
-        return request.user.is_superuser or request.user.has_perm(self.permission)
+        return can_access_module(request.user, self.permission)
 
     def index_view(self, request):
         if not self.has_access(request):
@@ -116,9 +129,7 @@ class PermissionedModuleViewSet(ViewSet):
 class CoreNavigationPermissionPolicy(ModelPermissionPolicy):
     def user_has_permission(self, user, action):
         if action in {"add", "change", "delete"}:
-            return user.is_superuser or user.has_perm(
-                "site_settings.manage_core_navigation"
-            )
+            return is_super_admin(user)
         return super().user_has_permission(user, action)
 
     def user_has_any_permission(self, user, actions):
@@ -132,13 +143,11 @@ class ScopeNavigationPermissionPolicy(ModelPermissionPolicy):
         self.manage_permission = manage_permission
 
     def user_has_permission(self, user, action):
-        if user.is_superuser:
+        if is_super_admin(user):
             return True
         if action in {"add", "change", "delete"}:
-            return user.has_perm(self.manage_permission)
-        return user.has_perm(self.view_permission) or user.has_perm(
-            self.manage_permission
-        )
+            return False
+        return False
 
     def user_has_any_permission(self, user, actions):
         return any(self.user_has_permission(user, action) for action in actions)
@@ -157,3 +166,15 @@ class ReadOnlyModelPermissionPolicy(ModelPermissionPolicy):
         if not readable_actions:
             return False
         return super().user_has_any_permission(user, readable_actions)
+
+
+class AuditLogPermissionPolicy(ReadOnlyModelPermissionPolicy):
+    def user_has_permission(self, user, action):
+        if action in {"add", "change", "delete"}:
+            return False
+        if is_super_admin(user):
+            return True
+        return JournalEditorAssignment.objects.effective().filter(user=user).exists()
+
+    def user_has_any_permission(self, user, actions):
+        return any(self.user_has_permission(user, action) for action in actions)

@@ -3,81 +3,78 @@
 {% block title %}{{ journal_display_seo_title|default:journal.seo_title|default:journal_display_name }}{% endblock %}
 {% block meta_tags %}{{ block.super }}{% if journal_display_description %}<meta name="description" content="{{ journal_display_description }}">{% endif %}{% endblock %}
 {% block breadcrumbs %}
-<nav class="c-breadcrumbs u-container" aria-label="{% ui_text 'breadcrumb' 'Breadcrumb' %}"><ol><li><a href="{% localize_url '/' %}">{% ui_text 'home' 'Home' %}</a></li><li><a href="{{ '/journals/'|localized_url }}">{% ui_text 'journals' 'Journals' %}</a></li><li>{{ journal_display_name }}</li></ol></nav>
+{% journal_display_name journal as journal_name %}
+<nav class="c-breadcrumbs u-container" aria-label="{% ui_text 'breadcrumb' 'Breadcrumb' %}"><ol><li><a href="{% localize_url '/' %}">{% ui_text 'home' 'Home' %}</a></li><li><a href="{{ '/journals/'|localized_url }}">{% ui_text 'journals' 'Journals' %}</a></li><li>{{ journal_name }}</li></ol></nav>
 {% endblock %}
 {% block content %}
-<div class="u-container">
-  <section class="c-hero c-journal-hero">
-    <div class="c-hero__panel">
-      <span class="c-kicker">{{ journal.hero_kicker|default:'' }}{% if not journal.hero_kicker %}{% ui_text 'journal_home' 'Journal home' %}{% endif %}</span>
-      <h1>{{ journal_display_name }}</h1>
+{% journal_display_name journal as journal_name %}
+<div class="u-container c-journal-home">
+  <section class="c-journal-home__hero" aria-labelledby="journal-home-heading">
+    <div class="c-journal-home__hero-copy">
+      <span class="c-journal-home__eyebrow">{% ui_text 'journal_home' 'Journal home' %}</span>
+      <h1 id="journal-home-heading">{{ journal_name }}</h1>
       {% if journal_display_intro %}
-      <div class="c-journal-hero__intro">{{ journal_display_intro|richtext }}</div>
+      <div class="c-journal-home__intro">{{ journal_display_intro|richtext }}</div>
       {% else %}
-      <p class="c-journal-hero__intro">{% ui_text 'journal_intro_default' 'A static sub-journal page sharing the global AI Author Forum navigation, content modules and article templates.' %}</p>
+      <p class="c-journal-home__intro">{% ui_text 'journal_intro_default' 'A static sub-journal page sharing the global AI Author Forum navigation, content modules and article templates.' %}</p>
       {% endif %}
-      {% if journal.hero_primary_cta_text and journal.hero_primary_cta_url %}
-      <a class="c-hero__access" href="{{ journal.hero_primary_cta_url|localized_url }}">{{ journal.hero_primary_cta_text }} ?</a>
-      {% endif %}
+      <div class="c-journal-home__actions">
+        {% if journal.hero_primary_cta_url %}
+        <a class="c-journal-home__action c-journal-home__action--primary" href="{{ journal.hero_primary_cta_url|localized_url }}">{% if journal.hero_primary_cta_text %}{{ journal.hero_primary_cta_text|localized_journal_action_label:journal.hero_primary_cta_url }}{% else %}{% ui_text 'explore_ai_articles' 'Explore AI articles' %}{% endif %}</a>
+        {% else %}
+        <a class="c-journal-home__action c-journal-home__action--primary" href="#journal-articles">{% if journal.hero_primary_cta_text %}{{ journal.hero_primary_cta_text|localized_journal_action_label:'#journal-articles' }}{% else %}{% ui_text 'explore_ai_articles' 'Explore AI articles' %}{% endif %}</a>
+        {% endif %}
+        <a class="c-journal-home__action" href="{{ '/journals/'|localized_url }}">{% ui_text 'view_all_journals' 'View all journals' %}</a>
+      </div>
       {% if journal.hero_quick_links %}
-      <nav class="c-journal-hero__links" aria-label="{% ui_text 'journal_quick_links' 'Journal quick links' %}">
-        {% for item in journal.hero_quick_links %}
-        <a href="{{ item.value.url|localized_url }}"{% if item.value.open_in_new_tab %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ item.value.label }}</a>
-        {% endfor %}
-      </nav>
-      {% else %}
-      <nav class="c-journal-hero__links" aria-label="{% ui_text 'journal_quick_links' 'Journal quick links' %}">
-        <a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'ai_article' 'AI Article' %}</a>
-        <a href="#co-authoring-with-ai">{% ui_text 'co_authoring_with_ai' 'Co authoring with AI' %}</a>
-        <a href="#reader-responsibility">{% ui_text 'readers_responsibility' 'Readers responsibility' %}</a>
+      <nav class="c-journal-home__quick-links" aria-label="{% ui_text 'journal_quick_links' 'Journal quick links' %}">
+        {% for item in journal.hero_quick_links %}<a href="{{ item.value.url|localized_url }}"{% if item.value.open_in_new_tab %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ item.value.label|localized_journal_action_label:item.value.url }}</a>{% endfor %}
       </nav>
       {% endif %}
     </div>
-    <div class="c-hero__media{% if journal.hero_image %} c-hero__media--image{% endif %}"{% if not journal.hero_image %} style="background-image:url('{% static 'images/reference/hero-visual.png' %}')"{% endif %}>
-      {% if journal.hero_image %}
-      {% image journal.hero_image fill-900x520 as hero_image %}
-      <img class="c-journal-hero__image" src="{{ hero_image.url }}" alt="{{ journal.hero_image_alt|default:journal_display_name }}">
-      {% endif %}
-      <a href="{{ '/journals/'|localized_url }}">{% ui_text 'view_all_journals' 'View all journals' %}</a>
+    <div class="c-journal-home__hero-media{% if journal.hero_image %} c-journal-home__hero-media--image{% endif %}"{% if not journal.hero_image %} style="background-image:url('{% static 'images/reference/hero-visual.png' %}')"{% endif %}>
+      {% if journal.hero_image %}{% image journal.hero_image fill-1200x900 as hero_image %}<img src="{{ hero_image.url }}" width="{{ hero_image.width }}" height="{{ hero_image.height }}" alt="{{ journal.hero_image_alt|default:journal_name }}">{% endif %}
+      <span class="c-journal-home__hero-mark">AI Author Forum</span>
     </div>
   </section>
 
   {% if category_navigation %}
-  <nav class="c-topic-navigation" aria-label="{% ui_text 'journal_topics' 'Journal topics' %}">
+  <nav class="c-journal-home__topics" aria-label="{% ui_text 'journal_topics' 'Journal topics' %}">
     <h2>{% ui_text 'topics' 'Topics' %}</h2>
-    <ul class="c-topic-navigation__list">
+    <ul>
       {% for item in category_navigation %}
-      <li class="c-topic-navigation__item">
-        <a class="c-topic-navigation__link" href="{{ item.category.get_absolute_url|localized_url }}">{{ item.category|localized_category_name }}</a>
-        {% if item.children %}
-        <ul class="c-topic-navigation__children" aria-label="{{ item.category|localized_category_name }} {% ui_text 'subtopics' 'subtopics' %}">
-          {% for child in item.children %}<li><a href="{{ child.get_absolute_url|localized_url }}">{{ child|localized_category_name }}</a></li>{% endfor %}
-        </ul>
-        {% endif %}
-      </li>
+      <li><a href="{{ item.category.get_absolute_url|localized_url }}">{{ item.category|localized_category_name }}</a>{% if item.children %}{% for child in item.children %}<a class="c-journal-home__subtopic" href="{{ child.get_absolute_url|localized_url }}">{{ child|localized_category_name }}</a>{% endfor %}{% endif %}</li>
       {% endfor %}
     </ul>
   </nav>
   {% endif %}
 
   {% if hero_placements %}
-  <section class="c-content-row"><div class="c-section-heading"><h2>{% ui_text 'featured_content' 'Featured Content' %}</h2><a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'view_all' 'View all' %}</a></div><div class="c-featured-grid">{% include "components/static_article_card.html" with placement=hero_placements.0 %}</div></section>
+  <section class="c-journal-home__section c-journal-home__section--featured" aria-labelledby="journal-featured-heading">
+    <div class="c-journal-home__section-heading"><h2 id="journal-featured-heading">{% ui_text 'featured_content' 'Featured Content' %}</h2></div>
+    <div class="c-journal-home__featured-story">{% include "components/static_article_card.html" with placement=hero_placements.0 card_class="c-card--journal-featured" %}</div>
+  </section>
   {% endif %}
-  <section class="c-content-row">
-    <div class="c-section-heading"><h2>{% ui_text 'featured_content' 'Featured Content' %}</h2><a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'view_all' 'View all' %}</a></div>
-    <div class="c-featured-grid">
-      {% for placement in featured_placements %}{% include "components/static_article_card.html" with placement=placement %}{% endfor %}
-      {% for placement in latest_placements %}{% include "components/static_article_card.html" with placement=placement %}{% endfor %}
-      {% if not featured_placements and not latest_placements %}<p class="c-empty-state">{% ui_text 'no_journal_articles' 'No placed articles are currently available for this journal.' %}</p>{% endif %}
-    </div>
+
+  <section class="c-journal-home__section" id="journal-articles" aria-labelledby="journal-articles-heading">
+    <div class="c-journal-home__section-heading"><h2 id="journal-articles-heading">{% ui_text 'journal_articles' 'Journal articles' %}</h2><a href="{{ '/explore-content/ai-article/'|localized_url }}">{% ui_text 'view_all' 'View all' %}</a></div>
+    {% if article_placements %}
+    <div class="c-journal-home__article-grid">{% for placement in article_placements %}{% include "components/static_article_card.html" with placement=placement card_class="c-card--journal" %}{% endfor %}</div>
+    {% else %}
+    <p class="c-empty-state">{% ui_text 'no_journal_articles' 'No placed articles are currently available for this journal.' %}</p>
+    {% endif %}
   </section>
 
-  <section class="c-content-row">
-    <div class="c-section-heading"><h2>{% ui_text 'journal_resources' 'Journal resources' %}</h2></div>
-    <div class="c-two-column">
-      {% if journal.cover_image %}<figure class="c-image-slot">{% image journal.cover_image width-720 as cover %}<img src="{{ cover.url }}" alt="{{ journal_display_name }} {% ui_text 'cover_image' 'cover image' %}"><figcaption>{{ journal_display_name }} {% ui_text 'cover_image' 'cover image' %}</figcaption></figure>{% else %}<figure class="c-image-slot"><img src="{% static 'images/reference/journal-cover.png' %}" alt="{{ journal_display_name }} {% ui_text 'cover_image' 'cover image' %}"><figcaption>{% ui_text 'journal_cover_placeholder' 'Replaceable journal cover' %}</figcaption></figure>{% endif %}
-      {% if journal.metrics_image %}<figure class="c-statistics-slot">{% image journal.metrics_image width-720 as metrics %}<img src="{{ metrics.url }}" alt="{% ui_text 'journal_statistics_chart' 'Journal statistics chart' %}"><figcaption>{% ui_text 'statistics_chart' 'Statistics chart' %}</figcaption></figure>{% else %}<figure class="c-statistics-slot"><img src="{% static 'images/reference/metrics-chart.png' %}" alt="{% ui_text 'journal_statistics_chart' 'Journal statistics chart' %}"><figcaption>{% ui_text 'statistics_chart_placeholder' 'Statistics chart placeholder' %}</figcaption></figure>{% endif %}
+  {% if journal.cover_image or journal.metrics_image %}
+  <section class="c-journal-home__section" aria-labelledby="journal-resources-heading">
+    <div class="c-journal-home__section-heading"><h2 id="journal-resources-heading">{% ui_text 'journal_resources' 'Journal resources' %}</h2></div>
+    <div class="c-journal-home__resources">
+      {% if journal.cover_image %}<figure>{% image journal.cover_image width-960 as cover %}<img src="{{ cover.url }}" width="{{ cover.width }}" height="{{ cover.height }}" alt="{{ journal_name }} {% ui_text 'cover_image' 'cover image' %}"></figure>{% endif %}
+      {% if journal.metrics_image %}<figure>{% image journal.metrics_image width-960 as metrics %}<img src="{{ metrics.url }}" width="{{ metrics.width }}" height="{{ metrics.height }}" alt="{{ journal_name }} {% ui_text 'metrics_image' 'metrics image' %}"></figure>{% endif %}
     </div>
   </section>
+  {% endif %}
+
+  {% include "components/editorial_team.html" %}
 </div>
 {% endblock %}

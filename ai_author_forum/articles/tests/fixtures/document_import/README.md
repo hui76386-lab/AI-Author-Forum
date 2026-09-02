@@ -22,9 +22,9 @@
 | `revisions.docx` | 修订和隐藏文本警告 | `803f46d09dade7e89eb5ff67f42eac8bea243c4d841c27e181a97a1b670a98dc` |
 | `unsafe-external-image.docx` | 外部图片关系拒绝 | `d3d353db44b47e8f2f371613ba3ea66e2842265ff11d7e16019159a7ae467e0f` |
 | `unsafe-embedded-object.docx` | 无害 OLE 路径占位成员拒绝 | `903e74a00974ffce97c5e792a54c97da3cebd9dc3364c1131cab8ddfe852d0a4` |
-| `valid.md` | 合法 UTF-8 Markdown | `a2f179a282b914fc8a4f3fc66c0c1f82ba6ebcbe67f33657236d855726c6fc8f` |
-| `front-matter.md` | 合法 Front Matter | `ada6a7c482e9606f6e079894b62a6619c629d3d4312a3db831ab15b346e4665b` |
-| `unsafe-html.md` | 原始脚本 HTML 进入公共 HTML 安全校验的夹具 | `699ef21e98e0f855cbbebfc0e7a952a27826fbc7f957277dc86b3772ccfad66b` |
+| `valid.md` | 合法 UTF-8 Markdown | `262b8385a1700de2a4eb1e539bfc2a51ddc30c1d732b89fc01168025d2a62690` |
+| `front-matter.md` | 合法 Front Matter | `0bdd5243213614e1fe6f89875f7c5cf5875f7dc2458f594cc55eb8fe36ac563c` |
+| `unsafe-html.md` | 原始脚本 HTML 进入公共 HTML 安全校验的夹具 | `63b590db159c4a2c8e486db2a0a447db5f2be233711caf379fc72da3fe994659` |
 | `package-mixed.zip` | DOCX、Markdown、HTML 混合批量包 | `2787246651091fb2e85b9e4352eefd099dfd1075530328c94f7a0ac486212e72` |
 
 ZIP 元数据时间戳会影响二进制 SHA-256；交付文件的哈希以上表为准。若主动重新生成夹具，应同步更新本表并复核差异。

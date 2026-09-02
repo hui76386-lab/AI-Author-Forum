@@ -1,5 +1,7 @@
 # 05 静态发布开发与运维
 
+> Reader PDF 联合激活（2026-08-17）：当 `READER_PDF_GRANTS_ENABLED=true` 时，public release 先记录为未激活候选并投递专用 `reader_pdf` 队列。所有 enabled 文章的 PDF、对象 checksum、protected manifest 和 capability deny marker 通过后，才在 public 文件切换的恢复窗口内同时激活 public/protected manifest；任一失败恢复旧 `current`。回滚前必须验证目标版本已有完整 activated protected pair。开关关闭时沿用既有 public-only 发布流程。
+
 ## 1. 运行边界
 
 生产前台必须由 Nginx/CDN/静态服务器直接服务已激活目录，不能依赖 Django 运行时读取文章数据库。
@@ -42,6 +44,8 @@ output/                      # 构建中间产物，不直接对外服务
 
 构建输入必须冻结，避免构建中有人修改文章或投放导致同一 release 内容不一致。每个页面结果至少包括 URL/path、对象类型、对象 id、状态、错误摘要和耗时。
 
+只有账号状态正常且属于业务组“超级管理员”的实名账号可以创建构建、激活、失败重试或回滚。主编辑、常务副编辑、副编辑、技术组成员、旧发布 Group、Django 直接 permission 和单独的 `is_superuser=True` 都不能执行这些动作。后台视图、Celery worker 和 management command 必须调用同一权限 service。
+
 ## 4. 激活策略
 
 - 新 release 写入独立目录；
@@ -65,6 +69,28 @@ output/                      # 构建中间产物，不直接对外服务
 
 重试应支持页面级重试和任务级重试，但必须使用新的 attempt id 并关联原始 job。重复重试不得重复产生有效投放或重复审计业务事件。
 
+自动发布任务的 `coalesce_key` 必须非空并表达实际合并范围。投放批次使用 `placement-batch:<batch_uuid>`，延迟合并的投放变更使用操作者作用域键；不得让多个待处理自动任务依赖模型默认空字符串。运维检查应同时关注长时间停留在 `pending` 或 `running` 的任务以及 broker 中缺失的任务消息。
+
+发布任务显示 `0/0` 且状态失败时，通常表示构建前内容检查已经阻断任务，尚未进入逐页生成阶段，不表示“没有页面所以发布成功”。任务详情必须优先展示结构化 blocker、对应路径和修复方向；修复后创建新任务或重试，旧 current 保持不变。
+
+### 5.1 本刊发布范围
+
+本刊发布用于新刊上线和日常单刊更新。目标解析由静态 target provider 统一负责，至少包括：
+
+- 子期刊总目录 `/journals/` 及所有启用语言版本；
+- 目标子期刊主页、导航、栏目、期次和静态信息页；
+- 主属或相关关系指向目标子期刊且满足审核、投放条件的文章详情页。
+
+本刊发布依赖现有活动 manifest 作为增量基线；没有活动 manifest 时必须先完成一次全站发布。构建前主编辑、导航配置和已有投放内容检查应限制在目标子期刊，不得因其他无关子期刊未就绪而阻断。本刊任务只有在新 manifest 完整校验并切换为 current 后才算完成，后台应同时提供期刊工作台、前台主页和总目录验证入口。
+
+子期刊总目录的分组以后台保存的 `Journal.az_group` 为准。历史 Top 120 数据只有在该字段为空或不是现有目录分组代码时，才按 `sort_order` 的既有区间兜底；新建期刊即使尚未配置 Top 120 排序位置，也必须出现在后台所选分组中。分组修复需通过新的静态 release 和不可变 manifest 生效，不得直接修改已激活目录。
+
+导航业务就绪检查只处理活动导航集中状态为 `active`、可见且所属分组同样活动可见的条目。`hidden`、`archived`、`is_visible=False` 或停用条目不参与本次构建。子期刊尚无已发布期次时，Current issue / Browse issues 视为可选目标，不阻断首次发布；其历史路径、删除目标和实际进入构建快照的资源仍需通过 manifest、链接和文件完整性校验。
+
+子期刊内容栏目不设最低发布文章数量：`minimum_publish_items` 固定迁移为 `0`，空栏目仍生成页面并显示 `empty_message`，不产生 blocker 或 warning。主站内容栏目继续按配置统计投向 `placement_target_slug` 的有效 `SECTION` `ArticlePlacement`；主站的 `block_publish`、`hide_navigation` 和最低数量规则保持不变。
+
+投放自动发布根据活动 manifest 决定范围：目标子期刊已上线时使用受影响路径增量发布；目标子期刊尚未上线时提升为本刊完整发布，并执行该刊内容就绪检查。非全站任务的分类投放一致性校验只覆盖本次任务依赖的子期刊；全站任务仍执行全局一致性校验。
+
 ## 6. 回滚
 
 回滚前检查：
@@ -73,7 +99,7 @@ output/                      # 构建中间产物，不直接对外服务
 - 目标版本不是失败或构建中的版本；
 - 目标版本的资源路径仍可访问；
 - 当前数据库状态与目标版本差异已展示给操作者；
-- 操作者具有回滚权限。
+- 操作者是有效超级管理员，并为回滚提供明确原因。
 
 回滚后检查：
 
@@ -118,6 +144,8 @@ npm run build:prod
 npm run test:e2e
 ```
 
+`build_static_site` 使用 `--actor <username-or-email>` 标识承担责任的有效超级管理员；只有系统中恰好一名有效超级管理员时才可省略。重试使用 `--retry-job <job-id>`，回滚使用 `--rollback <release-id> --rollback-reason <至少5个字符的原因>`。命令行不因脱离 HTTP 请求而绕过业务角色和审计。
+
 上线前必须补充真实 Docker/PostgreSQL/Redis/Celery/Nginx 联合验收。仅通过 Django `check` 或本地 SQLite 测试，不能证明生产静态切流和回滚已经可用。
 
 ## 9. 生产安全检查
@@ -148,3 +176,31 @@ npm run test:e2e
 - 发布/回滚成功审计与数据库 manifest 激活位于同一事务；任一步失败都会恢复旧 filesystem current、回滚数据库状态并把 job 标记为 failed。
 - retry 只写 RETRY 语义审计，不再重复制造 PUBLISH 事件。
 - Playwright 默认不复用占用端口的未知服务；只有显式设置 `PLAYWRIGHT_REUSE_EXISTING_SERVER=1` 才允许复用。可用 `STATIC_E2E_PORT` 选择隔离端口，并可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` 指定受控 Chromium。
+
+## 11. 作者投稿发布边界
+
+作者工作台产生的 draft、revision 和审核提交不是静态发布输入。只有文章完成初审、终审并由有权编辑创建有效正式投放后，才能进入冻结快照。构建前检查不得因文章具有 `ArticleAuthorship` 而放宽审核、Wagtail live、投放、生效时间或资源完整性条件；作者账号不得成为 `build_static_site` actor。回滚只切换到已验证 manifest，不修改作者关系、投稿 revision 或审核历史。
+
+## 12. 静态资源并发与英文输出约束
+
+### 12.1 `collectstatic` 与发布复制
+
+发布器复制 `STATIC_ROOT` 到 release staging 时，`collectstatic --clear` 可能短暂删除并重新写入带哈希的 Wagtail 资源。发布器对这类 `FileNotFoundError`/`shutil.Error` 进行有限、递增间隔重试；重试耗尽后任务失败并提示静态资源在复制期间发生变化，不激活不完整 release。运维侧仍应避免把 `collectstatic` 与正式静态构建安排在同一时间窗，失败后先确认静态资源目录稳定，再使用新的 attempt 重试。
+
+### 12.2 英文页面的数据边界
+
+英文导航标签必须按 `NavigationGroup.code`、`NavigationItem.managed_code` 等稳定代码从受审阅词典解析；期刊和编辑身份优先使用独立英文字段。后台兼容层只翻译已知的旧中文界面标签，未知文本必须原样保留，因为它可能是文章标题、姓名、错误详情或其他需要操作者区分的业务数据。禁止对整页 HTML 使用“未知中文统一替换为占位符”的策略，也禁止让后台清洗器处理 `/en/` 前台正文。
+
+## 13. Nginx 活动 release 直出
+
+新 release 在 staging 内生成 `.nginx-direct-ready`，并为每个 manifest redirect
+生成 `.nginx-redirects/<output_path>.redirect` 哨兵。两类文件必须进入 release inventory、
+size 和 SHA-256 校验，随 `current` 一起原子切换：
+
+- 标记存在：普通首页、文章、栏目、manifest 由 Nginx `try_files`/`sendfile` 直出；
+- 标记不存在：视为 N-1 旧 release，所有前台路径回退无数据库的 `static-frontend`；
+- redirect 哨兵存在：对应请求回退 `static-frontend`，由 manifest 返回 301；
+- 内部标记 URL 固定 404，缺失页面固定 503，任何情况都不回退 Django 正文视图。
+
+发布、失败补偿和回滚仍只切换经过完整性验证的 release；禁止为了 Nginx 直出
+直接写 `current` 或在激活后补写哨兵。

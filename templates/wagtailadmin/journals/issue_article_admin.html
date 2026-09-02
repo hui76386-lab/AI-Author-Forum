@@ -1,0 +1,29 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title icon="list-ul" %}
+<div class="nice-padding">
+  <form method="post">
+    {% csrf_token %}
+    <div class="w-space-y-5">{% for field in form %}{% formattedfield field %}{% endfor %}</div>
+    {% if form.non_field_errors %}<div class="messages error">{{ form.non_field_errors }}</div>{% endif %}
+    <button class="button button-primary" type="submit">{% if editing_assignment %}更新目录项{% else %}添加文章{% endif %}</button>
+    {% if editing_assignment %}<a class="button button-secondary" href="{% url 'journals_issue_article_admin' %}">取消编辑</a>{% endif %}
+  </form>
+  <div class="w-overflow-x-auto w-mt-8">
+    <table class="listing">
+      <thead><tr><th>期次</th><th>文章</th><th>栏目</th><th>顺序</th><th>操作</th></tr></thead>
+      <tbody>
+      {% for item in assignments %}
+        <tr>
+          <td>{{ item.issue }}</td><td>{{ item.article.title }}</td><td>{{ item.section_label|default:"-" }}</td><td>{{ item.sort_order }}</td>
+          <td><a class="button button-small" href="{% url 'journals_issue_article_edit' item.pk %}">编辑</a>
+          <form method="post" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="assignment_id" value="{{ item.pk }}"><button class="button button-small no" type="submit">移除</button></form></td>
+        </tr>
+      {% empty %}<tr><td colspan="5">暂无目录项。</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

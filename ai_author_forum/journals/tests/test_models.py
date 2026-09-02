@@ -1,8 +1,8 @@
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
-from ai_author_forum.journals.models import ArticlePlacement as LegacyArticlePlacement
 from ai_author_forum.journals.models import (
+    ArticlePlacement as LegacyArticlePlacement,
     Journal,
     StaticArticle,
 )

@@ -16,6 +16,11 @@ from django.views.decorators.http import require_http_methods
 
 from ai_author_forum.articles.models import ArticleCategoryAssignment, ArticlePage
 from ai_author_forum.placements.models import ArticlePlacement
+from ai_author_forum.site_settings.access_control import (
+    can_manage_journal,
+    filter_accessible_journals,
+    is_super_admin,
+)
 from ai_author_forum.site_settings.models import AuditLog
 
 from .category_services import (
@@ -96,8 +101,8 @@ class CategoryAdminForm(forms.ModelForm):
         if self.instance.pk:
             self.fields["parent"].disabled = True
             if not (
-                actor.is_superuser
-                or actor.has_perm("journals.migrate_category_references")
+                is_super_admin(actor)
+                or can_manage_journal(actor, journal, "column_navigation")
             ):
                 self.fields["code"].disabled = True
 
@@ -239,12 +244,21 @@ class BatchStatusForm(forms.Form):
         return cleaned
 
 
-def _has(user, permission):
-    return user.is_superuser or user.has_perm(permission)
+def _has(user, permission, journal=None):
+    return bool(
+        is_super_admin(user)
+        or (
+            journal is not None
+            and can_manage_journal(user, journal, "column_navigation")
+        )
+    )
 
 
 def _can_view(user):
-    return _has(user, "journals.view_journalcategory")
+    return (
+        is_super_admin(user)
+        or filter_accessible_journals(user, Journal.objects.all()).exists()
+    )
 
 
 def _request_id():
@@ -384,9 +398,11 @@ def category_admin(request):
     if not _can_view(request.user):
         raise PermissionDenied
 
-    journals = Journal.objects.order_by("sort_order", "name", "pk")
+    journals = filter_accessible_journals(request.user, Journal.objects.all()).order_by(
+        "sort_order", "name", "pk"
+    )
     journal_id = request.GET.get("journal") or request.POST.get("journal")
-    journal = get_object_or_404(Journal, pk=journal_id) if journal_id else None
+    journal = get_object_or_404(journals, pk=journal_id) if journal_id else None
     query = (request.GET.get("q") or "").strip()
     status_filter = (request.GET.get("status") or "").strip()
     if status_filter not in CATEGORY_FILTER_STATUS_LABELS:
@@ -408,12 +424,17 @@ def category_admin(request):
             .filter(exception_category_count__gt=0)
             .order_by("sort_order", "name", "pk")
         )
-    can_add = _has(request.user, "journals.add_journalcategory")
-    can_change = _has(request.user, "journals.change_journalcategory")
-    can_move = _has(request.user, "journals.move_journalcategory")
-    can_status = _has(request.user, "journals.change_category_status")
-    can_archive = can_status and _has(request.user, "journals.archive_journalcategory")
-    can_audit = _has(request.user, "site_settings.access_audit_log")
+    can_add = _has(request.user, "journals.add_journalcategory", journal)
+    can_change = _has(request.user, "journals.change_journalcategory", journal)
+    can_move = _has(request.user, "journals.move_journalcategory", journal)
+    can_status = _has(request.user, "journals.change_category_status", journal)
+    can_archive = can_status and _has(
+        request.user, "journals.archive_journalcategory", journal
+    )
+    can_audit = bool(
+        is_super_admin(request.user)
+        or (journal and can_manage_journal(request.user, journal, "column_navigation"))
+    )
     selected_id = (
         request.GET.get("selected")
         or request.GET.get("edit")
@@ -525,7 +546,7 @@ def category_admin(request):
                     if edit_category
                     else "journals.add_journalcategory"
                 )
-                if not _has(request.user, permission):
+                if not _has(request.user, permission, journal):
                     raise PermissionDenied
                 if edit_form.is_valid():
                     values = dict(edit_form.cleaned_data)
@@ -581,7 +602,7 @@ def category_admin(request):
                         )
 
             elif operation == "reorder_category":
-                if not _has(request.user, "journals.move_journalcategory"):
+                if not _has(request.user, "journals.move_journalcategory", journal):
                     raise PermissionDenied
                 category = get_object_or_404(
                     JournalCategory,
@@ -612,7 +633,7 @@ def category_admin(request):
                 )
 
             elif operation == "bulk_create":
-                if not _has(request.user, "journals.add_journalcategory"):
+                if not _has(request.user, "journals.add_journalcategory", journal):
                     raise PermissionDenied
                 if bulk_create_form.is_valid():
                     parent = bulk_create_form.cleaned_data["parent"]
@@ -712,7 +733,7 @@ def category_admin(request):
                         )
 
             elif operation == "move_category" and move_form.is_valid():
-                if not _has(request.user, "journals.move_journalcategory"):
+                if not _has(request.user, "journals.move_journalcategory", journal):
                     raise PermissionDenied
                 category = move_form.cleaned_data["category_id"]
                 parent = move_form.cleaned_data["new_parent_id"]
@@ -857,12 +878,28 @@ def category_admin(request):
 
 
 def category_audit(request):
-    if not _has(request.user, "site_settings.access_audit_log"):
+    if not _can_view(request.user):
         raise PermissionDenied
-    logs = AuditLog.objects.filter(
-        Q(target_type="JournalCategory")
-        | Q(metadata__operation__startswith="category_")
-    ).select_related("actor")[:200]
+    accessible_journal_ids = list(
+        filter_accessible_journals(request.user, Journal.objects.all()).values_list(
+            "pk", flat=True
+        )
+    )
+    category_ids = JournalCategory.objects.filter(
+        journal_id__in=accessible_journal_ids
+    ).values_list("pk", flat=True)
+    logs = (
+        AuditLog.objects.filter(
+            Q(target_type="JournalCategory")
+            | Q(metadata__operation__startswith="category_")
+        )
+        .filter(
+            Q(target_id__in=category_ids)
+            | Q(metadata__journal_id__in=accessible_journal_ids)
+            | Q(metadata__journal_id__isnull=True, target_id__in=category_ids)
+        )
+        .select_related("actor")[:200]
+    )
     return render(
         request,
         "wagtailadmin/journals/category_audit.html",

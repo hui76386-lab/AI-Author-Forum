@@ -12,6 +12,14 @@ def _response(report):
 
 @never_cache
 @require_GET
+def livez(request):
+    """Report process liveness without touching external dependencies."""
+
+    return JsonResponse({"status": "ok", "checks": {"process": {"ok": True}}})
+
+
+@never_cache
+@require_GET
 def healthz(request):
     return _response(get_health_report())
 

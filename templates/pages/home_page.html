@@ -23,7 +23,6 @@
       <ul class="c-article-list">
         {% for placement in featured_placements|slice:":4" %}
         <li data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0">
-          <span>{{ placement.article.article_type|article_type_label }}</span>
           <a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>
           <small>{{ placement.display_authors }} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
         </li>
@@ -32,7 +31,6 @@
       <ul class="c-article-list">
         {% for placement in latest_ai_article_placements|slice:":4" %}
         <li data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0">
-          <span>{{ placement.article.article_type|article_type_label }}</span>
           <a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>
           <small>{{ placement.display_authors }} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
         </li>
@@ -52,7 +50,6 @@
     <ul class="c-article-list c-article-list--two">
       {% for placement in latest_ai_article_placements %}
       <li data-card-link="{{ placement.article.get_absolute_url|localized_url }}" tabindex="0">
-        <span>{{ placement.article.article_type|article_type_label }}</span>
         <a href="{{ placement.article.get_absolute_url|localized_url }}">{{ placement.display_title }}</a>
         <small>{{ placement.display_authors }} ? {% ui_text 'article' 'Article' %} ? {{ placement.article.first_published_at|date:'Y-m-d' }}</small>
       </li>

@@ -6,8 +6,9 @@
 导入预览/确认
   -> 暂存原始数据
   -> 创建正式 ArticlePage 草稿
-  -> 提交 Wagtail Workflow
-  -> 审核通过
+  -> 提交初审
+  -> 初审通过
+  -> 主编辑终审通过
   -> 创建/调整 ArticlePlacement
   -> 投放同步
   -> 静态构建
@@ -47,35 +48,72 @@
 
 因为它绕过了正式 `ArticlePage`、审核和投放。`--publish-static-site` 只能发布已审核、已投放的正式文章集合；如果没有正式文章，应失败并给出可操作错误。
 
+### 2.4 手工新建子期刊与上线流程
+
+后台手工新建子期刊必须按以下顺序推进，不能在创建表单中直接把记录设为 active：
+
+```text
+创建草稿（自动准备默认导航和主栏目）
+  -> 任命且仅保留一名有效主编辑
+  -> 确认资料并启用子期刊
+  -> 创建/导入文章并完成初审、终审
+  -> 创建有效 ArticlePlacement
+  -> 从本刊工作台进入“本刊发布”
+  -> 预估目标并创建发布任务
+  -> manifest 激活后验证前台主页和子期刊总目录
+```
+
+创建、编辑团队、资料、内容、投放和静态发布页面都必须提供返回本刊工作台或进入下一步的入口。工作台根据真实数据计算当前下一步，不得把“记录已保存”“文章已导入”或“任务已入队”显示为已经上线。
+
+本刊发布的选择范围必须同时包含默认语言和英文的子期刊主页、栏目、期次、相关文章，以及 `/journals/` 子期刊总目录。否则新刊主页即使已生成，也无法从前台 A-Z 目录被发现。构建前内容检查只检查目标子期刊的数据；全站发布仍检查全部启用子期刊。
+
+新建子期刊首次发布不要求预先具备栏目文章或已发布期次。启用中的子期刊存在唯一有效主编辑且导航配置合法后，即可构建空栏目页面并建立首个不可变静态 release；没有内容的栏目显示空状态，没有已发布期次时不生成 Current issue / Browse issues 目标。后续文章仍必须完成 revision 审核和正式投放后才能进入静态发布。
+
+投放变更触发自动静态发布时，如果目标子期刊尚未出现在活动 manifest 中，任务必须自动提升为“本刊发布”，一次建立该刊完整静态基线；已经上线的子期刊仍可按实际受影响路径增量发布。不得只生成新刊文章页而遗漏期刊主页、栏目、期次或总目录入口。
+
 ## 3. 文章审核流程
 
 ```mermaid
 stateDiagram-v2
     [*] --> draft
     draft --> submitted: 编辑提交
-    submitted --> approved: 审核通过
-    submitted --> rejected: 驳回
+    submitted --> pending_final: 初审通过
+    submitted --> draft: 初审退回
+    submitted --> rejected: 初审拒绝
+    pending_final --> approved: 主编辑终审通过
+    pending_final --> draft: 终审退回
+    pending_final --> rejected: 终审拒绝
     rejected --> draft: 修改后重新编辑
     approved --> placed: 创建有效投放
     placed --> built: 静态构建成功
     built --> published: manifest 激活
-    published --> draft: 已发布内容被修改（待确认）
+    published --> draft: 正文或作者声明被修改
 ```
 
-当前项目同时存在 Wagtail Workflow 和自定义审核页面。二者必须共用同一个状态变更 service：
+Wagtail Workflow 固定为“初审”和“终审”两个任务，自定义审核页面和 Workflow action 必须共用统一审核 service：
 
-- Workflow action 负责权限和 Wagtail revision；
-- 自定义审核页面负责业务视图和审核意见；
-- 最终都调用统一的 `approve_article()` / `reject_article()`；
-- 审核通过只改变审核状态并记录 `approved_version`，不得自动等价为前台发布。
+- `submit_article_for_initial_review()` 把当前 revision 从 `draft` 提交到 `submitted`；
+- 初审由本刊副编辑、常务副编辑或主编辑执行；未分配文章必须先原子认领，认领后只有被分配编辑具有初审写权限；
+- 超级管理员只能携带原因执行应急初审，不能执行终审；
+- `final_review_article()` 只接受文章主属期刊的有效主编辑任命，并在同一事务内把同一 revision、`review_status=approved` 和 `approved_version` 写入 canonical 文章；任一投影不一致时终审记录和状态必须整体回滚；
+- expected state、expected revision、数据库行锁和幂等 request id 共同阻止过期或并发重复审核；
+- `ArticleReviewRecord` 绑定固定 revision，创建后禁止更新和删除；
+- 终审通过只记录 `approved_version`，不得自动等价为投放或前台发布。
+
+管理端的行内“提交审核”按钮与批量操作共用页面表单，但行内提交必须直接 POST 到文章审核入口，不得被批量操作脚本拦截。审核详情在文章状态变为 `approved` 后显示“投放文章”快捷入口；该入口创建带有文章和主属子期刊的投放草稿，仍需经过版位选择、预检查和正式执行。正文、作者声明或其他审核保护字段在终审后发生变化时，旧审核来源立即失效，文章回到 `draft` 并重新经历两级审核；保留的历史终审记录只用于审计，不能单独证明当前 revision 仍然有效批准。
 
 ## 4. 投放与版位流程
 
-1. 内容管理员选择已审核文章；
+1. 本刊主编辑、常务副编辑或超级管理员选择已终审文章；
 2. 选择主站、栏目页或子期刊目标；
 3. 选择 `LayoutSlot`、排序、置顶和生效时间；
 4. 保存 `placements.ArticlePlacement`；
 5. 校验文章审核状态、目标存在性、时间区间和重复投放策略；
+
+投放选文支持按文章字段和子期刊 slug、名称、中文名检索；结果优先显示尚无有效投放的文章。子期刊检索结果包含主属子期刊及相关子期刊，最终目标归属仍由投放批次预检查和模型校验共同约束。
+
+严格投放确认必须以批次行锁和已执行状态实现幂等。浏览器重复提交或并发请求只能返回同一批次结果，不得重复创建投放或返回 500。批次触发的自动静态发布任务使用 `placement-batch:<batch_uuid>` 作为非空合并键，避免不同批次共享默认空键并违反待处理任务唯一约束。
+
 6. 执行投放同步，记录成功/失败、request id、revision id 和错误；
 7. 静态构建只读取同步成功且在生效时间内的投放。
 
@@ -88,7 +126,7 @@ stateDiagram-v2
 
 ## 5. 静态发布流程
 
-1. 发布管理员选择构建范围；
+1. 有效超级管理员选择构建范围；
 2. 服务冻结文章、投放、导航、站点设置和资源输入；
 3. 创建 `StaticPublishJob`；
 4. 逐页面渲染 HTML 和资源；
@@ -118,7 +156,7 @@ stateDiagram-v2
 | --- | --- | --- |
 | 导入预览 | 只生成错误报告 | 否 |
 | 草稿转换 | 该行失败，导入任务部分失败 | 否 |
-| 审核 | 文章保持 submitted/rejected | 否 |
+| 初审/终审 | 文章保持 `submitted`、`pending_final`、`draft` 或 `rejected` | 否 |
 | 投放同步 | 文章置为 `placement_sync_status=failed` | 否 |
 | 静态单页构建 | release 失败，保留旧 current | 否 |
 | manifest 校验 | 不激活新版本 | 否 |
@@ -136,7 +174,7 @@ stateDiagram-v2
 
 ### 8.2 审核与投放同步
 
-- Workflow 审核组统一为“审核人员”；旧 `Content Reviewers` 用户会迁移到中文组，旧组的文章审核、投放和页面权限会被移除。
+- Workflow 固定为“初审”和“终审”两个任务。旧单级审核组、旧“项目总负责人”旁路和用户直接审核权限均不再提供业务授权；迁移只按人工确认映射创建新的期刊任命。
 - 审核通过后的栏目投放同步使用 `placement_sync_request_id` 作为稳定幂等标识。同一 revision 且同步计划不变时，不重复修改投放、不重复写 metadata，也不重复产生审计事件。
 - 投放查询栏目页时必须显式传入 `target_category`；缺少目标会直接失败，不允许把多个栏目投放混合查询。
 - 同一 slot 中同一文章存在多条有效投放时，人工投放覆盖系统投放；同来源保留既有排序中的首条。去重发生在 `limit` 之前，自动补位继续排除已选文章。
@@ -144,3 +182,27 @@ stateDiagram-v2
 ### 8.3 发布边界
 
 审核通过、投放同步、静态构建和 manifest 激活保持为四个独立状态转换。任何一步失败都不得倒推或伪造前一步成功；新 release 未完整通过时必须保留旧 current。
+
+## 9. 作者投稿流程
+
+作者只能在具备有效主编辑且开放投稿的 active 期刊创建 canonical `ArticlePage` 草稿。创建、保存、首次提交前改刊和提交均通过 `author_services.py`，并绑定有效 `ArticleAuthorship`、request id 和 expected revision。首次提交后文章锁定；编辑以单独的公开理由退回后作者可创建新 revision 并重新提交，但不能自行改刊。编辑受控转投会取消旧工作流、清除原分派、生成新 revision 和审核记录，并从目标期刊初审重新开始。
+
+作者投稿终审通过后仍只到达 approved/待投放状态。主编辑必须另行创建并执行正式投放，静态构建仍只读取审核通过且有效投放的数据。完整契约见 `09-author-submission-role-development-spec.zh-CN.md`。
+
+## 10. 读者互动与 PDF 发布流程（待实施）
+
+读者互动只消费已经激活的正式文章能力，不新增文章发布捷径：
+
+```text
+approved revision + 有效投放 + 文章互动政策
+  -> 冻结公共页面与 PDF 输入
+  -> 构建公共 release + 私有 PDF
+  -> 校验 public manifest + protected manifest
+  -> 原子激活配对版本
+  -> 投影 article_public_id 对应的评论/下载能力
+  -> 已验证邮箱读者按能力评论、分享或申请 PDF
+```
+
+评论提交、回复、举报、撤回和管理员隐藏只更新互动数据面及其独立评论快照，不回写正文 revision、投放或静态文章 manifest。评论区关闭和 PDF 禁用先在动态授权面 fail closed，再通过新静态 release 更新按钮和页面状态；不得直接覆盖 `current`。
+
+PDF 构建或 protected manifest 校验失败时，新 release 不激活并保留旧 current。静态回滚必须同时切换到与旧公共 manifest 配对且已验证的 protected manifest，不能把不同 release 的文章与 PDF 混合。完整状态、权限、接口和部署契约见 [读者互动文档总览](../reader-interactions/README.zh-CN.md)。

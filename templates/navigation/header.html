@@ -1,4 +1,4 @@
-﻿{% load wagtailcore_tags wagtailsettings_tags i18n_frontend %}
+{% load wagtailcore_tags wagtailsettings_tags i18n_frontend %}
 {% wagtail_site as current_site %}
 <header class="c-header">
   <div class="c-header__masthead">
@@ -38,7 +38,7 @@
       <label>{% ui_text 'journal_scope' 'Journal scope' %}
         <select name="journal">
           <option value="">{% ui_text 'all_journals' 'All journals' %}</option>
-          {% for journal in header_journals %}<option value="{{ journal|localized_journal_name }}">{{ journal|localized_journal_name }}</option>{% endfor %}
+          {% for journal in header_journals %}<option value="{{ journal.name }}">{{ journal|localized_journal_name }}</option>{% endfor %}
         </select>
       </label>
       <button type="submit">{% ui_text 'search' 'Search' %}</button>

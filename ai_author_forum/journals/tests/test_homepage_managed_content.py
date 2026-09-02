@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models.deletion import ProtectedError
@@ -15,6 +16,7 @@ from ai_author_forum.journals.models import Journal
 from ai_author_forum.static_publish.models import StaticPublishJob
 from ai_author_forum.static_publish.readiness import ContentReadinessResult
 from ai_author_forum.static_publish.services import StaticPublisher
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 
 def uploaded_image(name="hero.png"):
@@ -180,6 +182,11 @@ class JournalHomepageManagedContentTemplateTests(TestCase):
 
 class JournalHomepageManagedContentStaticPublishTests(TestCase):
     def setUp(self):
+        snapshot_patcher = patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        )
+        snapshot_patcher.start()
+        self.addCleanup(snapshot_patcher.stop)
         readiness_patcher = patch(
             "ai_author_forum.static_publish.services.check_content_readiness",
             return_value=ContentReadinessResult(configured=True),
@@ -190,6 +197,13 @@ class JournalHomepageManagedContentStaticPublishTests(TestCase):
     def test_static_publish_renders_hero_and_copies_hero_image(self):
         with TemporaryDirectory() as media_root, TemporaryDirectory() as publish_root:
             with self.settings(MEDIA_ROOT=media_root, STATIC_PUBLISH_ROOT=publish_root):
+                actor = grant_business_super_admin(
+                    get_user_model().objects.create_superuser(
+                        username="homepage-publish-admin",
+                        email="homepage-publish-admin@example.com",
+                        password="test",
+                    )
+                )
                 image = CustomImage.objects.create(
                     title="Hero image",
                     file=uploaded_image("managed-hero.png"),
@@ -203,6 +217,7 @@ class JournalHomepageManagedContentStaticPublishTests(TestCase):
                 )
                 job = StaticPublishJob.objects.create(
                     scope=StaticPublishJob.Scope.FULL,
+                    triggered_by=actor,
                 )
 
                 StaticPublisher(publish_root).build(job)

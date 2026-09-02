@@ -5,6 +5,11 @@ from collections.abc import Callable
 from django.urls import reverse_lazy
 from wagtail.admin.menu import Menu, MenuItem, SubmenuMenuItem
 
+from ai_author_forum.journals.models import Journal, JournalEditorAssignment
+from ai_author_forum.site_settings.access_control import (
+    filter_accessible_journals,
+    is_super_admin,
+)
 from ai_author_forum.utils.admin_i18n import admin_text
 
 from .permissions import get_admin_permission_context
@@ -28,14 +33,33 @@ class BusinessMenuItem(MenuItem):
 
     def is_shown(self, request):
         user = request.user
-        if user.is_superuser:
+        if is_super_admin(user):
             return True
         if self.predicate is not None:
             return bool(self.predicate(request))
         flags = get_admin_permission_context(user)
-        return any(flags.get(flag, False) for flag in self.permission_flags) or any(
-            user.has_perm(permission) for permission in self.permissions
-        )
+        if any(flags.get(flag, False) for flag in self.permission_flags):
+            return True
+        if self.permissions and any(
+            permission.startswith(("wagtailimages.", "wagtaildocs."))
+            for permission in self.permissions
+        ):
+            assignments = JournalEditorAssignment.objects.effective().filter(user=user)
+            if assignments.filter(
+                role__in=(
+                    JournalEditorAssignment.Role.CHIEF_EDITOR,
+                    JournalEditorAssignment.Role.EXECUTIVE_EDITOR,
+                )
+            ).exists():
+                return True
+            return any(
+                JournalEditorAssignment.Responsibility.MEDIA_ASSETS
+                in (responsibilities or [])
+                for responsibilities in assignments.values_list(
+                    "responsibilities", flat=True
+                )
+            )
+        return False
 
 
 class NavigationBusinessMenuItem(BusinessMenuItem):
@@ -67,12 +91,8 @@ class NavigationBusinessMenuItem(BusinessMenuItem):
 
     def render_component(self, request):
         url = str(self.url)
-        if not request.user.is_superuser:
-            for mode, permissions in self.scope_permissions:
-                if any(request.user.has_perm(permission) for permission in permissions):
-                    if mode != "main":
-                        url = f"{url}?mode={mode}"
-                    break
+        if not is_super_admin(request.user):
+            url = f"{url}?mode=journal"
         return MenuItem(
             self.label,
             url,
@@ -93,9 +113,7 @@ class SiteSettingsBusinessMenuItem(BusinessMenuItem):
 
     def render_component(self, request):
         url = str(self.url)
-        if request.user.is_superuser or request.user.has_perm(
-            "site_settings.change_sitesettings"
-        ):
+        if is_super_admin(request.user):
             url = str(self.edit_url)
         return MenuItem(
             self.label,
@@ -261,10 +279,9 @@ def _journal_menu():
             name="business-journal-audit",
             icon_name="history",
             order=40,
-            predicate=lambda request: (
-                request.user.has_perm("site_settings.access_audit_log")
-                and request.user.has_perm("journals.view_journalcategory")
-            ),
+            predicate=lambda request: filter_accessible_journals(
+                request.user, Journal.objects.all()
+            ).exists(),
         ),
     ]
     for order, item in enumerate(items, 1):

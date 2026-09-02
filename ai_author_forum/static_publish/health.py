@@ -51,7 +51,14 @@ def release_health():
 def broker_health():
     timeout = float(getattr(settings, "STATIC_PUBLISH_BROKER_HEALTHCHECK_TIMEOUT", 2))
     try:
-        with Connection(settings.CELERY_BROKER_URL, connect_timeout=timeout) as broker:
+        with Connection(
+            settings.CELERY_BROKER_URL,
+            connect_timeout=timeout,
+            transport_options={
+                "socket_connect_timeout": timeout,
+                "socket_timeout": timeout,
+            },
+        ) as broker:
             broker.connect()
     except Exception as exc:
         return False, f"task broker unavailable: {type(exc).__name__}"
@@ -67,6 +74,12 @@ def get_health_report(*, include_release=False, include_broker=False):
         checks["release"] = release_health()
     if include_broker:
         checks["broker"] = broker_health()
+    if getattr(settings, "READER_INTERACTIONS_ENABLED", False):
+        from ai_author_forum.reader_interactions.health import (
+            reader_dependency_health,
+        )
+
+        checks.update(reader_dependency_health())
     return {
         "status": "ok" if all(result[0] for result in checks.values()) else "error",
         "checks": {

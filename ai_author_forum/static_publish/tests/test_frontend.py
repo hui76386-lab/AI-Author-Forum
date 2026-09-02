@@ -8,11 +8,13 @@ from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.templatetags.static import static
 from django.test import TestCase
 from django.urls import reverse
-from django.utils import timezone
+from django.utils import timezone, translation
 from PIL import Image as PillowImage
 from wagtail.documents import get_document_model
 from wagtail.models import Page
@@ -21,6 +23,10 @@ from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.home.models import HomePage
 from ai_author_forum.images.models import CustomImage
 from ai_author_forum.journals.models import Journal
+from ai_author_forum.placements.category_services import (
+    sync_category_placements,
+    validate_category_placement_consistency,
+)
 from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
 from ai_author_forum.site_settings.models import (
     ContentColumnConfig,
@@ -28,6 +34,7 @@ from ai_author_forum.site_settings.models import (
     NavigationTargetType,
 )
 from ai_author_forum.standardpages.models import StandardPage
+from ai_author_forum.static_publish.frontend import get_content_column_context
 from ai_author_forum.static_publish.models import StaticPublishJob
 from ai_author_forum.static_publish.providers import WagtailPageTargetProvider
 from ai_author_forum.static_publish.readiness import ContentReadinessResult
@@ -36,10 +43,19 @@ from ai_author_forum.static_publish.services import (
     StaticPublisher,
     safe_relative_path,
 )
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
 class StaticFrontendTests(TestCase):
     def setUp(self):
+        snapshot_patcher = patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        )
+        snapshot_patcher.start()
+        self.addCleanup(snapshot_patcher.stop)
         readiness_patcher = patch(
             "ai_author_forum.static_publish.services.check_content_readiness",
             return_value=ContentReadinessResult(configured=True),
@@ -50,6 +66,15 @@ class StaticFrontendTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.root = HomePage.objects.first() or Page.get_first_root_node()
+        cls.admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="static-frontend-admin",
+                email="static-frontend-admin@example.com",
+                display_name="Static Frontend Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
         cls.journal = Journal.objects.create(
             name="AI Ethics Forum",
             name_cn="AI 伦理论坛",
@@ -86,11 +111,11 @@ class StaticFrontendTests(TestCase):
             article_type=ArticlePage.ArticleType.AI_ARTICLE,
             primary_journal=cls.journal,
             keywords="AI authorship",
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         cls.root.add_child(instance=article)
         article.save_revision().publish()
-        return article
+        formally_approve_test_article(article, actor=cls.admin)
+        return ArticlePage.objects.get(pk=article.pk)
 
     def place(self, article, slot_code, target_type, target_slug, **kwargs):
         return ArticlePlacement.objects.create(
@@ -126,7 +151,7 @@ class StaticFrontendTests(TestCase):
         response = self.client.get(item.target_url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, f"{self.journal.name}: {item.label}")
+        self.assertContains(response, f"{self.journal.name_cn}：期刊信息")
         sponsorship = BeautifulSoup(response.content, "html.parser").select_one(
             ".c-footer__sponsorship"
         )
@@ -135,6 +160,78 @@ class StaticFrontendTests(TestCase):
             sponsorship.get_text(" ", strip=True),
             "Sponsored by University of Tennessee Health Science Center",
         )
+
+    def test_chinese_navigation_and_search_use_localized_labels(self):
+        response = self.client.get("/search/")
+
+        self.assertEqual(response.status_code, 200)
+        soup = BeautifulSoup(response.content, "html.parser")
+        reader_links = {
+            link["data-navigation-item"]: link.get_text(" ", strip=True)
+            for link in soup.select('[data-navigation-group="for-readers"] a')
+        }
+        self.assertEqual(
+            reader_links["how-ai-authored-articles-produced"],
+            "AI 署名文章如何产生",
+        )
+        self.assertEqual(reader_links["readers-responsibility"], "读者责任")
+        self.assertEqual(
+            soup.select_one(
+                'form[data-search-form] select[name="journal"] '
+                'option[value="ai-ethics-forum"]'
+            ).get_text(" ", strip=True),
+            self.journal.name_cn,
+        )
+        self.assertEqual(
+            soup.select_one(
+                '#site-search-panel select[name="journal"] '
+                'option[value="AI Ethics Forum"]'
+            ).get_text(" ", strip=True),
+            self.journal.name_cn,
+        )
+
+    def test_english_search_keeps_english_journal_labels(self):
+        response = self.client.get("/en/search/")
+
+        self.assertEqual(response.status_code, 200)
+        soup = BeautifulSoup(response.content, "html.parser")
+        self.assertEqual(
+            soup.select_one(
+                'form[data-search-form] select[name="journal"] '
+                'option[value="ai-ethics-forum"]'
+            ).get_text(" ", strip=True),
+            self.journal.name,
+        )
+        reader_links = {
+            link["data-navigation-item"]: link.get_text(" ", strip=True)
+            for link in soup.select('[data-navigation-group="for-readers"] a')
+        }
+        self.assertEqual(
+            reader_links["how-ai-authored-articles-produced"],
+            "How AI-authored articles are produced",
+        )
+        self.assertEqual(
+            reader_links["readers-responsibility"], "Readers' responsibility"
+        )
+        rendered = response.content.decode("utf-8")
+        self.assertNotIn("Content unavailable in English", rendered)
+
+    def test_english_content_column_uses_code_for_a_chinese_managed_label(self):
+        item = NavigationItem.objects.get(
+            group__navigation_set__journal=self.journal,
+            code="research-articles",
+        )
+        item.label = "超长中文栏目名称：人工智能作者协作与责任研究"
+        item.save(update_fields=["label"])
+
+        with translation.override("en"):
+            context = get_content_column_context(
+                column_slug="research-articles",
+                journal_slug=self.journal.slug,
+            )
+
+        self.assertEqual(context["navigation_item_label"], "Research articles")
+        self.assertEqual(context["page_title"], "Research articles")
 
     def test_editorial_page_uses_wagtail_content_and_publishes_fixed_html(self):
         careers = StandardPage.objects.get(slug="careers")
@@ -175,7 +272,9 @@ class StaticFrontendTests(TestCase):
 
         with TemporaryDirectory() as output_root:
             publisher = StaticPublisher(output_root)
-            job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+            job = StaticPublishJob.objects.create(
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+            )
             publisher.build(job)
             page_html = Path(
                 output_root,
@@ -230,12 +329,16 @@ class StaticFrontendTests(TestCase):
                 )
                 self.article_a.featured_image = hero_image
                 self.article_a.featured_image_alt = "Hero article cover alt"
+                self.article_a.save(user=self.admin)
                 self.article_a.save_revision().publish()
-                ArticlePage.objects.filter(pk=self.article_c.pk).update(
-                    featured_image=story_article_image,
-                    featured_image_alt="Story article cover alt",
-                    abstract="",
-                )
+                formally_approve_test_article(self.article_a, actor=self.admin)
+                self.article_a.refresh_from_db()
+                self.article_c.featured_image = story_article_image
+                self.article_c.featured_image_alt = "Story article cover alt"
+                self.article_c.abstract = "Story article summary"
+                self.article_c.save(clean=False, user=self.admin)
+                self.article_c.save_revision().publish()
+                formally_approve_test_article(self.article_c, actor=self.admin)
                 self.article_c.refresh_from_db()
 
                 hero = self.place(
@@ -298,7 +401,7 @@ class StaticFrontendTests(TestCase):
                     visual_section.select_one(".c-section-heading h2").get_text(
                         strip=True
                     ),
-                    "Research Highlights",
+                    "研究亮点",
                 )
                 visual_cards = visual_section.select("article.c-visual-story-card")
                 self.assertEqual(len(visual_cards), 2)
@@ -308,7 +411,7 @@ class StaticFrontendTests(TestCase):
                         "Placement-specific visual story alt",
                         True,
                     ),
-                    (story_article, "Story article cover alt", False),
+                    (story_article, "Story article cover alt", True),
                 )
                 for placement, expected_alt, has_summary in expected_visuals:
                     card = visual_section.select_one(
@@ -340,8 +443,28 @@ class StaticFrontendTests(TestCase):
                 ):
                     self.assertNotIn(legacy_placeholder, rendered)
 
+                for article in (self.article_a, self.article_c):
+                    article.refresh_from_db()
+                    sync_category_placements(
+                        article_id=article.pk,
+                        revision_id=article.approved_version_id,
+                        actor=self.admin,
+                    )
+                self.assertEqual(
+                    validate_category_placement_consistency(
+                        article_ids=(
+                            self.article_a.pk,
+                            self.article_b.pk,
+                            self.article_c.pk,
+                        )
+                    ),
+                    [],
+                )
+
                 publisher = StaticPublisher(output_root)
-                job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+                job = StaticPublishJob.objects.create(
+                    scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+                )
                 publisher.build(job)
                 home_path = Path(output_root, "current", "index.html")
                 article_path = Path(
@@ -386,7 +509,7 @@ class StaticFrontendTests(TestCase):
         hero = soup.select_one('section[data-home-slot="home_hero"] article')
         image = hero.select_one("img")
 
-        self.assertTrue(image["src"].endswith("/static/images/reference/article-1.png"))
+        self.assertEqual(image["src"], static("images/reference/article-1.png"))
         self.assertEqual(image["alt"], placement.article.title)
         self.assertNotIn("journal-cover.png", response.content.decode("utf-8"))
         self.assertNotIn("metrics-chart.png", response.content.decode("utf-8"))
@@ -412,7 +535,9 @@ class StaticFrontendTests(TestCase):
 
         with TemporaryDirectory() as output_root:
             publisher = StaticPublisher(output_root)
-            job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+            job = StaticPublishJob.objects.create(
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+            )
             publisher.build(job)
             home_html = Path(output_root, "current", "index.html").read_text(
                 encoding="utf-8"
@@ -466,6 +591,58 @@ class StaticFrontendTests(TestCase):
         self.assertNotContains(
             response, "No placed articles are currently available for this journal."
         )
+
+    def test_english_journal_page_uses_localized_labels_and_deduplicated_articles(self):
+        self.journal.hero_quick_links = [
+            (
+                "link",
+                {
+                    "label": "当前期号",
+                    "url": "/journals/ai-ethics-forum/current-issue/",
+                    "open_in_new_tab": False,
+                },
+            )
+        ]
+        self.journal.save(update_fields=["hero_quick_links"])
+        self.place(
+            self.article_a,
+            "journal_hero",
+            ArticlePlacement.TargetType.JOURNAL,
+            self.journal.slug,
+        )
+        self.place(
+            self.article_a,
+            "journal_latest",
+            ArticlePlacement.TargetType.JOURNAL,
+            self.journal.slug,
+        )
+        self.place(
+            self.article_b,
+            "journal_latest",
+            ArticlePlacement.TargetType.JOURNAL,
+            self.journal.slug,
+        )
+
+        with translation.override("en"):
+            response = self.client.get(f"/en/journals/{self.journal.slug}/")
+
+        self.assertEqual(response.status_code, 200)
+        rendered = response.content.decode("utf-8")
+        soup = BeautifulSoup(rendered, "html.parser")
+        self.assertEqual(
+            soup.select_one("#journal-home-heading").get_text(strip=True),
+            self.journal.name,
+        )
+        self.assertEqual(len(soup.select(".c-journal-home__featured-story article")), 1)
+        self.assertEqual(len(soup.select(".c-journal-home__article-grid article")), 1)
+        self.assertIn("AI Article", rendered)
+        self.assertIn("Explore AI articles", rendered)
+        self.assertIn("Current issue", rendered)
+        self.assertNotIn("AI 文章", rendered)
+        self.assertNotIn("探索人工智能文章", rendered)
+        self.assertNotIn("当前期号", rendered)
+        self.assertNotIn("Content unavailable in English", rendered)
+        self.assertNotIn("Replaceable journal cover", rendered)
 
     def test_section_page_uses_exact_section_target_and_display_order(self):
         later = self.place(
@@ -738,7 +915,9 @@ class StaticFrontendTests(TestCase):
                     override_image=image,
                 )
                 publisher = StaticPublisher(output_root)
-                job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+                job = StaticPublishJob.objects.create(
+                    scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+                )
                 manifest_record = publisher.build(job)
                 current = Path(output_root, "current")
 
@@ -774,6 +953,10 @@ class StaticFrontendTests(TestCase):
                 article_html = (
                     current / "articles" / acceptance_article.static_slug / "index.html"
                 ).read_text(encoding="utf-8")
+                self.assertIn(
+                    f'data-article-id="{acceptance_article.public_id}"', article_html
+                )
+                self.assertIn(f'data-release="{job.version}"', article_html)
                 self.assertIn('class="c-article-content-list"', article_html)
                 self.assertIn('class="c-article-table"', article_html)
                 self.assertIn('class="c-article-document"', article_html)
@@ -812,7 +995,7 @@ class StaticFrontendTests(TestCase):
         with TemporaryDirectory() as output_root:
             publisher = StaticPublisher(output_root)
             first_job = StaticPublishJob.objects.create(
-                scope=StaticPublishJob.Scope.FULL
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
             )
             publisher.build(first_job)
             page_path = Path(output_root, "current", "sections", "news", "index.html")
@@ -822,14 +1005,16 @@ class StaticFrontendTests(TestCase):
             placement.override_title = "Release two headline"
             placement.save(update_fields=("override_title",))
             second_job = StaticPublishJob.objects.create(
-                scope=StaticPublishJob.Scope.FULL
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
             )
             publisher.build(second_job)
             second_content = page_path.read_text(encoding="utf-8")
             self.assertIn("Release two headline", second_content)
             self.assertNotEqual(first_content, second_content)
 
-            publisher.rollback(first_job.version, reason="rollback regression fixture")
+            publisher.rollback(
+                first_job.version, self.admin, reason="rollback regression fixture"
+            )
 
             restored_content = page_path.read_text(encoding="utf-8")
             restored_manifest = json.loads(

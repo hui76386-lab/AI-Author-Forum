@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from wagtail.models import Page
 
@@ -22,11 +23,35 @@ from ai_author_forum.static_publish.providers import (
     WagtailPageTargetProvider,
 )
 from ai_author_forum.static_publish.services import PublishError, StaticPublisher
+from ai_author_forum.test_helpers import (
+    formally_approve_test_article,
+    grant_business_super_admin,
+)
 
 
-@override_settings(STATIC_CATEGORY_PAGE_SIZE=1, STATIC_PUBLISH_KEEP_RELEASES=5)
+@override_settings(
+    STATIC_CATEGORY_PAGE_SIZE=1,
+    STATIC_PUBLISH_KEEP_RELEASES=5,
+    STATIC_PUBLISH_ENFORCE_CONTENT_READINESS=False,
+)
 class CategoryStaticPublishTests(TestCase):
     def setUp(self):
+        from unittest.mock import patch
+
+        snapshot_patcher = patch.object(
+            StaticPublisher, "_configure_snapshot_transaction", return_value=None
+        )
+        snapshot_patcher.start()
+        self.addCleanup(snapshot_patcher.stop)
+        self.admin = grant_business_super_admin(
+            get_user_model().objects.create_user(
+                username="category-static-admin",
+                email="category-static-admin@example.com",
+                display_name="Category Static Admin",
+                password="test-password",
+                is_staff=True,
+            )
+        )
         self.journal = Journal.objects.create(
             name="Category Static Journal",
             slug="category-static-journal",
@@ -52,7 +77,6 @@ class CategoryStaticPublishTests(TestCase):
             authors="Author",
             keywords="AI",
             primary_journal=self.journal,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         Page.get_first_root_node().add_child(instance=article)
         ArticleCategoryAssignment.objects.create(
@@ -62,10 +86,13 @@ class CategoryStaticPublishTests(TestCase):
         )
         revision = article.save_revision(bypass_article_permission_check=True)
         revision.publish(skip_permission_checks=True)
-        ArticlePage.objects.filter(pk=article.pk).update(
-            review_status=ArticlePage.ReviewStatus.APPROVED
+        formally_approve_test_article(article, actor=self.admin)
+        article.refresh_from_db()
+        sync_category_placements(
+            article_id=article.pk,
+            revision_id=article.approved_version_id,
+            actor=self.admin,
         )
-        sync_category_placements(article_id=article.pk)
         article.refresh_from_db()
         return article
 
@@ -95,6 +122,53 @@ class CategoryStaticPublishTests(TestCase):
         self.assertEqual(redirect_target.action, "redirect")
         self.assertEqual(redirect_target.http_status, 301)
         self.assertEqual(redirect_target.redirect_to, self.category.get_absolute_url())
+
+    def test_scoped_consistency_ignores_unpublished_categories_from_other_journals(
+        self,
+    ):
+        other_journal = Journal.objects.create(
+            name="Unpublished Other Journal",
+            slug="unpublished-other-journal",
+            az_group="U",
+            status="active",
+        )
+        other_category = JournalCategory.objects.create(
+            journal=other_journal,
+            name="Other research",
+            code="OTHER",
+            slug="other",
+            depth=1,
+            path_cache="other",
+            show_in_navigation=True,
+        )
+        target = PublishTarget(
+            self.category.get_absolute_url(),
+            f"journals.JournalCategory:{self.category.pk}:page:1",
+            target_type="category_page",
+            target_id=f"category:{self.category.pk}:page:1",
+            dependencies={
+                "journal_ids": [self.journal.pk],
+                "category_ids": [self.category.pk],
+            },
+        )
+
+        with TemporaryDirectory() as staging:
+            result = validate_category_publication_consistency(
+                version_id="scoped-category-release",
+                targets=[target],
+                staging=staging,
+                journal_ids=[self.journal.pk],
+            )
+            self.assertEqual(result["status"], "valid")
+            with self.assertRaisesMessage(
+                CategoryPublicationConsistencyError,
+                f"Category {other_category.pk} has no generated page-one output",
+            ):
+                validate_category_publication_consistency(
+                    version_id="global-category-release",
+                    targets=[target],
+                    staging=staging,
+                )
 
     def test_fixed_pagination_route_and_navigation_render(self):
         self.create_live_article("Category Article One")
@@ -220,7 +294,9 @@ class CategoryStaticPublishTests(TestCase):
             self.settings(STATIC_PUBLISH_ROOT=output_root),
         ):
             publisher = StaticPublisher(output_root)
-            job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+            job = StaticPublishJob.objects.create(
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
+            )
             manifest = publisher.build(job)
             data = json.loads(
                 Path(output_root, "current", "manifest.json").read_text(
@@ -253,6 +329,21 @@ class CategoryStaticPublishTests(TestCase):
             self.assertIn(
                 "Moved permanently", redirect_html.read_text(encoding="utf-8")
             )
+            redirect_sentinel = Path(
+                output_root,
+                "current",
+                ".nginx-redirects",
+                f"{redirect_item['output_path']}.redirect",
+            )
+            self.assertEqual(
+                redirect_sentinel.read_text(encoding="utf-8").strip(),
+                self.category.get_absolute_url(),
+            )
+            self.assertIn(
+                redirect_sentinel.relative_to(Path(output_root, "current")).as_posix(),
+                {item["path"] for item in data["files"]},
+            )
+            self.assertFalse(redirect_sentinel.name.endswith(".html"))
             self.assertEqual(manifest.metadata["targets"], data["targets"])
 
     def test_selective_publish_can_remove_disabled_category_output(self):
@@ -262,7 +353,7 @@ class CategoryStaticPublishTests(TestCase):
         ):
             publisher = StaticPublisher(output_root)
             first_job = StaticPublishJob.objects.create(
-                scope=StaticPublishJob.Scope.FULL
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
             )
             publisher.build(first_job)
             output = Path(
@@ -278,6 +369,7 @@ class CategoryStaticPublishTests(TestCase):
             delete_job = StaticPublishJob.objects.create(
                 scope=StaticPublishJob.Scope.SELECTIVE,
                 requested_paths=[self.category.get_absolute_url()],
+                triggered_by=self.admin,
             )
             publisher.build(delete_job)
             delete_records = list(delete_job.targets.order_by("target_id"))
@@ -306,7 +398,7 @@ class CategoryStaticPublishTests(TestCase):
         ):
             publisher = StaticPublisher(output_root)
             first_job = StaticPublishJob.objects.create(
-                scope=StaticPublishJob.Scope.FULL
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
             )
             publisher.build(first_job)
             active_version = StaticManifest.objects.get(is_active=True).version
@@ -317,7 +409,7 @@ class CategoryStaticPublishTests(TestCase):
                 placement_sync_error="simulated synchronization failure",
             )
             failed_job = StaticPublishJob.objects.create(
-                scope=StaticPublishJob.Scope.FULL
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
             )
             with self.assertRaisesMessage(PublishError, "CATEGORY_PUBLICATION_DRIFT"):
                 publisher.build(failed_job)
@@ -340,7 +432,7 @@ class CategoryStaticPublishTests(TestCase):
         ):
             publisher = StaticPublisher(output_root)
             first_job = StaticPublishJob.objects.create(
-                scope=StaticPublishJob.Scope.FULL
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
             )
             publisher.build(first_job)
             old_page = Path(
@@ -362,7 +454,7 @@ class CategoryStaticPublishTests(TestCase):
                 new_path=self.category.get_absolute_url(),
             )
             second_job = StaticPublishJob.objects.create(
-                scope=StaticPublishJob.Scope.FULL
+                scope=StaticPublishJob.Scope.FULL, triggered_by=self.admin
             )
             publisher.build(second_job)
             redirect_path = Path(
@@ -376,7 +468,9 @@ class CategoryStaticPublishTests(TestCase):
                 "Moved permanently", redirect_path.read_text(encoding="utf-8")
             )
 
-            publisher.rollback(first_job.version, reason="rollback regression fixture")
+            publisher.rollback(
+                first_job.version, self.admin, reason="rollback regression fixture"
+            )
             self.assertTrue(old_page.is_file())
             self.assertTrue(old_page_two.is_file())
             self.assertNotIn("Moved permanently", old_page.read_text(encoding="utf-8"))

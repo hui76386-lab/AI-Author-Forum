@@ -1,15 +1,24 @@
 from datetime import date
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import PermissionDenied
 from django.test import Client, RequestFactory, TestCase
 from django.urls import reverse
 from wagtail.models import Page, Site
 
-from ai_author_forum.articles.models import ArticlePage
+from ai_author_forum.articles.models import ArticleCategoryAssignment, ArticlePage
+from ai_author_forum.articles.review_services import (
+    final_review_article,
+    initial_review_article,
+    submit_article_for_initial_review,
+)
+from ai_author_forum.journals.editor_services import sync_editor_access_group
 from ai_author_forum.journals.models import (
     Journal,
+    JournalCategory,
+    JournalEditorAssignment,
     PublicationIssue,
     PublicationIssueScope,
     PublicationIssueStatus,
@@ -66,10 +75,66 @@ class PublicNavigationReadinessTests(TestCase):
             keywords="navigation",
             article_type=ArticlePage.ArticleType.NEWS,
             primary_journal=self.journal,
-            review_status=ArticlePage.ReviewStatus.APPROVED,
         )
         Page.get_first_root_node().add_child(instance=article)
-        article.save_revision().publish()
+        category = JournalCategory.objects.filter(journal=self.journal).first()
+        if category is None:
+            category = JournalCategory.objects.create(
+                journal=self.journal,
+                name="Readiness",
+                code="readiness",
+                slug="readiness",
+            )
+        ArticleCategoryAssignment.objects.create(
+            article=article,
+            category=category,
+            is_primary=True,
+        )
+        revision = article.save_revision(bypass_article_permission_check=True)
+        revision.publish()
+        chief = get_user_model().objects.create_user(
+            username=f"readiness-chief-{article.pk}",
+            email=f"readiness-chief-{article.pk}@example.com",
+            display_name="Navigation readiness chief editor",
+            password="test-password",
+            is_staff=True,
+        )
+        JournalEditorAssignment.objects.create(
+            user=chief,
+            journal=self.journal,
+            role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            responsibilities=list(JournalEditorAssignment.ALL_RESPONSIBILITIES),
+            public_name=chief.display_name,
+            public_role_label="主编辑",
+            created_by=chief,
+        )
+        sync_editor_access_group(chief)
+        submit_article_for_initial_review(
+            actor=chief,
+            article=article,
+            expected_state=ArticlePage.ReviewStatus.DRAFT,
+            expected_revision_id=revision.pk,
+            request_id=uuid4(),
+        )
+        initial_review_article(
+            actor=chief,
+            article=article,
+            action="approve",
+            comment="",
+            expected_state=ArticlePage.ReviewStatus.SUBMITTED,
+            expected_revision_id=revision.pk,
+            request_id=uuid4(),
+        )
+        final_review_article(
+            actor=chief,
+            article=article,
+            action="approve",
+            comment="",
+            expected_state=ArticlePage.ReviewStatus.PENDING_FINAL,
+            expected_revision_id=revision.pk,
+            request_id=uuid4(),
+        )
+        article.refresh_from_db()
         return article
 
     def test_issue_links_are_hidden_until_published_content_exists(self):
@@ -160,6 +225,8 @@ class ContentReadinessAdminPermissionTests(TestCase):
             email="readiness-superuser@example.com",
             password="test-password",
         )
+        group, _ = Group.objects.get_or_create(name="超级管理员")
+        user.groups.add(group)
         client = Client()
         client.force_login(user)
 

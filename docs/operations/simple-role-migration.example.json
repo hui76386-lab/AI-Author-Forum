@@ -1,0 +1,32 @@
+{
+  "super_admins": [
+    "confirmed-admin@example.com"
+  ],
+  "assignments": [
+    {
+      "user": "chief-editor@example.com",
+      "journal": "journal-slug",
+      "role": "chief_editor",
+      "responsibilities": [],
+      "public_name": "实名主编",
+      "public_affiliation": "机构名称",
+      "public_role_label": "主编",
+      "display_order": 10,
+      "show_publicly": true
+    },
+    {
+      "user": "associate-editor@example.com",
+      "journal": "journal-slug",
+      "role": "associate_editor",
+      "responsibilities": [
+        "article_maintenance"
+      ],
+      "public_name": "实名副编辑",
+      "public_affiliation": "机构名称",
+      "public_role_label": "副编辑",
+      "display_order": 20,
+      "show_publicly": true
+    }
+  ],
+  "deactivate_users": []
+}

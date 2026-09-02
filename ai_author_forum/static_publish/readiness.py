@@ -12,6 +12,9 @@ from ai_author_forum.articles.display import resolve_article_image
 from ai_author_forum.articles.integrations import get_site_settings
 from ai_author_forum.articles.models import ArticlePage
 from ai_author_forum.journals.models import (
+    Journal,
+    JournalEditorAssignment,
+    JournalStatus,
     PublicationIssue,
     PublicationIssueScope,
     PublicationIssueStatus,
@@ -102,6 +105,31 @@ def _finding(code, message, *, target=None, path=""):
     )
 
 
+def _check_active_journal_chiefs(result, *, at, journal_ids=None):
+    journals = Journal.objects.filter(status=JournalStatus.ACTIVE)
+    if journal_ids is not None:
+        journals = journals.filter(pk__in=journal_ids)
+    for journal in journals.order_by("pk"):
+        chief_count = (
+            JournalEditorAssignment.objects.effective(at=at)
+            .filter(
+                journal=journal,
+                role=JournalEditorAssignment.Role.CHIEF_EDITOR,
+            )
+            .count()
+        )
+        if chief_count != 1:
+            result.block(
+                "active_journal_chief_invalid",
+                (
+                    f"Active journal '{journal}' requires exactly one effective "
+                    f"chief editor; found {chief_count}."
+                ),
+                target=journal,
+                path=f"/journals/{journal.slug}/",
+            )
+
+
 def _normalise_public_path(value):
     path = urlsplit(value or "").path
     if not path:
@@ -133,7 +161,7 @@ def requires_homepage_readiness(targets):
 
 def _homepage_placements(at):
     return list(
-        ArticlePlacement.objects.available(at=at)
+        ArticlePlacement.objects.available_for_static_release(at=at)
         .filter(
             target_type=ArticlePlacement.TargetType.MAIN_SITE,
             target_slug="",
@@ -363,6 +391,8 @@ def _check_navigation_target(result, item, *, static_paths=None):
         if not PublicationIssue.objects.filter(
             **_published_issue_filter(item, current=True)
         ).exists():
+            if item.group.navigation_set.journal_id:
+                return
             result.block(
                 "current_issue_missing",
                 f"Navigation item '{item.label}' has no published current issue.",
@@ -373,6 +403,8 @@ def _check_navigation_target(result, item, *, static_paths=None):
         if not PublicationIssue.objects.filter(
             **_published_issue_filter(item)
         ).exists():
+            if item.group.navigation_set.journal_id:
+                return
             result.block(
                 "issue_archive_empty",
                 f"Navigation item '{item.label}' has no published issue.",
@@ -432,13 +464,17 @@ def _check_column(result, item, at, *, article_static_paths=None):
         if placement.article.review_status in PUBLIC_REVIEW_STATUSES
         and placement.article.primary_journal.status == "active"
     }
-    minimum = max(1, int(config.minimum_publish_items or 1))
-    if len(publishable_article_ids) < minimum:
+    nav_set = item.group.navigation_set
+    minimum = (
+        0
+        if nav_set.journal_id
+        else max(1, int(config.minimum_publish_items or 1))
+    )
+    if minimum and len(publishable_article_ids) < minimum:
         message = (
             f"Content column '{item.label}' has {len(publishable_article_ids)} "
             f"publishable article(s); minimum is {minimum}."
         )
-        nav_set = item.group.navigation_set
         is_core = (not nav_set.journal_id) and item.managed_code in CORE_COLUMN_CODES
         if is_core or config.empty_behavior == ColumnEmptyBehavior.BLOCK_PUBLISH:
             result.block("column_minimum_not_met", message, target=config, path=path)
@@ -516,10 +552,20 @@ def _check_column(result, item, at, *, article_static_paths=None):
         )
 
 
-def _check_issues(result, *, article_static_paths=None, issue_static_paths=None):
-    issues = PublicationIssue.objects.filter(
-        status=PublicationIssueStatus.PUBLISHED
-    ).select_related("journal", "cover_image")
+def _check_issues(
+    result,
+    *,
+    article_static_paths=None,
+    issue_static_paths=None,
+    journal_ids=None,
+):
+    issues = PublicationIssue.objects.filter(status=PublicationIssueStatus.PUBLISHED)
+    if journal_ids is not None:
+        issues = issues.filter(
+            scope=PublicationIssueScope.JOURNAL,
+            journal_id__in=journal_ids,
+        )
+    issues = issues.select_related("journal", "cover_image")
     for issue in issues:
         result.checked_issues += 1
         path = _normalise_public_path(issue.scope_path)
@@ -639,7 +685,7 @@ def _check_static_targets(result, targets, at):
 
     if dependency_placement_ids:
         available_ids = set(
-            ArticlePlacement.objects.available(at=at)
+            ArticlePlacement.objects.available_for_static_release(at=at)
             .filter(pk__in=dependency_placement_ids)
             .values_list("pk", flat=True)
         )
@@ -652,7 +698,7 @@ def _check_static_targets(result, targets, at):
     return static_paths, article_static_paths, issue_static_paths
 
 
-def check_content_readiness(*, targets=None, at=None):
+def check_content_readiness(*, targets=None, at=None, journal_ids=None):
     at = at or timezone.now()
     target_list = list(targets) if targets is not None else None
     result = ContentReadinessResult()
@@ -663,21 +709,30 @@ def check_content_readiness(*, targets=None, at=None):
         )
     if target_list is None or requires_homepage_readiness(target_list):
         _check_homepage(result, at=at)
+    _check_active_journal_chiefs(result, at=at, journal_ids=journal_ids)
 
+    navigation_items = NavigationItem.objects.select_related(
+        "group__navigation_set__journal",
+        "page",
+        "content_column_config__cover_image",
+        "content_column_config__category",
+    ).filter(
+        group__navigation_set__status=NavigationSetStatus.ACTIVE,
+        group__navigation_set__is_template=False,
+        group__status=NavigationEntryStatus.ACTIVE,
+        group__is_visible=True,
+        is_active=True,
+        is_visible=True,
+        status=NavigationEntryStatus.ACTIVE,
+    )
+    if journal_ids is not None:
+        navigation_items = navigation_items.filter(
+            group__navigation_set__journal_id__in=journal_ids
+        )
     items = list(
-        NavigationItem.objects.select_related(
-            "group__navigation_set__journal",
-            "page",
-            "content_column_config__cover_image",
-            "content_column_config__category",
+        navigation_items.order_by(
+            "group__navigation_set_id", "group__sort_order", "sort_order", "pk"
         )
-        .filter(
-            group__navigation_set__status=NavigationSetStatus.ACTIVE,
-            group__navigation_set__is_template=False,
-            is_active=True,
-        )
-        .exclude(status=NavigationEntryStatus.ARCHIVED)
-        .order_by("group__navigation_set_id", "group__sort_order", "sort_order", "pk")
     )
     result.configured = bool(items)
     result.checked_navigation_items = len(items)
@@ -702,5 +757,6 @@ def check_content_readiness(*, targets=None, at=None):
         result,
         article_static_paths=article_static_paths,
         issue_static_paths=issue_static_paths,
+        journal_ids=journal_ids,
     )
     return result

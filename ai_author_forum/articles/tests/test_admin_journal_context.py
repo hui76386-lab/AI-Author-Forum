@@ -4,16 +4,16 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group, Permission
 from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 from wagtail.models import Page
 
 from ai_author_forum.articles.models import ArticlePage
-from ai_author_forum.journals.models import Journal
-from ai_author_forum.site_settings.management.commands.seed_roles import (
-    ROLE_DEFINITIONS,
+from ai_author_forum.journals.editor_services import appoint_journal_editor
+from ai_author_forum.journals.models import Journal, JournalEditorAssignment
+from ai_author_forum.test_helpers import (
+    grant_business_super_admin,
 )
 
 
@@ -25,30 +25,24 @@ class ArticleJournalContextAdminTests(TestCase):
         cls.root_page = Page.get_first_root_node()
         cls.content_user = cls.user_model.objects.create_user(
             username="article-journal-content",
+            email="article-journal-content@example.com",
+            display_name="Article Journal Content",
             password="test-password",
             is_staff=True,
-        )
-        cls.content_user.groups.add(
-            Group.objects.get(name=ROLE_DEFINITIONS["content_manager"]["display_name"])
         )
         cls.readonly_article_user = cls.user_model.objects.create_user(
             username="article-journal-no-placement",
+            email="article-journal-no-placement@example.com",
+            display_name="Article Journal Readonly",
             password="test-password",
             is_staff=True,
         )
-        cls.readonly_article_user.user_permissions.add(
-            Permission.objects.get(
-                content_type__app_label="wagtailadmin",
-                codename="access_admin",
-            ),
-            Permission.objects.get(
-                content_type__app_label="site_settings",
-                codename="access_articles",
-            ),
-            Permission.objects.get(
-                content_type__app_label="articles",
-                codename="view_articlepage",
-            ),
+        cls.role_admin = grant_business_super_admin(
+            cls.user_model.objects.create_superuser(
+                username="article-journal-role-admin",
+                email="article-journal-role-admin@example.com",
+                password="test-password",
+            )
         )
         cls.primary_journal = Journal.objects.create(
             name="AI Methods",
@@ -63,6 +57,24 @@ class ArticleJournalContextAdminTests(TestCase):
             slug="digital-scholarship",
             az_group="D",
             sort_order=20,
+        )
+        appoint_journal_editor(
+            actor=cls.role_admin,
+            user=cls.content_user,
+            journal=cls.primary_journal,
+            role=JournalEditorAssignment.Role.ASSOCIATE_EDITOR,
+            responsibilities=[
+                JournalEditorAssignment.Responsibility.ARTICLE_MAINTENANCE
+            ],
+            public_profile={"public_name": cls.content_user.display_name},
+        )
+        appoint_journal_editor(
+            actor=cls.role_admin,
+            user=cls.readonly_article_user,
+            journal=cls.primary_journal,
+            role=JournalEditorAssignment.Role.ASSOCIATE_EDITOR,
+            responsibilities=[JournalEditorAssignment.Responsibility.JOURNAL_PROFILE],
+            public_profile={"public_name": cls.readonly_article_user.display_name},
         )
         cls.primary_article = cls.create_article(
             "Primary journal article",

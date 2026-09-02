@@ -10,6 +10,7 @@ from pathlib import Path
 from time import perf_counter
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
@@ -34,6 +35,7 @@ from ai_author_forum.journals.models import (
     JournalStatus,
     StaticArticle,
 )
+from ai_author_forum.users.services import SUPER_ADMIN_GROUP_NAME
 
 FIELDS = (
     "journal_slug",
@@ -43,6 +45,11 @@ FIELDS = (
     "authors",
     "body_html",
 )
+
+
+def _grant_ephemeral_benchmark_role(user):
+    group, _created = Group.objects.get_or_create(name=SUPER_ADMIN_GROUP_NAME)
+    user.groups.add(group)
 
 
 class QueryCounter:
@@ -212,6 +219,7 @@ class Command(BaseCommand):
                         email=f"article-document-capacity-{run_id}@example.invalid",
                         password=None,
                     )
+                    _grant_ephemeral_benchmark_role(user)
                     journal = Journal.objects.create(
                         name=f"Article document capacity {run_id}",
                         slug=f"article-document-capacity-{run_id}",
@@ -253,6 +261,7 @@ class Command(BaseCommand):
             email=f"article-capacity-{run_id}@example.invalid",
             password=None,
         )
+        _grant_ephemeral_benchmark_role(user)
         journals = [
             Journal.objects.create(
                 name=f"Article capacity journal {run_id}-{index + 1}",

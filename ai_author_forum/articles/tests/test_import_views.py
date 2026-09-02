@@ -17,6 +17,7 @@ from ai_author_forum.journals.models import (
     Journal,
     JournalStatus,
 )
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 
 class ArticleImportViewTests(TestCase):
@@ -33,8 +34,13 @@ class ArticleImportViewTests(TestCase):
         self.admin = get_user_model().objects.create_superuser(
             username="import-view-admin", email="view@example.com", password="test"
         )
+        grant_business_super_admin(self.admin)
         self.staff = get_user_model().objects.create_user(
-            username="no-import", password="test", is_staff=True
+            username="no-import",
+            email="no-import@example.com",
+            display_name="No Import",
+            password="test",
+            is_staff=True,
         )
         self.staff.user_permissions.add(
             Permission.objects.get(codename="access_admin"),

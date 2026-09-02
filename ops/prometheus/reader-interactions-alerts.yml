@@ -1,0 +1,75 @@
+groups:
+  - name: reader-interactions
+    rules:
+      - alert: ReaderApiErrorBudgetBurn
+        expr: sum(rate(reader_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(reader_http_requests_total[5m])), 1) > 0.01
+        for: 10m
+        labels: {severity: page, owner: reader-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#reader-api
+      - alert: ReaderDependencyUnavailable
+        expr: reader_dependency_up == 0
+        for: 2m
+        labels: {severity: page, owner: reader-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#依赖故障
+      - alert: ReaderStaticOrigin5xx
+        expr: sum(rate(nginx_http_requests_total{service="static-frontend",status=~"5.."}[5m])) > 0.1
+        for: 5m
+        labels: {severity: page, owner: publishing-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#静态与-protected-成对回滚
+      - alert: ReaderDatabaseConnectionExhaustion
+        expr: reader_database_connections{database="interactions"} / clamp_min(reader_database_connection_limit{database="interactions"}, 1) > 0.8
+        for: 5m
+        labels: {severity: page, owner: reader-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#互动数据库
+      - alert: ReaderQueueBacklog
+        expr: reader_queue_oldest_age_seconds > 300 or reader_queue_depth > 1000
+        for: 5m
+        labels: {severity: ticket, owner: reader-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#队列积压
+      - alert: ReaderModerationBacklog
+        expr: reader_moderation_backlog > 100
+        for: 15m
+        labels: {severity: ticket, owner: editorial-operations}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#审核积压
+      - alert: ReaderCommentSnapshotLag
+        expr: reader_comment_snapshot_lag_seconds > 30
+        for: 10m
+        labels: {severity: ticket, owner: reader-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#评论快照
+      - alert: ReaderPdfBuildFailures
+        expr: reader_pdf_artifacts{status="failed"} > 0
+        labels: {severity: page, owner: publishing-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#pdf-与对象存储
+      - alert: ReaderManifestProjectionMismatch
+        expr: reader_manifest_projection_match == 0
+        for: 2m
+        labels: {severity: page, owner: reader-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#评论快照
+      # The following provider/exporter metrics are required inputs at RI-10;
+      # labels remain aggregate and must never contain email, reader or object keys.
+      - alert: ReaderEmailBounceOrComplaintSpike
+        expr: sum(increase(reader_email_delivery_total{result=~"bounced|complaint"}[15m])) > 5
+        labels: {severity: page, owner: reader-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#邮件
+      - alert: ReaderObjectStorageAuthorizationFailures
+        expr: sum(rate(reader_object_storage_operations_total{result="authorization_failed"}[5m])) > 0.05
+        for: 5m
+        labels: {severity: page, owner: publishing-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#pdf-与对象存储
+      - alert: ReaderCostBudgetAnomaly
+        expr: sum(increase(reader_cost_usd_total[1h])) > reader_cost_hourly_budget_usd
+        for: 15m
+        labels: {severity: ticket, owner: reader-platform}
+        annotations:
+          runbook: docs/operations/reader-interactions-ri09-runbook.zh-CN.md#生产审批参数

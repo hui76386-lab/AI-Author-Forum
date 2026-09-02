@@ -40,6 +40,7 @@ EXPECTED_PAGES = (
     "explore-content/opinion/index.html",
     "explore-content/research-analysis/index.html",
     "articles/static-acceptance-article/index.html",
+    "articles/global-session-acceptance-article/index.html",
     "search/index.html",
 )
 
@@ -71,6 +72,7 @@ def configure_django() -> None:
     os.environ["DATABASE_URL"] = f"sqlite:///{DATABASE_PATH.as_posix()}"
     os.environ["MEDIA_ROOT"] = str(MEDIA_ROOT)
     os.environ["STATIC_PUBLISH_ROOT"] = str(OUTPUT_ROOT)
+    os.environ["STATIC_PUBLISH_AUTO_ON_PLACEMENT_CHANGE"] = "false"
 
 
 def create_image():
@@ -92,6 +94,7 @@ def create_image():
 
 
 def seed_content():
+    from django.contrib.auth import get_user_model
     from wagtail.models import Page
 
     from ai_author_forum.articles.models import ArticlePage
@@ -107,12 +110,18 @@ def seed_content():
         PublicationIssueScope,
         PublicationIssueStatus,
     )
+    from ai_author_forum.placements.category_services import sync_category_placements
     from ai_author_forum.placements.models import ArticlePlacement, LayoutSlot
     from ai_author_forum.site_settings.models import (
         NavigationGroup,
         NavigationItem,
         NavigationSet,
         NavigationSetStatus,
+    )
+    from ai_author_forum.test_helpers import (
+        ensure_test_primary_category,
+        formally_approve_test_article,
+        grant_business_super_admin,
     )
 
     home = HomePage.objects.first()
@@ -124,6 +133,15 @@ def seed_content():
     home.save(clean=False)
 
     image = create_image()
+    review_actor = grant_business_super_admin(
+        get_user_model().objects.create_user(
+            username="static-e2e-review-actor",
+            email="static-e2e-review-actor@example.com",
+            display_name="Static E2E Review Actor",
+            password="static-e2e-review-password",
+            is_staff=True,
+        )
+    )
     journal = Journal.objects.create(
         name="Acceptance Journal",
         name_cn="验收期刊",
@@ -188,6 +206,7 @@ def seed_content():
 
     category = create_category(
         journal=journal,
+        actor=review_actor,
         data={
             "name": "Machine Intelligence",
             "code": "MACHINE-INTELLIGENCE",
@@ -199,12 +218,14 @@ def seed_content():
     update_category(
         category_id=category.pk,
         changes={"slug": "machine-intelligence"},
+        actor=review_actor,
         request_id="static-e2e-category-redirect",
     )
     category.refresh_from_db()
     child_category = create_category(
         journal=journal,
         parent=category,
+        actor=review_actor,
         data={
             "name": "Neural Networks",
             "code": "NEURAL-NETWORKS",
@@ -233,11 +254,44 @@ def seed_content():
         article_type=ArticlePage.ArticleType.NEWS,
         primary_journal=journal,
         keywords="static publishing, acceptance",
-        review_status=ArticlePage.ReviewStatus.APPROVED,
     )
     root = Page.get_first_root_node()
     root.add_child(instance=article)
+    ensure_test_primary_category(article)
+    # Establish the deterministic Wagtail publication timestamp while the page
+    # is still a draft; formal approval and static delivery happen afterwards.
     article.save_revision().publish()
+    article.refresh_from_db()
+    article = formally_approve_test_article(article, actor=review_actor)
+    sync_category_placements(
+        article_id=article.pk,
+        revision_id=article.approved_version_id,
+        actor=review_actor,
+        request_id="static-e2e-category-placement-sync",
+    )
+
+    second_article = ArticlePage(
+        title="Global session acceptance article",
+        slug="global-session-acceptance-article-page",
+        static_slug="global-session-acceptance-article",
+        abstract="A second formally placed article for global reader-session acceptance.",
+        body=[("paragraph", "<p>Global reader-session acceptance body.</p>")],
+        authors="Acceptance editorial team",
+        article_type=ArticlePage.ArticleType.NEWS,
+        primary_journal=journal,
+        keywords="reader session, acceptance",
+    )
+    root.add_child(instance=second_article)
+    ensure_test_primary_category(second_article)
+    second_article.save_revision().publish()
+    second_article.refresh_from_db()
+    second_article = formally_approve_test_article(second_article, actor=review_actor)
+    sync_category_placements(
+        article_id=second_article.pk,
+        revision_id=second_article.approved_version_id,
+        actor=review_actor,
+        request_id="static-e2e-global-session-placement-sync",
+    )
 
     issue = PublicationIssue.objects.create(
         scope=PublicationIssueScope.JOURNAL,
@@ -308,30 +362,45 @@ def seed_content():
     fixture = {
         "journal": journal,
         "empty_journal": empty_journal,
+        "second_article_path": f"/articles/{second_article.static_slug}/",
         "navigation_set": navigation_set,
         "research_item": research_item,
         "empty_column_item": empty_column_item,
         "long_group_label": long_group.label,
         "long_item_label": research_item.label,
     }
-    return placements, category, child_category, fixture
+    return placements, category, child_category, fixture, review_actor
 
 
-def build_and_rollback(section_placement, category, child_category, fixture):
+def build_and_rollback(
+    section_placement,
+    category,
+    child_category,
+    fixture,
+    actor,
+):
     from ai_author_forum.static_publish.models import StaticPublishJob
     from ai_author_forum.static_publish.services import StaticPublisher
 
     publisher = StaticPublisher(OUTPUT_ROOT)
-    first_job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+    first_job = StaticPublishJob.objects.create(
+        scope=StaticPublishJob.Scope.FULL,
+        triggered_by=actor,
+    )
     first_manifest = publisher.build(first_job)
 
     section_placement.override_title = "E2E second release headline"
     section_placement.save(update_fields=("override_title",))
-    second_job = StaticPublishJob.objects.create(scope=StaticPublishJob.Scope.FULL)
+    second_job = StaticPublishJob.objects.create(
+        scope=StaticPublishJob.Scope.FULL,
+        triggered_by=actor,
+    )
     publisher.build(second_job)
 
     rollback_job = publisher.rollback(
-        first_job.version, reason="静态验收回滚到首个发布版本"
+        first_job.version,
+        user=actor,
+        reason="静态验收回滚到首个发布版本",
     )
     current = OUTPUT_ROOT / "current"
     manifest = json.loads((current / "manifest.json").read_text(encoding="utf-8"))
@@ -376,13 +445,14 @@ def build_and_rollback(section_placement, category, child_category, fixture):
         "issue_archive_path": "/journals/acceptance-journal/issues/",
         "issue_detail_path": "/journals/acceptance-journal/issues/volume-1-issue-1/",
         "empty_journal_path": f"/journals/{fixture['empty_journal'].slug}/",
+        "second_article_path": fixture["second_article_path"],
         "long_group_label": fixture["long_group_label"],
         "long_item_label": fixture["long_item_label"],
         "main_navigation_group_lengths": [8, 1, 12, 2, 2],
         "redirect_path": "/journals/acceptance-journal/categories/legacy-topic/",
         "redirect_to": category.get_absolute_url(),
         "database_disconnected": True,
-        "offline_database_path": str(OFFLINE_DATABASE_PATH),
+        "offline_database_path": OFFLINE_DATABASE_PATH.relative_to(BASE_DIR).as_posix(),
     }
     ACCEPTANCE_PATH.write_text(
         json.dumps(acceptance, ensure_ascii=False, indent=2) + "\n",
@@ -403,9 +473,13 @@ def main() -> None:
     from django.core.management import call_command
 
     call_command("migrate", interactive=False, verbosity=0)
-    placements, category, child_category, fixture = seed_content()
+    placements, category, child_category, fixture, review_actor = seed_content()
     acceptance = build_and_rollback(
-        placements["section"], category, child_category, fixture
+        placements["section"],
+        category,
+        child_category,
+        fixture,
+        review_actor,
     )
 
     from django.db import connections

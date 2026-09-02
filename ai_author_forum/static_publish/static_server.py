@@ -9,6 +9,11 @@ from urllib.parse import unquote
 from wsgiref.simple_server import make_server
 
 DEFAULT_ROOT = Path(os.environ.get("STATIC_PUBLISH_ROOT", "published"))
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
+    "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+)
 
 
 class StaticReleaseApplication:
@@ -47,6 +52,15 @@ class StaticReleaseApplication:
                 payload,
                 method=method,
                 content_type="application/json; charset=utf-8",
+            )
+        if request_path == "/.nginx-direct-ready" or request_path.startswith(
+            "/.nginx-redirects/"
+        ):
+            return self._respond(
+                start_response,
+                "404 Not Found",
+                b"Not Found\n",
+                method=method,
             )
 
         relative = self._safe_request_path(request_path)
@@ -166,6 +180,8 @@ class StaticReleaseApplication:
         response_headers = [
             ("Content-Type", content_type),
             ("Content-Length", str(len(content))),
+            ("Content-Security-Policy", CONTENT_SECURITY_POLICY),
+            ("X-Content-Type-Options", "nosniff"),
         ]
         response_headers.extend(headers or ())
         start_response(status, response_headers)

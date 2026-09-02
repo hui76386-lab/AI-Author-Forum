@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 
 from ai_author_forum.journals.models import JournalCategory, JournalCategoryStatus
+from ai_author_forum.test_helpers import grant_business_super_admin
 
 from ..admin_services import prepare_article_admin_row
 from ..bulk_services import execute_bulk_article_action
@@ -59,6 +60,7 @@ class ArticleSubmissionCategoryFlowTests(ArticlePageWorkflowTests):
             email="category-options-superuser@example.com",
             password="test-password",
         )
+        grant_business_super_admin(superuser)
         self.client.force_login(superuser)
 
         response = self.client.get(
@@ -142,3 +144,28 @@ class ArticleSubmissionCategoryFlowTests(ArticlePageWorkflowTests):
         self.assertIn('[name$="primary_journal"]', script)
         self.assertIn("No selectable category is configured for this journal", script)
         self.assertIn("hasNewCategorySelect", script)
+
+    def test_article_row_submit_script_does_not_cancel_inline_review_submission(self):
+        from pathlib import Path
+
+        template = Path("templates/wagtailadmin/articles/list.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'if (event.submitter && !event.submitter.hasAttribute("data-bulk-submit")) return;',
+            template,
+        )
+
+    def test_placement_shortcut_is_hidden_for_inactive_primary_journal(self):
+        inactive_journal = self.create_journal("Inactive journal", "inactive-journal")
+        inactive_journal.status = "inactive"
+        inactive_journal.save(update_fields=("status",))
+        article = self.create_article("Inactive journal article")
+        ArticlePage.objects.filter(pk=article.pk).update(
+            primary_journal=inactive_journal.pk
+        )
+        article.refresh_from_db()
+
+        prepare_article_admin_row(article, user=self.editor)
+
+        self.assertEqual(article.admin_urls["place"], "")

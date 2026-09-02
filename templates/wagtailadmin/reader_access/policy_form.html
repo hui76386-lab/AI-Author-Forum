@@ -1,0 +1,14 @@
+{% extends "wagtailadmin/base.html" %}
+{% load wagtailadmin_tags %}
+{% block titletag %}{{ title }}{% endblock %}
+{% block content %}
+{% include "wagtailadmin/shared/header.html" with title=title icon="cog" only %}
+<div class="nice-padding" style="max-width: 760px;">
+  <form method="post">{% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for field in form %}<div class="field {% if field.errors %}error{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}{% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}</div>{% endfor %}
+    <button class="button button-primary" type="submit">保存政策</button>
+    <a class="button" href="{% url 'reader_access_policy_index' %}">取消</a>
+  </form>
+</div>
+{% endblock %}
